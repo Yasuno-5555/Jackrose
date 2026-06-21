@@ -1,0 +1,9 @@
+/target
+/result
+
+.idea
+
+/packages/arch/*/pkg/
+/packages/arch/*/src/
+/packages/arch/*/*.pkg.tar.xz
+/packages/arch/niri-cidre/niri-cidre/
