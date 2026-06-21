@@ -1,0 +1,123 @@
+#!/bin/bash
+# cidre-user-setup: Deploy default Cidre configs to user's $HOME
+set -euo pipefail
+
+DRY_RUN=false
+FORCE=false
+
+show_help() {
+  echo "Usage: cidre-user-setup [options]"
+  echo "Options:"
+  echo "  --dry-run  Show what would be done without making changes"
+  echo "  --force    Force overwrite of configurations without backing up"
+  echo "  --help     Show this help"
+}
+
+# Parse options
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --force)
+      FORCE=true
+      shift
+      ;;
+    --help)
+      show_help
+      exit 0
+      ;;
+  esac
+done
+
+DEFAULTS_DIR="/usr/share/cidre/defaults"
+# If local repo run, look for config/ relatively
+if [ ! -d "$DEFAULTS_DIR" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  DEFAULTS_DIR="$(dirname "$SCRIPT_DIR")/config"
+fi
+
+if [ ! -d "$DEFAULTS_DIR" ]; then
+  echo "Error: Default configurations directory not found. Please install cidre-config first." >&2
+  exit 1
+fi
+
+TARGET_USER="${USER:-$(id -un)}"
+TARGET_HOME="${HOME:-$(getent passwd "$TARGET_USER" | cut -d: -f6)}"
+
+echo "=== Cidre User Setup ==="
+echo "Target User: $TARGET_USER"
+echo "Target Home: $TARGET_HOME"
+if [ "$DRY_RUN" = true ]; then
+  echo "Running in DRY RUN mode. No changes will be written."
+fi
+
+# Function to deploy config safely
+deploy_file() {
+  local src="$1"
+  local dest="$2"
+
+  if [ ! -f "$src" ] && [ ! -d "$src" ]; then
+    echo "Warning: Source $src does not exist, skipping."
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "[Dry-Run] Would deploy $src to $dest"
+    return
+  fi
+
+  # Backup if exists
+  if [ -e "$dest" ]; then
+    if [ "$FORCE" = false ]; then
+      local timestamp
+      timestamp=$(date +%Y%m%d-%H%M%S)
+      local backup="${dest}.bak.${timestamp}"
+      echo "Backing up $dest to $backup"
+      cp -r "$dest" "$backup"
+    fi
+  else
+    # Ensure parent dir exists
+    mkdir -p "$(dirname "$dest")"
+  fi
+
+  echo "Deploying $dest"
+  cp -r "$src" "$dest"
+}
+
+# Deploy configs
+deploy_file "$DEFAULTS_DIR/niri/config.kdl" "$TARGET_HOME/.config/niri/config.cidre.kdl"
+deploy_file "$DEFAULTS_DIR/niri/config.kdl" "$TARGET_HOME/.config/niri/config.kdl"
+deploy_file "$DEFAULTS_DIR/ghostty/config" "$TARGET_HOME/.config/ghostty/config"
+deploy_file "$DEFAULTS_DIR/fcitx5/profile" "$TARGET_HOME/.config/fcitx5/profile"
+deploy_file "$DEFAULTS_DIR/environment.d/90-cidre-ime.conf" "$TARGET_HOME/.config/environment.d/90-cidre-ime.conf"
+deploy_file "$DEFAULTS_DIR/fish/config.fish" "$TARGET_HOME/.config/fish/config.fish"
+deploy_file "$DEFAULTS_DIR/starship/starship.toml" "$TARGET_HOME/.config/starship/starship.toml"
+deploy_file "$DEFAULTS_DIR/fuzzel/fuzzel.ini" "$TARGET_HOME/.config/fuzzel/fuzzel.ini"
+deploy_file "$DEFAULTS_DIR/waybar/config" "$TARGET_HOME/.config/waybar/config"
+deploy_file "$DEFAULTS_DIR/waybar/style.css" "$TARGET_HOME/.config/waybar/style.css"
+deploy_file "$DEFAULTS_DIR/applications/com.mitchellh.ghostty.desktop" "$TARGET_HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
+
+# Set default applications
+if [ "$DRY_RUN" = false ]; then
+  mkdir -p "$TARGET_HOME/.config"
+  cat <<EOF > "$TARGET_HOME/.config/mimeapps.list"
+[Default Applications]
+text/html=firefox.desktop
+x-scheme-handler/http=firefox.desktop
+x-scheme-handler/https=firefox.desktop
+x-scheme-handler/about=firefox.desktop
+x-scheme-handler/unknown=firefox.desktop
+terminal=com.mitchellh.ghostty.desktop
+EOF
+else
+  echo "[Dry-Run] Would write mimeapps.list to set default applications."
+fi
+
+# Ensure user owns their own files in home directory
+if [ "$DRY_RUN" = false ] && [ "$EUID" -eq 0 ]; then
+  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" "$TARGET_HOME/.local" || true
+fi
+
+echo "=== Setup Completed Successfully ==="

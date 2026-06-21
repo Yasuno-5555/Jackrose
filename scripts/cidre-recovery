@@ -1,0 +1,95 @@
+#!/bin/bash
+# cidre-recovery: Cidre emergency system recovery command
+set -euo pipefail
+
+show_help() {
+  echo "Usage: cidre-recovery <command> [options]"
+  echo "Commands:"
+  echo "  disable-greetd       Disable greetd system service and restore fallback console"
+  echo "  reset-niri-config    Restore default config.kdl to ~/.config/niri/"
+  echo "  reset-user-config    Re-run cidre-user-setup with --force option"
+  echo "  reset-audio          Reset pipewire/wireplumber service state and asahi-audio profile"
+  echo "  collect-logs         Collect system logs for debugging and save to /var/log/cidre-recovery-bundle.tar.gz"
+  echo "  safe-mode            Launch niri compositor in safe-mode with minimal features"
+}
+
+if [ $# -lt 1 ]; then
+  show_help
+  exit 1
+fi
+
+CMD="$1"
+shift
+
+case "$CMD" in
+  disable-greetd)
+    if [ "$EUID" -ne 0 ]; then
+      echo "Error: Please run as root (sudo)." >&2
+      exit 1
+    fi
+    echo "Disabling greetd..."
+    systemctl disable greetd
+    systemctl stop greetd || true
+    echo "greetd disabled. Fallback to TTY is now active."
+    ;;
+  reset-niri-config)
+    echo "Resetting niri config..."
+    if command -v cidre-user-setup >/dev/null 2>&1; then
+      cidre-user-setup --force
+    else
+      mkdir -p "$HOME/.config/niri"
+      if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
+        cp /usr/share/cidre/defaults/niri/config.kdl "$HOME/.config/niri/config.kdl"
+        echo "Niri config reset from system defaults."
+      else
+        echo "Error: System defaults not found." >&2
+        exit 1
+      fi
+    fi
+    ;;
+  reset-user-config)
+    echo "Resetting user config..."
+    if command -v cidre-user-setup >/dev/null 2>&1; then
+      cidre-user-setup --force
+    elif [ -f "./cidre-user-setup" ]; then
+      ./cidre-user-setup --force
+    elif [ -f "/usr/bin/cidre-user-setup" ]; then
+      /usr/bin/cidre-user-setup --force
+    else
+      echo "Error: cidre-user-setup command not found." >&2
+      exit 1
+    fi
+    ;;
+  reset-audio)
+    echo "Resetting user-level audio service configuration..."
+    systemctl --user stop pipewire wireplumber || true
+    systemctl --user reset-failed pipewire wireplumber || true
+    rm -rf "$HOME/.config/pulse" "$HOME/.config/pipewire" || true
+    systemctl --user start pipewire wireplumber
+    echo "Audio stack reset completed."
+    ;;
+  collect-logs)
+    echo "Collecting logs..."
+    mkdir -p /tmp/cidre-logs
+    journalctl -u greetd -n 100 > /tmp/cidre-logs/greetd.log || true
+    journalctl --user -n 100 > /tmp/cidre-logs/user-units.log || true
+    dmesg | tail -n 100 > /tmp/cidre-logs/dmesg.log || true
+    cp /var/log/cidre/*.log /tmp/cidre-logs/ 2>/dev/null || true
+    tar -czf /var/log/cidre-recovery-bundle.tar.gz -C /tmp cidre-logs
+    rm -rf /tmp/cidre-logs
+    echo "Logs collected at /var/log/cidre-recovery-bundle.tar.gz"
+    ;;
+  safe-mode)
+    echo "Starting compositor in safe-mode..."
+    if command -v niri-cidre >/dev/null 2>&1; then
+      niri-cidre --safe-mode
+    else
+      echo "niri-cidre not found." >&2
+      exit 1
+    fi
+    ;;
+  *)
+    show_help
+    exit 1
+    ;;
+esac

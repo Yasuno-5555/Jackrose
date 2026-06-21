@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-wallpapers
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Official premium wallpapers for Cidre desktop environment'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=()
+source=('cidre-wallpaper.png')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm644 "${srcdir}/cidre-wallpaper.png" "${pkgdir}/usr/share/backgrounds/cidre-wallpaper.png"
+}

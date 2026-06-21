@@ -1,0 +1,15 @@
+format = """
+$directory\
+$git_branch\
+$git_status\
+$rust\
+$golang\
+$nodejs\
+$character"""
+
+[directory]
+style = "bold cyan"
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"

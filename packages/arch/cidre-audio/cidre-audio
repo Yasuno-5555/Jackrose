@@ -1,0 +1,129 @@
+#!/bin/bash
+# cidre-audio: Cidre audio profile and diagnostics management tool
+set -euo pipefail
+
+show_help() {
+  echo "Usage: cidre-audio <command> [options]"
+  echo "Commands:"
+  echo "  doctor         Check and attempt to fix common Asahi audio issues"
+  echo "  diagnose       Gather audio state and run tests for debugging"
+  echo "  reset          Reset WirePlumber and PipeWire configuration state"
+  echo "  profile <p>    Switch to stable, balanced, or low-latency audio profiles"
+}
+
+if [ $# -lt 1 ]; then
+  show_help
+  exit 1
+fi
+
+CMD="$1"
+shift
+
+case "$CMD" in
+  doctor)
+    echo "=== Running Cidre Audio Doctor ==="
+    STATUS=0
+    # Check speakersafetyd
+    if systemctl is-active --quiet speakersafetyd; then
+      echo "[OK] speakersafetyd is active."
+    else
+      echo "[WARN] speakersafetyd is not active! Starting..."
+      sudo systemctl start speakersafetyd || STATUS=1
+    fi
+
+    # Check pipewire
+    if systemctl --user is-active --quiet pipewire; then
+      echo "[OK] User pipewire is active."
+    else
+      echo "[WARN] User pipewire is not active. Restarting..."
+      systemctl --user restart pipewire || STATUS=1
+    fi
+
+    if [ $STATUS -eq 0 ]; then
+      echo "Cidre Audio Doctor successfully finished diagnostics and minor fixes."
+    else
+      echo "Cidre Audio Doctor encountered errors trying to fix some components."
+    fi
+    ;;
+  diagnose)
+    echo "=== Running Cidre Audio Diagnosis ==="
+    echo "--- PipeWire version ---"
+    pipewire --version || echo "PipeWire not found"
+    echo "--- WirePlumber status ---"
+    wpctl status || echo "WirePlumber not found"
+    echo "--- Speaker Safety daemon status ---"
+    systemctl status speakersafetyd --no-pager || true
+    ;;
+  reset)
+    echo "Resetting WirePlumber/PipeWire cache..."
+    rm -rf "$HOME/.config/pulse" "$HOME/.config/pipewire" || true
+    systemctl --user restart pipewire wireplumber
+    echo "Reset completed."
+    ;;
+  profile)
+    if [ $# -lt 1 ]; then
+      echo "Please specify a profile: stable, balanced, low-latency"
+      exit 1
+    fi
+    PROF="$1"
+    echo "Switching to audio profile: $PROF"
+    case "$PROF" in
+      stable)
+        echo "Configuring WirePlumber buffer sizes for stable playback..."
+        mkdir -p "$HOME/.config/wireplumber/wireplumber.conf.d"
+        cat <<EOF > "$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-stable.conf"
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        node.name = "~alsa_output.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        node.quantum = 1024
+        api.alsa.period-size = 1024
+        api.alsa.headroom = 512
+      }
+    }
+  }
+]
+EOF
+        systemctl --user restart wireplumber pipewire || true
+        echo "Stable profile configured."
+        ;;
+      balanced|low-latency)
+        echo "Configuring balanced/low-latency profile..."
+        mkdir -p "$HOME/.config/wireplumber/wireplumber.conf.d"
+        cat <<EOF > "$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-stable.conf"
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        node.name = "~alsa_output.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        node.quantum = 512
+        api.alsa.period-size = 512
+        api.alsa.headroom = 256
+      }
+    }
+  }
+]
+EOF
+        systemctl --user restart wireplumber pipewire || true
+        echo "$PROF profile configured."
+        ;;
+      *)
+        echo "Unknown profile: $PROF"
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    show_help
+    exit 1
+    ;;
+esac

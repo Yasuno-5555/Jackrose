@@ -9,14 +9,28 @@ arch=('any')
 license=('custom')
 depends=()
 source=(
-  'default-config.kdl'
-  'default-config.cidre.kdl'
-  'profile.txt'
+  'niri/config.kdl'
+  'ghostty/config'
+  'fcitx5/profile'
+  'environment.d/90-cidre-ime.conf'
+  'fish/config.fish'
+  'starship/starship.toml'
+  'fuzzel/fuzzel.ini'
+  'waybar/config'
+  'waybar/style.css'
+  'applications/com.mitchellh.ghostty.desktop'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
-  install -Dm644 "${srcdir}/default-config.kdl" "${pkgdir}/usr/share/cidre/default-config.kdl"
-  install -Dm644 "${srcdir}/default-config.cidre.kdl" "${pkgdir}/usr/share/cidre/default-config.cidre.kdl"
-  install -Dm644 "${srcdir}/profile.txt" "${pkgdir}/usr/share/doc/${pkgname}/profile.txt"
+  install -Dm644 "${srcdir}/niri/config.kdl" "${pkgdir}/usr/share/cidre/defaults/niri/config.kdl"
+  install -Dm644 "${srcdir}/ghostty/config" "${pkgdir}/usr/share/cidre/defaults/ghostty/config"
+  install -Dm644 "${srcdir}/fcitx5/profile" "${pkgdir}/usr/share/cidre/defaults/fcitx5/profile"
+  install -Dm644 "${srcdir}/environment.d/90-cidre-ime.conf" "${pkgdir}/usr/share/cidre/defaults/environment.d/90-cidre-ime.conf"
+  install -Dm644 "${srcdir}/fish/config.fish" "${pkgdir}/usr/share/cidre/defaults/fish/config.fish"
+  install -Dm644 "${srcdir}/starship/starship.toml" "${pkgdir}/usr/share/cidre/defaults/starship/starship.toml"
+  install -Dm644 "${srcdir}/fuzzel/fuzzel.ini" "${pkgdir}/usr/share/cidre/defaults/fuzzel/fuzzel.ini"
+  install -Dm644 "${srcdir}/waybar/config" "${pkgdir}/usr/share/cidre/defaults/waybar/config"
+  install -Dm644 "${srcdir}/waybar/style.css" "${pkgdir}/usr/share/cidre/defaults/waybar/style.css"
+  install -Dm644 "${srcdir}/applications/com.mitchellh.ghostty.desktop" "${pkgdir}/usr/share/cidre/defaults/applications/com.mitchellh.ghostty.desktop"
 }

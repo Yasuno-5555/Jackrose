@@ -1,0 +1,15 @@
+[Groups/0]
+Name=Default
+DefaultLayout=jp
+Image=
+Items\0\Name=keyboard-jp
+Items\1\Name=mozc
+
+[Groups/0/Items/0]
+SubMode=
+
+[Groups/0/Items/1]
+SubMode=
+
+[GroupOrder]
+0=Default

@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-recovery
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre emergency system recovery command'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=('bash')
+source=('cidre-recovery')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/cidre-recovery" "${pkgdir}/usr/bin/cidre-recovery"
+}

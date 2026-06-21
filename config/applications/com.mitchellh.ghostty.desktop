@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+TryExec=ghostty
+Exec=ghostty
+Name=Ghostty
+Comment=A fast, feature-rich terminal emulator
+Icon=com.mitchellh.ghostty
+Categories=System;TerminalEmulator;Utility;
+Terminal=false
