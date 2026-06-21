@@ -40,6 +40,21 @@ Validates the prototype installer entry example as JSON when `python3` is availa
 ### `scripts/cidre-firstboot-root`
 Prototype root-phase firstboot OOBE entrypoint intended for future Cidre-controlled images.
 
+### `scripts/cidre-image-build`
+Builds prototype Cidre image artifacts and overlay tarballs.
+
+### `scripts/cidre-image-inspect`
+Inspects an overlay directory, overlay tarball, or mounted rootfs path for required Cidre image content.
+
+### `scripts/cidre-image-checksum`
+Writes a `.sha256` checksum file for a generated prototype artifact.
+
+### `scripts/cidre-image-manifest`
+Generates the prototype image manifest JSON describing source, builder path, artifacts, and validation state.
+
+### `scripts/cidre-image-clean`
+Removes `.local/state/cidre/image-build/` after explicit confirmation.
+
 ### `./preinstall` / `cidre-preinstall`
 The root-phase base system helper.
 * `--tui`: Forces the guided dashboard/wizard mode.
@@ -79,6 +94,7 @@ Diagnoses system compatibility and environment state.
 * `--seed`: Audits imported seed state under `/var/lib/cidre/seed`.
 * `--resume`: Audits system and user resume state.
 * `--downstream`: Audits downstream foundation files, prototypes, and metadata examples.
+* `--image`: Audits prototype image scripts, overlay contents, workspace docs, and latest generated artifacts.
 * `--fix-suggestions`: Renders actionable recovery commands based on the last run.
 
 ### `cidre-recovery`
@@ -90,6 +106,7 @@ Dispatches rescue triggers from console TTY in emergency loops.
 * `seed-status`: Shows imported seed profile and source commit summary.
 * `resume-status`: Shows whether resume state exists and whether it has been applied.
 * `downstream-status`: Shows whether downstream prototype files are available.
+* `image-status`: Shows whether prototype image artifacts have been generated.
 
 ### `cidre-snapshot`
 Takes snapshot points of Cidre configuration directories.

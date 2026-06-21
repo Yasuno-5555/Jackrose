@@ -1,0 +1,224 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+OVERLAY_DIR="$REPO_ROOT/downstream/rootfs-overlay"
+OUTPUT_DIR_DEFAULT="$REPO_ROOT/.local/state/cidre/image-build"
+OUTPUT_DIR="${CIDRE_IMAGE_OUTPUT_DIR:-$OUTPUT_DIR_DEFAULT}"
+IMAGE_NAME="${CIDRE_IMAGE_NAME:-cidre-prototype}"
+PROFILE="${CIDRE_IMAGE_PROFILE:-developer}"
+IMAGE_VERSION="${CIDRE_IMAGE_VERSION:-}"
+BUILDER_DIR="${CIDRE_ALARM_BUILDER_DIR:-}"
+DRY_RUN=0
+OVERLAY_ONLY=0
+SYNC_OVERLAY=0
+INSPECT_ARTIFACT=0
+CLEAN_OUTPUT=0
+NO_COMPRESS=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-image-build [options]
+
+Options:
+  --dry-run
+  --overlay-only
+  --sync-overlay
+  --builder <path>
+  --output <dir>
+  --profile <name>
+  --inspect
+  --clean
+  --no-compress
+  -h, --help
+EOF
+}
+
+validate_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+log() {
+  printf '%s\n' "$*"
+  if [ -n "${BUILD_LOG:-}" ] && [ "$DRY_RUN" -eq 0 ]; then
+    printf '%s\n' "$*" >> "$BUILD_LOG"
+  fi
+}
+
+sync_overlay_tree() {
+  overlay_cidre_dir="$OVERLAY_DIR/usr/lib/cidre"
+  overlay_systemd_dir="$OVERLAY_DIR/etc/systemd/system"
+  overlay_wants_dir="$overlay_systemd_dir/multi-user.target.wants"
+  overlay_state_dir="$OVERLAY_DIR/var/lib/cidre"
+
+  mkdir -p "$overlay_cidre_dir" "$overlay_systemd_dir" "$overlay_wants_dir" \
+    "$overlay_state_dir/seed" "$overlay_state_dir/resume" "$overlay_state_dir/firstboot-root"
+
+  for subdir in seed resume firstboot-root; do
+    keep_file="$overlay_state_dir/$subdir/.gitkeep"
+    [ -f "$keep_file" ] || : > "$keep_file"
+  done
+
+  for mapping in \
+    "scripts/cidre-firstboot-root:cidre-firstboot-root" \
+    "scripts/cidre-seed:cidre-seed" \
+    "scripts/cidre-seed-verify:cidre-seed-verify" \
+    "scripts/cidre-seed-import:cidre-seed-import" \
+    "scripts/cidre-resume:cidre-resume" \
+    "scripts/cidre-doctor:cidre-doctor" \
+    "scripts/cidre-recovery:cidre-recovery" \
+    "scripts/cidre-preinstall:cidre-preinstall" \
+    "scripts/cidre-installer:cidre-installer"; do
+    src="${mapping%%:*}"
+    dst="${mapping##*:}"
+    cp "$REPO_ROOT/$src" "$overlay_cidre_dir/$dst"
+    chmod +x "$overlay_cidre_dir/$dst"
+  done
+
+  cp "$REPO_ROOT/systemd/cidre-firstboot-root.service" "$overlay_systemd_dir/cidre-firstboot-root.service"
+  ln -sfn ../cidre-firstboot-root.service "$overlay_wants_dir/cidre-firstboot-root.service"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --overlay-only) OVERLAY_ONLY=1; shift ;;
+    --sync-overlay) SYNC_OVERLAY=1; shift ;;
+    --builder)
+      [ "$#" -ge 2 ] || { printf 'ERROR: --builder requires a path\n' >&2; exit 1; }
+      BUILDER_DIR="$2"
+      shift 2
+      ;;
+    --output)
+      [ "$#" -ge 2 ] || { printf 'ERROR: --output requires a path\n' >&2; exit 1; }
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --profile)
+      [ "$#" -ge 2 ] || { printf 'ERROR: --profile requires a name\n' >&2; exit 1; }
+      PROFILE="$2"
+      validate_profile "$PROFILE"
+      shift 2
+      ;;
+    --inspect) INSPECT_ARTIFACT=1; shift ;;
+    --clean) CLEAN_OUTPUT=1; shift ;;
+    --no-compress) NO_COMPRESS=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
+  esac
+done
+
+validate_profile "$PROFILE"
+[ -d "$OVERLAY_DIR" ] || { printf 'ERROR: overlay directory not found: %s\n' "$OVERLAY_DIR" >&2; exit 1; }
+
+if [ -z "$IMAGE_VERSION" ]; then
+  IMAGE_VERSION="$(git -C "$REPO_ROOT" describe --tags --always 2>/dev/null || git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+fi
+
+overlay_basename="cidre-rootfs-overlay.tar.gz"
+if [ "$NO_COMPRESS" -eq 1 ]; then
+  overlay_basename="cidre-rootfs-overlay.tar"
+fi
+overlay_artifact="$OUTPUT_DIR/$overlay_basename"
+manifest_path="$OUTPUT_DIR/cidre-image-manifest.json"
+inspect_log="$OUTPUT_DIR/inspect.log"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf 'Cidre image build dry-run\n\n'
+  printf '[OK] repo root: %s\n' "$REPO_ROOT"
+  printf '[OK] profile: %s\n' "$PROFILE"
+  printf '[OK] output dir: %s\n' "$OUTPUT_DIR"
+  printf '[OK] overlay dir: %s\n' "$OVERLAY_DIR"
+  if [ -n "$BUILDER_DIR" ]; then
+    printf '[OK] builder path: %s\n' "$BUILDER_DIR"
+  else
+    printf '[WARN] builder path not configured\n'
+  fi
+  if [ "$CLEAN_OUTPUT" -eq 1 ]; then
+    printf '[DRY-RUN] would clean output dir\n'
+  fi
+  if [ "$SYNC_OVERLAY" -eq 1 ] || [ "$OVERLAY_ONLY" -eq 1 ] || [ "$INSPECT_ARTIFACT" -eq 1 ]; then
+    printf '[DRY-RUN] would sync scripts and systemd units into the overlay\n'
+  fi
+  if [ "$OVERLAY_ONLY" -eq 1 ]; then
+    printf '[DRY-RUN] would write overlay artifact: %s\n' "$overlay_artifact"
+    printf '[DRY-RUN] would write checksum: %s.sha256\n' "$overlay_artifact"
+    printf '[DRY-RUN] would write manifest: %s\n' "$manifest_path"
+  fi
+  if [ "$INSPECT_ARTIFACT" -eq 1 ]; then
+    printf '[DRY-RUN] would inspect generated overlay artifact or overlay tree\n'
+  fi
+  if [ -n "$BUILDER_DIR" ]; then
+    printf '[DRY-RUN] builder execution is not enabled in v0.15.0; path recorded only\n'
+  fi
+  exit 0
+fi
+
+if [ "$CLEAN_OUTPUT" -eq 1 ]; then
+  CIDRE_IMAGE_OUTPUT_DIR="$OUTPUT_DIR" "$SCRIPT_DIR/cidre-image-clean" --yes
+fi
+
+mkdir -p "$OUTPUT_DIR"
+BUILD_LOG="$OUTPUT_DIR/build.log"
+: > "$BUILD_LOG"
+
+log "Cidre image build"
+log "repo root: $REPO_ROOT"
+log "profile: $PROFILE"
+log "output dir: $OUTPUT_DIR"
+log "overlay dir: $OVERLAY_DIR"
+if [ -n "$BUILDER_DIR" ]; then
+  log "builder path: $BUILDER_DIR"
+else
+  log "builder path: not configured"
+fi
+
+if [ "$SYNC_OVERLAY" -eq 1 ] || [ "$OVERLAY_ONLY" -eq 1 ] || [ "$INSPECT_ARTIFACT" -eq 1 ]; then
+  sync_overlay_tree
+  log "overlay sync: completed"
+fi
+
+if [ "$SYNC_OVERLAY" -eq 1 ] && [ "$OVERLAY_ONLY" -eq 0 ] && [ "$INSPECT_ARTIFACT" -eq 0 ]; then
+  log "[OK] overlay sync complete"
+  exit 0
+fi
+
+overlay_inspected=false
+if [ "$OVERLAY_ONLY" -eq 1 ]; then
+  rm -f "$overlay_artifact" "$overlay_artifact.sha256"
+  if [ "$NO_COMPRESS" -eq 1 ]; then
+    (cd "$OVERLAY_DIR" && tar -cf "$overlay_artifact" usr etc var)
+  else
+    (cd "$OVERLAY_DIR" && tar -czf "$overlay_artifact" usr etc var)
+  fi
+  log "overlay artifact: $overlay_artifact"
+  "$SCRIPT_DIR/cidre-image-checksum" "$overlay_artifact" >> "$BUILD_LOG"
+
+  if [ "$INSPECT_ARTIFACT" -eq 1 ]; then
+    "$SCRIPT_DIR/cidre-image-inspect" --tar "$overlay_artifact" | tee "$inspect_log"
+    overlay_inspected=true
+    log "inspection log: $inspect_log"
+  fi
+fi
+
+"$SCRIPT_DIR/cidre-image-manifest" \
+  --output "$manifest_path" \
+  --image-name "$IMAGE_NAME" \
+  --profile "$PROFILE" \
+  --version "$IMAGE_VERSION" \
+  --builder "$BUILDER_DIR" \
+  --overlay "$(basename "$overlay_artifact")" \
+  --image "${IMAGE_NAME}-rootfs.img.zst" \
+  --checksum "$(basename "$overlay_artifact").sha256" \
+  --overlay-inspected "$overlay_inspected" >> "$BUILD_LOG"
+
+log "manifest: $manifest_path"
+
+if [ -n "$BUILDER_DIR" ]; then
+  log "builder execution is not enabled in v0.15.0; path recorded for future integration"
+fi

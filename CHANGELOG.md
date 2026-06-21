@@ -2,6 +2,29 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.15.0] - 2026-06-21
+### Added
+- Added prototype image build entrypoint `scripts/cidre-image-build`.
+- Added image inspection helper `scripts/cidre-image-inspect`.
+- Added image checksum helper `scripts/cidre-image-checksum`.
+- Added image manifest generator `scripts/cidre-image-manifest`.
+- Added image build cleanup helper `scripts/cidre-image-clean`.
+- Added `downstream/image-build/` workspace.
+- Added prototype rootfs overlay synchronization flow.
+- Added docs for Cidre image prototype and image build validation.
+- Added `cidre-doctor --image`.
+- Added `cidre-recovery image-status`.
+
+### Changed
+- Updated image plan and image build notes for prototype artifact generation.
+- Updated validation matrix with image prototype checks.
+- Updated known limitations with non-production image status.
+- Updated v1.0.0 clean install plan with image requirements.
+
+### Notes
+- v0.15.0 does not ship a public Cidre image.
+- It establishes a prototype artifact flow for generating and inspecting Cidre rootfs overlay/image contents.
+
 ## [0.14.0] - 2026-06-21
 ### Added
 - Added downstream strategy documentation for moving Cidre toward an ALARM/Asahi downstream image.

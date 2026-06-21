@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+OUTPUT_DIR="${CIDRE_IMAGE_OUTPUT_DIR:-.local/state/cidre/image-build}"
+YES=0
+
+if [ "${1:-}" = "--yes" ]; then
+  YES=1
+elif [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  printf 'Usage: cidre-image-clean [--yes]\n'
+  exit 0
+fi
+
+[ -d "$OUTPUT_DIR" ] || {
+  printf '[OK] no image build output to clean\n'
+  exit 0
+}
+
+if [ "$YES" -ne 1 ]; then
+  printf 'This will remove: %s\n' "$OUTPUT_DIR"
+  printf 'Re-run with --yes to continue.\n'
+  exit 1
+fi
+
+rm -rf "$OUTPUT_DIR"
+printf '[OK] removed %s\n' "$OUTPUT_DIR"

@@ -26,3 +26,13 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
    - Cidre v0.14.0 documents the root/root problem and provides firstboot-root prototypes, but it does not remove the login prompt from existing ALARM images.
 11. **firstboot-root Prototype Only**:
    - `cidre-firstboot-root` and the autologin example are prototypes and are not installed or enabled by default.
+12. **Prototype Artifact Only**:
+   - v0.15.0 artifacts are prototype inspection targets, not public installable images.
+13. **Boot Validation Deferred**:
+   - v0.15.0 does not require prototype artifacts to boot successfully.
+14. **Builder Integration Remains Environment-Dependent**:
+   - The image build flow depends on external ALARM builder behavior and currently centers on overlay artifact generation.
+15. **Installer Metadata Still Not Production-Integrated**:
+   - v0.15.0 does not yet connect prototype artifacts to production installer metadata.
+16. **Partition Growth and UUID Behavior Not Verified**:
+   - v0.15.0 does not guarantee root partition growth or root UUID scrambling behavior.

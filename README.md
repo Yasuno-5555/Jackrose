@@ -1,4 +1,4 @@
-# Cidre (v0.13.0 Seed & Resume Pack)
+# Cidre (v0.15.0 Cidre Image Prototype Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -11,6 +11,13 @@ Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Ar
 Cidre is moving from a post-install setup project toward a downstream ALARM/Asahi image for Apple Silicon MacBooks.
 
 The goal is to make Cidre feel less like “install Linux and then run scripts” and more like “install Cidre on your MacBook”.
+
+## Image Prototype Status
+
+Cidre v0.15.0 introduces the first prototype image artifact flow.
+
+This does not mean Cidre ships a public installable image yet.
+The goal is to generate and inspect prototype rootfs artifacts containing Cidre firstboot, seed/resume, and downstream overlay components.
 
 ## Installation Flow
 
@@ -60,8 +67,10 @@ After switching to the normal user, resume the Cidre setup:
 - [Downstream Strategy](./docs/downstream-strategy.md)
 - [ALARM Fork Strategy](./docs/alarm-fork-strategy.md)
 - [Cidre Image Plan](./docs/cidre-image-plan.md)
+- [Cidre Image Prototype](./docs/cidre-image-prototype.md)
 - [Installer Integration](./docs/installer-integration.md)
 - [Image Build Notes](./docs/image-build-notes.md)
+- [Image Build Validation](./docs/image-build-validation.md)
 - [Firstboot Root Login Problem](./docs/firstboot-root-login-problem.md)
 - [Fresh ALARM Base Setup](./docs/base-install.md)
 - [Installation Guide (Advanced)](./docs/installation.md)
@@ -77,6 +86,7 @@ After switching to the normal user, resume the Cidre setup:
 - [Recovery Guide](./docs/recovery.md)
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
+- [v0.15.0 Release Notes](./docs/v0.15.0-cidre-image-prototype.md)
 - [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)
 - [v0.14.0 Release Notes](./docs/v0.14.0-downstream-foundation.md)
 - [v0.12.0 Release Notes](./docs/v0.12.0-macos-bootstrap.md)

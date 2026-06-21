@@ -20,6 +20,10 @@
 - `/etc/systemd/system`
 - `/var/lib/cidre`
 
+v0.15.0 introduces prototype image artifacts.
+
+The first milestone is not a public bootable image, but a reproducible prototype artifact that can be inspected for Cidre firstboot, seed/resume, and rootfs overlay contents.
+
 ## Firstboot Root OOBE
 
 The first image objective is not a full desktop install. The first objective is:

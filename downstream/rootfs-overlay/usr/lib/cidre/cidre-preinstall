@@ -1,0 +1,1021 @@
+#!/bin/bash
+# cidre-preinstall: Root-phase helper to simplify fresh ALARM base environment setups
+set -euo pipefail
+
+DRY_RUN=false
+CHECK_ONLY=false
+PREPARE=false
+TUI_MODE=false
+NON_INTERACTIVE=false
+USER_NAME=""
+YES=false
+IMPORT_SEED_PATH=""
+NO_SEED=false
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STATE_HOME="${HOME:-/root}/.local/state/cidre/preinstall"
+LOG_FILE="${STATE_HOME}/preinstall.log"
+LAST_CHECK_LOG="${STATE_HOME}/last-check.log"
+LAST_STATUS_FILE="${STATE_HOME}/last-status"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_SEED_DIR="${CIDRE_SYSTEM_ROOT}/seed"
+SYSTEM_RESUME_DIR="${CIDRE_SYSTEM_ROOT}/resume"
+INTERACTIVE_SESSION=false
+if [ -t 0 ] && [ -t 1 ]; then
+  INTERACTIVE_SESSION=true
+fi
+
+UI_BACKEND="plain"
+STATUS_ERRORS=0
+STATUS_WARNINGS=0
+NEXT_STEP="check"
+
+SYSTEM_STATUS="WARN"
+SYSTEM_DETAIL=""
+ASAHI_STATUS="WARN"
+ASAHI_DETAIL=""
+EXEC_STATUS="WARN"
+EXEC_DETAIL=""
+NETWORK_STATUS="WARN"
+NETWORK_DETAIL=""
+ROUTE_STATUS="WARN"
+ROUTE_DETAIL=""
+DNS_STATUS="WARN"
+DNS_DETAIL=""
+REPO_STATUS="WARN"
+REPO_DETAIL=""
+PACMAN_STATUS="WARN"
+PACMAN_DETAIL=""
+PACMAN_SYNC_STATUS="WARN"
+PACMAN_SYNC_DETAIL=""
+TARGET_USER_STATUS="WARN"
+TARGET_USER_DETAIL=""
+WHEEL_STATUS="WARN"
+WHEEL_DETAIL=""
+SUDO_STATUS="WARN"
+SUDO_DETAIL=""
+TOOLS_STATUS="WARN"
+TOOLS_DETAIL=""
+
+REQUIRED_PACKAGES=(git curl sudo base-devel)
+OPTIONAL_PACKAGES=(rsync dialog whiptail)
+CREATE_USER=false
+SELECTED_EXISTING_USER=false
+RESUME_IMPORTED_THIS_RUN=false
+
+show_help() {
+  echo "Usage: preinstall [options]"
+  echo "Options:"
+  echo "  --tui               Run guided dashboard/wizard mode"
+  echo "  --check             Audit system readiness without making changes"
+  echo "  --dry-run           Show proposed commands and changes"
+  echo "  --prepare           Apply base readiness adjustments (requires root)"
+  echo "  --import-seed <p>   Verify and import a Cidre seed archive"
+  echo "  --seed <path>       Alias for --import-seed"
+  echo "  --no-seed           Disable seed/resume integration"
+  echo "  --non-interactive   Disable prompts and use plain output"
+  echo "  --user <username>   Specify normal user name to verify/create"
+  echo "  --yes               Skip interactive confirmation prompts"
+  echo "  --help              Show this help message"
+}
+
+mkdir -p "${STATE_HOME}"
+
+log_line() {
+  printf '[%s] %s\n' "$(date -Is)" "$*" >> "${LOG_FILE}"
+}
+
+say() {
+  echo "$*"
+  log_line "$*"
+}
+
+record_state_files() {
+  {
+    echo "backend=${UI_BACKEND}"
+    echo "next_step=${NEXT_STEP}"
+    echo "errors=${STATUS_ERRORS}"
+    echo "warnings=${STATUS_WARNINGS}"
+    echo "target_user=${USER_NAME:-}"
+    echo "system=${SYSTEM_STATUS}"
+    echo "network=${NETWORK_STATUS}"
+    echo "pacman=${PACMAN_STATUS}"
+    echo "user=${TARGET_USER_STATUS}"
+    echo "sudo=${SUDO_STATUS}"
+    echo "tools=${TOOLS_STATUS}"
+    echo "resume_available=$([ -f "${SYSTEM_RESUME_DIR}/resume.env" ] && echo yes || echo no)"
+  } > "${LAST_STATUS_FILE}"
+
+  {
+    echo "Cidre Base Setup Summary"
+    echo "backend: ${UI_BACKEND}"
+    echo "next step: ${NEXT_STEP}"
+    echo "target user: ${USER_NAME:-<unset>}"
+    echo "system: ${SYSTEM_STATUS} ${SYSTEM_DETAIL}"
+    echo "network: ${NETWORK_STATUS} ${NETWORK_DETAIL}"
+    echo "pacman: ${PACMAN_STATUS} ${PACMAN_DETAIL}"
+    echo "user: ${TARGET_USER_STATUS} ${TARGET_USER_DETAIL}"
+    echo "sudo: ${SUDO_STATUS} ${SUDO_DETAIL}"
+    echo "tools: ${TOOLS_STATUS} ${TOOLS_DETAIL}"
+    echo "errors: ${STATUS_ERRORS}"
+    echo "warnings: ${STATUS_WARNINGS}"
+  } > "${LAST_CHECK_LOG}"
+}
+
+status_rank() {
+  case "$1" in
+    FAIL) echo 3 ;;
+    WARN) echo 2 ;;
+    *) echo 1 ;;
+  esac
+}
+
+merge_status() {
+  local current="$1"
+  local candidate="$2"
+  if [ "$(status_rank "${candidate}")" -gt "$(status_rank "${current}")" ]; then
+    echo "${candidate}"
+  else
+    echo "${current}"
+  fi
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+resume_state_available() {
+  [ -f "${SYSTEM_RESUME_DIR}/resume.env" ]
+}
+
+current_handoff_command() {
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    echo "./install --resume"
+  else
+    echo "./install"
+  fi
+}
+
+backend_available() {
+  case "$1" in
+    dialog) command_exists dialog ;;
+    whiptail) command_exists whiptail ;;
+    plain) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+select_ui_backend() {
+  if [ "${NON_INTERACTIVE}" = true ] || [ "${INTERACTIVE_SESSION}" = false ]; then
+    UI_BACKEND="plain"
+  elif backend_available dialog; then
+    UI_BACKEND="dialog"
+  elif backend_available whiptail; then
+    UI_BACKEND="whiptail"
+  else
+    UI_BACKEND="plain"
+  fi
+  log_line "Selected UI backend: ${UI_BACKEND}"
+}
+
+ui_msg() {
+  local title="$1"
+  local text="$2"
+  case "${UI_BACKEND}" in
+    dialog)
+      dialog --stdout --title "${title}" --msgbox "${text}" 18 76 >/dev/tty
+      ;;
+    whiptail)
+      whiptail --title "${title}" --msgbox "${text}" 18 76
+      ;;
+    *)
+      say ""
+      say "== ${title} =="
+      say "${text}"
+      ;;
+  esac
+}
+
+ui_confirm() {
+  local title="$1"
+  local text="$2"
+  if [ "${YES}" = true ]; then
+    log_line "Auto-confirmed: ${title}"
+    return 0
+  fi
+  case "${UI_BACKEND}" in
+    dialog)
+      dialog --stdout --title "${title}" --yesno "${text}" 18 76 >/dev/tty
+      ;;
+    whiptail)
+      whiptail --title "${title}" --yesno "${text}" 18 76
+      ;;
+    *)
+      if [ "${INTERACTIVE_SESSION}" = false ]; then
+        return 1
+      fi
+      printf "%s [y/N]: " "${text}"
+      read -r answer
+      [[ "${answer}" =~ ^[yY]([eE][sS])?$ ]]
+      ;;
+  esac
+}
+
+ui_input() {
+  local title="$1"
+  local prompt="$2"
+  local default_value="$3"
+  local result=""
+  case "${UI_BACKEND}" in
+    dialog)
+      result="$(dialog --stdout --title "${title}" --inputbox "${prompt}" 18 76 "${default_value}")" || return 1
+      ;;
+    whiptail)
+      result="$(whiptail --title "${title}" --inputbox "${prompt}" 18 76 "${default_value}" 3>&1 1>&2 2>&3)" || return 1
+      ;;
+    *)
+      if [ "${INTERACTIVE_SESSION}" = false ]; then
+        result="${default_value}"
+      else
+        printf "%s [%s]: " "${prompt}" "${default_value}"
+        read -r result
+      fi
+      ;;
+  esac
+  if [ -z "${result}" ]; then
+    result="${default_value}"
+  fi
+  printf '%s\n' "${result}"
+}
+
+ui_menu() {
+  local title="$1"
+  local prompt="$2"
+  shift 2
+  local result=""
+  case "${UI_BACKEND}" in
+    dialog)
+      result="$(dialog --stdout --title "${title}" --menu "${prompt}" 20 76 10 "$@")" || return 1
+      ;;
+    whiptail)
+      result="$(whiptail --title "${title}" --menu "${prompt}" 20 76 10 "$@" 3>&1 1>&2 2>&3)" || return 1
+      ;;
+    *)
+      if [ "${INTERACTIVE_SESSION}" = false ]; then
+        result="$1"
+      else
+        say "${title}"
+        say "${prompt}"
+        while [ "$#" -gt 1 ]; do
+          say "  [$1] $2"
+          shift 2
+        done
+        printf "Select option: "
+        read -r result
+      fi
+      ;;
+  esac
+  printf '%s\n' "${result}"
+}
+
+validate_username() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+}
+
+list_normal_users() {
+  awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd 2>/dev/null || true
+}
+
+package_installed() {
+  local pkg="$1"
+  if ! command_exists pacman; then
+    return 1
+  fi
+  if [ "${pkg}" = "base-devel" ]; then
+    pacman -Q base-devel >/dev/null 2>&1 || pacman -Qg base-devel >/dev/null 2>&1
+  else
+    pacman -Q "${pkg}" >/dev/null 2>&1
+  fi
+}
+
+collect_missing_required_packages() {
+  local missing=()
+  local pkg
+  for pkg in "${REQUIRED_PACKAGES[@]}"; do
+    if ! package_installed "${pkg}"; then
+      missing+=("${pkg}")
+    fi
+  done
+  printf '%s\n' "${missing[@]}"
+}
+
+detect_asahi() {
+  if [ -d /proc/device-tree/asahi ] || [ -d /sys/firmware/devicetree/base/asahi ] || grep -qi "apple\|asahi" /proc/cpuinfo 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+network_link_ready() {
+  ip -o link show up 2>/dev/null | grep -qv "LOOPBACK"
+}
+
+default_route_ready() {
+  ip route show default 2>/dev/null | grep -q '^default'
+}
+
+dns_ready() {
+  getent ahosts archlinux.org >/dev/null 2>&1 || getent ahosts github.com >/dev/null 2>&1
+}
+
+repo_reachable() {
+  if command_exists curl; then
+    curl -fsI --max-time 5 https://github.com >/dev/null 2>&1 || \
+      curl -fsI --max-time 5 https://archlinux.org >/dev/null 2>&1
+  else
+    ping -c 1 -W 2 archlinux.org >/dev/null 2>&1 || ping -c 1 -W 2 github.com >/dev/null 2>&1
+  fi
+}
+
+assess_base_state() {
+  STATUS_ERRORS=0
+  STATUS_WARNINGS=0
+
+  if [ "$EUID" -eq 0 ]; then
+    EXEC_STATUS="OK"
+    EXEC_DETAIL="running as root for root-phase preparation"
+  else
+    EXEC_STATUS="WARN"
+    EXEC_DETAIL="running as normal user; preparation changes require root"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if [ -f /etc/arch-release ]; then
+    SYSTEM_STATUS="OK"
+    SYSTEM_DETAIL="Arch/ALARM-like environment detected"
+  else
+    SYSTEM_STATUS="WARN"
+    SYSTEM_DETAIL="non-Arch base detected; compatibility is not guaranteed"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if detect_asahi; then
+    ASAHI_STATUS="OK"
+    ASAHI_DETAIL="Apple Silicon / Asahi hints detected"
+  else
+    ASAHI_STATUS="WARN"
+    ASAHI_DETAIL="no Apple Silicon / Asahi hints detected"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if network_link_ready; then
+    NETWORK_STATUS="OK"
+    NETWORK_DETAIL="network interface is up"
+  else
+    NETWORK_STATUS="FAIL"
+    NETWORK_DETAIL="no active non-loopback link detected"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  if default_route_ready; then
+    ROUTE_STATUS="OK"
+    ROUTE_DETAIL="default route is present"
+  else
+    ROUTE_STATUS="WARN"
+    ROUTE_DETAIL="default route is missing"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if dns_ready; then
+    DNS_STATUS="OK"
+    DNS_DETAIL="DNS resolution works"
+  else
+    DNS_STATUS="FAIL"
+    DNS_DETAIL="DNS resolution failed"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  if repo_reachable; then
+    REPO_STATUS="OK"
+    REPO_DETAIL="repository hosts are reachable"
+  else
+    REPO_STATUS="WARN"
+    REPO_DETAIL="repository reachability could not be verified"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if command_exists pacman; then
+    PACMAN_STATUS="OK"
+    PACMAN_DETAIL="pacman is available"
+  else
+    PACMAN_STATUS="FAIL"
+    PACMAN_DETAIL="pacman command is missing"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  if [ -d /var/lib/pacman/sync ] && [ -n "$(ls -A /var/lib/pacman/sync 2>/dev/null)" ]; then
+    PACMAN_SYNC_STATUS="OK"
+    PACMAN_SYNC_DETAIL="sync database is initialized"
+  else
+    PACMAN_SYNC_STATUS="FAIL"
+    PACMAN_SYNC_DETAIL="sync database is empty; run pacman -Sy"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  local normal_users
+  normal_users="$(list_normal_users)"
+  if [ -z "${USER_NAME}" ] && [ -n "${normal_users}" ]; then
+    USER_NAME="$(printf '%s\n' "${normal_users}" | head -n 1)"
+  fi
+
+  if [ -n "${USER_NAME}" ]; then
+    if id "${USER_NAME}" >/dev/null 2>&1; then
+      TARGET_USER_STATUS="OK"
+      TARGET_USER_DETAIL="target user '${USER_NAME}' exists"
+    else
+      TARGET_USER_STATUS="WARN"
+      TARGET_USER_DETAIL="target user '${USER_NAME}' will need to be created"
+      STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+    fi
+  else
+    TARGET_USER_STATUS="FAIL"
+    TARGET_USER_DETAIL="no normal user selected or detected"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  if [ -n "${USER_NAME}" ] && id "${USER_NAME}" >/dev/null 2>&1 && id -nG "${USER_NAME}" | grep -qw wheel; then
+    WHEEL_STATUS="OK"
+    WHEEL_DETAIL="target user is in wheel"
+  else
+    WHEEL_STATUS="WARN"
+    WHEEL_DETAIL="target user is not yet in wheel"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  fi
+
+  if command_exists sudo; then
+    if [ -f /etc/sudoers.d/cidre-wheel ] && grep -q '^%wheel ALL=(ALL:ALL) ALL$' /etc/sudoers.d/cidre-wheel 2>/dev/null; then
+      SUDO_STATUS="OK"
+      SUDO_DETAIL="sudo and cidre wheel policy are present"
+    else
+      SUDO_STATUS="WARN"
+      SUDO_DETAIL="sudo is installed; cidre wheel policy is not yet configured"
+      STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+    fi
+  else
+    SUDO_STATUS="FAIL"
+    SUDO_DETAIL="sudo package is missing"
+    STATUS_ERRORS=$((STATUS_ERRORS + 1))
+  fi
+
+  TOOLS_STATUS="OK"
+  TOOLS_DETAIL=""
+  local missing_tools=()
+  local pkg
+  for pkg in "${REQUIRED_PACKAGES[@]}"; do
+    if ! package_installed "${pkg}"; then
+      missing_tools+=("${pkg}")
+      TOOLS_STATUS="$(merge_status "${TOOLS_STATUS}" "WARN")"
+    fi
+  done
+  if [ "${#missing_tools[@]}" -gt 0 ]; then
+    TOOLS_DETAIL="missing required packages: ${missing_tools[*]}"
+    STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
+  else
+    TOOLS_DETAIL="required packages are installed"
+  fi
+
+  NEXT_STEP="handoff"
+  if [ "${PACMAN_STATUS}" = "FAIL" ] || [ "${NETWORK_STATUS}" = "FAIL" ] || [ "${DNS_STATUS}" = "FAIL" ] || [ "${PACMAN_SYNC_STATUS}" = "FAIL" ]; then
+    NEXT_STEP="fix network/pacman"
+  elif [ "${TARGET_USER_STATUS}" != "OK" ] || [ "${WHEEL_STATUS}" != "OK" ] || [ "${SUDO_STATUS}" != "OK" ] || [ "${TOOLS_STATUS}" != "OK" ]; then
+    NEXT_STEP="prepare"
+  fi
+
+  log_line "Base readiness assessed: errors=${STATUS_ERRORS} warnings=${STATUS_WARNINGS} next_step=${NEXT_STEP} user=${USER_NAME:-unset}"
+  record_state_files
+}
+
+dashboard_line() {
+  printf "  %-8s %s\n" "[$1]" "$2"
+}
+
+print_dashboard() {
+  say ""
+  say "Cidre Base Setup"
+  say "The cider after Homebrew."
+  say ""
+  say "System:"
+  dashboard_line "${SYSTEM_STATUS}" "${SYSTEM_DETAIL}"
+  dashboard_line "${ASAHI_STATUS}" "${ASAHI_DETAIL}"
+  dashboard_line "${EXEC_STATUS}" "${EXEC_DETAIL}"
+  say ""
+  say "Network:"
+  dashboard_line "${NETWORK_STATUS}" "${NETWORK_DETAIL}"
+  dashboard_line "${ROUTE_STATUS}" "${ROUTE_DETAIL}"
+  dashboard_line "${DNS_STATUS}" "${DNS_DETAIL}"
+  dashboard_line "${REPO_STATUS}" "${REPO_DETAIL}"
+  say ""
+  say "Package manager:"
+  dashboard_line "${PACMAN_STATUS}" "${PACMAN_DETAIL}"
+  dashboard_line "${PACMAN_SYNC_STATUS}" "${PACMAN_SYNC_DETAIL}"
+  say ""
+  say "User:"
+  dashboard_line "${TARGET_USER_STATUS}" "${TARGET_USER_DETAIL}"
+  dashboard_line "${WHEEL_STATUS}" "${WHEEL_DETAIL}"
+  dashboard_line "${SUDO_STATUS}" "${SUDO_DETAIL}"
+  say ""
+  say "Tools:"
+  dashboard_line "${TOOLS_STATUS}" "${TOOLS_DETAIL}"
+  say ""
+  say "Next step:"
+  dashboard_line "INFO" "${NEXT_STEP}"
+  say ""
+  say "Logs: ${LOG_FILE}"
+  say "Detail check snapshot: ${LAST_CHECK_LOG}"
+}
+
+print_network_help() {
+  say "Network is not ready."
+  say "Try:"
+  say "  ip link"
+  say "  systemctl status systemd-networkd"
+  say "  systemctl status NetworkManager"
+  say "  ping archlinux.org"
+}
+
+print_pacman_help() {
+  say "pacman is not ready."
+  say "Try:"
+  say "  pacman -Sy"
+  say "  pacman-key --init"
+  say "  pacman-key --populate archlinuxarm"
+}
+
+install_required_packages() {
+  local missing
+  missing="$(collect_missing_required_packages | xargs)"
+  if [ -z "${missing}" ]; then
+    say "[OK] Required base packages already installed."
+    return 0
+  fi
+
+  say "Required packages missing: ${missing}"
+  if [ "${DRY_RUN}" = true ]; then
+    say "[Dry-Run] Would run: pacman -Sy"
+    say "[Dry-Run] Would run: pacman -S --needed ${missing}"
+    log_line "Dry-run package install plan: ${missing}"
+    return 0
+  fi
+
+  if [ "$EUID" -ne 0 ]; then
+    say "Error: package installation requires root."
+    return 1
+  fi
+
+  if ! ui_confirm "Base Tools" "Install missing required packages with pacman -S --needed ${missing} ?"; then
+    say "Package installation skipped."
+    return 1
+  fi
+
+  say "Synchronizing pacman databases..."
+  pacman -Sy
+  say "Installing required packages..."
+  pacman -S --needed ${missing}
+  log_line "Installed required packages: ${missing}"
+}
+
+ensure_target_user_selected() {
+  local normal_users default_user selection candidate
+  normal_users="$(list_normal_users)"
+  default_user="${USER_NAME:-cidre}"
+
+  if [ -n "${USER_NAME}" ]; then
+    return 0
+  fi
+
+  if [ "${NON_INTERACTIVE}" = true ] || [ "${INTERACTIVE_SESSION}" = false ]; then
+    if [ -n "${normal_users}" ]; then
+      USER_NAME="$(printf '%s\n' "${normal_users}" | head -n 1)"
+      SELECTED_EXISTING_USER=true
+    else
+      USER_NAME="cidre"
+      CREATE_USER=true
+    fi
+    log_line "Auto-selected target user: ${USER_NAME}"
+    return 0
+  fi
+
+  selection="$(ui_menu "User Setup" "Target user selection" \
+    "existing" "Use existing user" \
+    "create" "Create new user" \
+    "exit" "Exit preinstall")" || return 1
+
+  case "${selection}" in
+    existing)
+      if [ -z "${normal_users}" ]; then
+        say "No existing normal users detected."
+        return 1
+      fi
+      if [ "$(printf '%s\n' "${normal_users}" | wc -l)" -eq 1 ]; then
+        USER_NAME="${normal_users}"
+      else
+        local items=()
+        while IFS= read -r candidate; do
+          [ -n "${candidate}" ] || continue
+          items+=("${candidate}" "existing user")
+        done <<EOF
+${normal_users}
+EOF
+        USER_NAME="$(ui_menu "User Setup" "Choose existing user" "${items[@]}")" || return 1
+      fi
+      SELECTED_EXISTING_USER=true
+      ;;
+    create)
+      candidate="$(ui_input "User Setup" "Enter username to create" "${default_user}")" || return 1
+      if ! validate_username "${candidate}"; then
+        say "Invalid username: ${candidate}"
+        return 1
+      fi
+      USER_NAME="${candidate}"
+      CREATE_USER=true
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  log_line "Selected target user: ${USER_NAME}"
+  return 0
+}
+
+ensure_user_account() {
+  if ! ensure_target_user_selected; then
+    return 1
+  fi
+
+  if id "${USER_NAME}" >/dev/null 2>&1; then
+    say "[OK] User '${USER_NAME}' already exists."
+    if [ "${DRY_RUN}" = true ]; then
+      say "[Dry-Run] Would ensure '${USER_NAME}' is in wheel, video, audio, input, power."
+      return 0
+    fi
+    if [ "$EUID" -ne 0 ]; then
+      say "Error: user modification requires root."
+      return 1
+    fi
+    for grp in wheel video audio input power; do
+      getent group "${grp}" >/dev/null 2>&1 && usermod -aG "${grp}" "${USER_NAME}"
+    done
+    log_line "Ensured existing user groups for ${USER_NAME}"
+    return 0
+  fi
+
+  if ! validate_username "${USER_NAME}"; then
+    say "Invalid username: ${USER_NAME}"
+    return 1
+  fi
+
+  if [ "${DRY_RUN}" = true ]; then
+    say "[Dry-Run] Would create user '${USER_NAME}' with home directory and wheel/video/audio/input/power groups."
+    log_line "Dry-run user creation plan for ${USER_NAME}"
+    return 0
+  fi
+
+  if [ "$EUID" -ne 0 ]; then
+    say "Error: user creation requires root."
+    return 1
+  fi
+
+  if ! ui_confirm "User Setup" "Create user '${USER_NAME}' and add it to wheel/video/audio/input/power ?"; then
+    say "User creation cancelled."
+    return 1
+  fi
+
+  useradd -m -G wheel,video,audio,input,power -s /bin/bash "${USER_NAME}"
+  log_line "Created user ${USER_NAME}"
+
+  if [ "${NON_INTERACTIVE}" = true ] || [ "${YES}" = true ] || [ "${INTERACTIVE_SESSION}" = false ]; then
+    say "Set a password later with: passwd ${USER_NAME}"
+    log_line "Password setup deferred for ${USER_NAME}"
+  else
+    say "Set a password for '${USER_NAME}'. Password input is not logged."
+    passwd "${USER_NAME}"
+    log_line "Password set interactively for ${USER_NAME}"
+  fi
+}
+
+configure_sudo_policy() {
+  local sudoers_file="/etc/sudoers.d/cidre-wheel"
+  local backup_file=""
+
+  if [ -z "${USER_NAME}" ]; then
+    say "Error: target user is not set."
+    return 1
+  fi
+
+  if [ "${DRY_RUN}" = true ]; then
+    say "[Dry-Run] Would ensure sudo is installed."
+    say "[Dry-Run] Would write ${sudoers_file} with '%wheel ALL=(ALL:ALL) ALL'."
+    say "[Dry-Run] Would validate sudoers with visudo -c."
+    log_line "Dry-run sudo setup for ${USER_NAME}"
+    return 0
+  fi
+
+  if [ "$EUID" -ne 0 ]; then
+    say "Error: sudo configuration requires root."
+    return 1
+  fi
+
+  if ! command_exists sudo; then
+    if ! ui_confirm "Sudo Setup" "Install sudo before configuring wheel access?"; then
+      say "sudo installation cancelled."
+      return 1
+    fi
+    pacman -S --needed sudo
+    log_line "Installed sudo package"
+  fi
+
+  getent group wheel >/dev/null 2>&1 || groupadd wheel
+  usermod -aG wheel "${USER_NAME}"
+
+  mkdir -p /etc/sudoers.d
+  if [ -f "${sudoers_file}" ] && ! grep -q '^%wheel ALL=(ALL:ALL) ALL$' "${sudoers_file}"; then
+    backup_file="${sudoers_file}.bak.$(date +%s)"
+    cp "${sudoers_file}" "${backup_file}"
+    log_line "Backed up existing sudoers policy to ${backup_file}"
+  fi
+
+  printf '%%wheel ALL=(ALL:ALL) ALL\n' > "${sudoers_file}"
+  chmod 440 "${sudoers_file}"
+
+  if ! visudo -c >/dev/null 2>&1; then
+    say "FAIL: visudo -c rejected the sudoers configuration."
+    if [ -n "${backup_file}" ] && [ -f "${backup_file}" ]; then
+      mv "${backup_file}" "${sudoers_file}"
+      say "Restored previous sudoers policy from ${backup_file}."
+      log_line "Restored sudoers policy from ${backup_file}"
+    else
+      rm -f "${sudoers_file}"
+      log_line "Removed invalid sudoers policy after failed validation"
+    fi
+    return 1
+  fi
+
+  say "[OK] sudo access configured for wheel group."
+  log_line "Configured sudoers policy for wheel group and ensured ${USER_NAME} membership"
+}
+
+import_seed_if_requested() {
+  if [ "${NO_SEED}" = true ] || [ -z "${IMPORT_SEED_PATH}" ]; then
+    return 0
+  fi
+
+  say ""
+  say "=== Importing Cidre Seed ==="
+  if [ "${DRY_RUN}" = true ]; then
+    "${SCRIPT_DIR}/cidre-seed-import" --dry-run "${IMPORT_SEED_PATH}"
+  else
+    "${SCRIPT_DIR}/cidre-seed-import" "${IMPORT_SEED_PATH}"
+  fi
+  RESUME_IMPORTED_THIS_RUN=true
+  log_line "Seed import requested from ${IMPORT_SEED_PATH}"
+}
+
+run_seed_verify_for_check() {
+  if [ "${NO_SEED}" = true ] || [ -z "${IMPORT_SEED_PATH}" ]; then
+    return 0
+  fi
+  say ""
+  say "=== Seed Verification ==="
+  "${SCRIPT_DIR}/cidre-seed-verify" "${IMPORT_SEED_PATH}"
+}
+
+print_resume_hint() {
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    say ""
+    say "Seed imported successfully."
+    say "After switching to the normal user, run:"
+    say "  ./install --resume"
+  fi
+}
+
+print_handoff() {
+  local repo_owner repo_warning handoff_home
+  handoff_home="$(getent passwd "${USER_NAME}" 2>/dev/null | cut -d: -f6)"
+  repo_owner="$(stat -c %U "${REPO_ROOT}" 2>/dev/null || echo unknown)"
+  repo_warning=""
+
+  say ""
+  if [ "${DRY_RUN}" = true ]; then
+    say "Base setup dry-run preview completed."
+  else
+    say "Base setup completed."
+  fi
+  say ""
+  say "Next:"
+  say "  su - ${USER_NAME}"
+  if [ -n "${handoff_home}" ] && [ "${repo_owner}" != "root" ]; then
+    say "  cd ${REPO_ROOT}"
+  else
+    say "  cd ~/Cidre"
+  fi
+  say "  $(current_handoff_command)"
+
+  if [ "${repo_owner}" = "root" ] || [ "${REPO_ROOT}" = "/root/Cidre" ] || [ "${REPO_ROOT}" = "/root"/* ]; then
+    repo_warning="WARN: This repository appears to be under /root. Clone or copy Cidre as the normal user before running ./install."
+    say ""
+    say "${repo_warning}"
+  fi
+
+  say ""
+  say "For detail checks:"
+  say "  ./preinstall --check"
+  say "  scripts/cidre-doctor --base-readiness --summary"
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    say "  scripts/cidre-resume show"
+  fi
+  log_line "Printed handoff for ${USER_NAME}. repo_owner=${repo_owner}"
+}
+
+run_prepare_flow() {
+  if [ "$EUID" -ne 0 ] && [ "${DRY_RUN}" = false ]; then
+    say "Error: preinstall preparation changes require root privileges."
+    return 1
+  fi
+
+  assess_base_state
+  print_dashboard
+
+  if ! import_seed_if_requested; then
+    return 1
+  fi
+
+  if ! install_required_packages; then
+    return 1
+  fi
+  if ! ensure_user_account; then
+    return 1
+  fi
+  if ! configure_sudo_policy; then
+    return 1
+  fi
+
+  assess_base_state
+  print_dashboard
+  print_resume_hint
+  print_handoff
+}
+
+run_wizard() {
+  local choice
+  ui_msg "Cidre Base Setup" "This flow prepares a fresh ALARM root shell for the user-phase Cidre installer. It does not partition disks, configure bootloaders, or replace the ALARM installer."
+
+  assess_base_state
+  print_dashboard
+
+  if ! import_seed_if_requested; then
+    choice="$(ui_menu "Seed Import" "Seed import failed." "retry" "Retry seed import" "exit" "Exit preinstall")" || return 1
+    [ "${choice}" = "retry" ] && import_seed_if_requested || return 1
+  fi
+
+  if [ "${NETWORK_STATUS}" = "FAIL" ] || [ "${DNS_STATUS}" = "FAIL" ]; then
+    print_network_help
+    if [ "${INTERACTIVE_SESSION}" = true ] && ui_confirm "Network Check" "Retry network checks now?"; then
+      assess_base_state
+      print_dashboard
+    fi
+  fi
+
+  if [ "${PACMAN_STATUS}" = "FAIL" ] || [ "${PACMAN_SYNC_STATUS}" = "FAIL" ]; then
+    print_pacman_help
+    if [ "${INTERACTIVE_SESSION}" = true ] && ui_confirm "Pacman Check" "Retry pacman checks now?"; then
+      assess_base_state
+      print_dashboard
+    fi
+  fi
+
+  if [ "${DRY_RUN}" = true ]; then
+    ui_msg "Dry-Run" "Dry-run mode is active. The wizard will show planned actions without making changes."
+  fi
+
+  if [ "${NEXT_STEP}" = "handoff" ] && [ "${DRY_RUN}" = false ]; then
+    if ui_confirm "Base Setup" "Base readiness already looks complete. Print handoff instructions now?"; then
+      print_handoff
+      return 0
+    fi
+  fi
+
+  if ! ui_confirm "Base Setup" "Continue with guided preparation actions?"; then
+    say "Preparation cancelled."
+    return 0
+  fi
+
+  if ! install_required_packages; then
+    choice="$(ui_menu "Base Tools" "Package step failed." "retry" "Retry package step" "exit" "Exit preinstall")" || return 1
+    [ "${choice}" = "retry" ] && install_required_packages || return 1
+  fi
+
+  if ! ensure_user_account; then
+    choice="$(ui_menu "User Setup" "User step failed." "retry" "Retry user setup" "exit" "Exit preinstall")" || return 1
+    [ "${choice}" = "retry" ] && ensure_user_account || return 1
+  fi
+
+  if ! configure_sudo_policy; then
+    choice="$(ui_menu "Sudo Setup" "Sudo setup failed." "retry" "Retry sudo setup" "exit" "Exit preinstall")" || return 1
+    [ "${choice}" = "retry" ] && configure_sudo_policy || return 1
+  fi
+
+  assess_base_state
+  print_dashboard
+  print_resume_hint
+  print_handoff
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tui) TUI_MODE=true; shift ;;
+    --check) CHECK_ONLY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --prepare) PREPARE=true; shift ;;
+    --import-seed|--seed)
+      if [ $# -lt 2 ]; then
+        echo "Error: $1 requires an argument." >&2
+        exit 1
+      fi
+      IMPORT_SEED_PATH="$2"
+      shift 2
+      ;;
+    --no-seed) NO_SEED=true; shift ;;
+    --non-interactive) NON_INTERACTIVE=true; shift ;;
+    --user|--create-user)
+      if [ $# -lt 2 ]; then
+        echo "Error: $1 requires an argument." >&2
+        exit 1
+      fi
+      USER_NAME="$2"
+      shift 2
+      ;;
+    --yes) YES=true; shift ;;
+    --help) show_help; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
+  esac
+done
+
+if [ -n "${USER_NAME}" ] && ! validate_username "${USER_NAME}"; then
+  echo "Error: invalid username '${USER_NAME}'." >&2
+  exit 1
+fi
+
+if [ "${NO_SEED}" = true ] && [ -n "${IMPORT_SEED_PATH}" ]; then
+  echo "Error: --no-seed cannot be combined with --import-seed." >&2
+  exit 1
+fi
+
+if [ "${CHECK_ONLY}" = false ] && [ "${DRY_RUN}" = false ] && [ "${PREPARE}" = false ] && [ "${TUI_MODE}" = false ]; then
+  if [ "${INTERACTIVE_SESSION}" = true ] && [ "${NON_INTERACTIVE}" = false ]; then
+    TUI_MODE=true
+  else
+    show_help
+    exit 1
+  fi
+fi
+
+if [ "${NON_INTERACTIVE}" = true ]; then
+  TUI_MODE=false
+fi
+
+if [ "${TUI_MODE}" = true ] && [ "${INTERACTIVE_SESSION}" = false ] && [ "${DRY_RUN}" = false ] && [ "${CHECK_ONLY}" = false ] && [ "${YES}" = false ]; then
+  echo "Error: --tui requires a TTY unless used with --dry-run/--check/--yes." >&2
+  exit 1
+fi
+
+select_ui_backend
+say "=== Running Cidre Base Setup (${UI_BACKEND} backend) ==="
+
+if [ "${CHECK_ONLY}" = true ]; then
+  assess_base_state
+  print_dashboard
+  run_seed_verify_for_check
+  exit "${STATUS_ERRORS}"
+fi
+
+if [ "${PREPARE}" = true ] && [ "${TUI_MODE}" = false ]; then
+  run_prepare_flow
+  exit $?
+fi
+
+if [ "${TUI_MODE}" = true ]; then
+  run_wizard
+  exit $?
+fi
+
+if [ "${DRY_RUN}" = true ]; then
+  assess_base_state
+  print_dashboard
+  run_prepare_flow
+  exit $?
+fi
+
+show_help
+exit 1

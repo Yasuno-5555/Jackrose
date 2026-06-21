@@ -1,0 +1,5 @@
+CIDRE_ALARM_BUILDER_DIR=../asahi-alarm-builder
+CIDRE_IMAGE_OUTPUT_DIR=.local/state/cidre/image-build
+CIDRE_IMAGE_NAME=cidre-prototype
+CIDRE_IMAGE_PROFILE=developer
+CIDRE_IMAGE_VERSION=0.15.0

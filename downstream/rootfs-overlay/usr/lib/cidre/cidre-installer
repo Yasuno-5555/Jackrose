@@ -1,0 +1,336 @@
+#!/bin/bash
+# cidre-installer: Main guided installer orchestration tool for Cidre desktop
+set -euo pipefail
+
+# Print banner
+echo -e "\e[1;36m====================================================\e[0m"
+echo -e "\e[1;35m               Cidre Guided Installer               \e[0m"
+echo -e "\e[1;36m====================================================\e[0m"
+echo "  The cider after Homebrew."
+echo ""
+
+# Configuration variables
+DRY_RUN=false
+CHECK_ONLY=false
+PROFILE=""
+YES=false
+NO_COLOR=false
+RC_DRY_RUN=false
+RESUME_MODE=false
+NO_RESUME=false
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_RESUME_FILE="${CIDRE_SYSTEM_ROOT}/resume/resume.env"
+
+show_help() {
+  echo "Usage: install [options]"
+  echo "Options:"
+  echo "  --check             Perform preflight system checks without making changes"
+  echo "  --dry-run           Show the commands that would be executed"
+  echo "  --profile <name>    Set installation profile (desktop, developer, minimal, recovery)"
+  echo "  --resume            Use imported Cidre resume state to select the profile"
+  echo "  --resume-profile    Print the imported resume profile and exit"
+  echo "  --no-resume         Ignore imported resume state and use normal selection"
+  echo "  --yes               Skip confirmation prompts"
+  echo "  --no-color          Disable colored terminal output"
+  echo "  --rc-dry-run        Validate all installer/doctor profiles in simulation mode"
+  echo "  --help              Show this help message"
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_ONLY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --rc-dry-run) RC_DRY_RUN=true; shift ;;
+    --profile)
+      if [ $# -lt 2 ]; then
+        echo "Error: --profile requires an argument." >&2
+        exit 1
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --resume) RESUME_MODE=true; shift ;;
+    --resume-profile)
+      if [ -f "${SYSTEM_RESUME_FILE}" ]; then
+        # shellcheck disable=SC1090
+        . "${SYSTEM_RESUME_FILE}"
+        printf '%s\n' "${CIDRE_RESUME_PROFILE:-}"
+        exit 0
+      fi
+      echo "ERROR: no Cidre resume state found." >&2
+      exit 1
+      ;;
+    --no-resume) NO_RESUME=true; shift ;;
+    --yes) YES=true; shift ;;
+    --no-color) NO_COLOR=true; shift ;;
+    --help) show_help; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$RC_DRY_RUN" = true ]; then
+  echo "=== Running Release Candidate Dry-Run Verification ==="
+  errors=0
+
+  # Step 1: System Checks
+  echo "1. Checking system compatibilities..."
+  for cmd in pacman systemctl sudo bash python3 makepkg; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      echo "[OK] Command '$cmd' is available."
+    else
+      echo "[FAIL] Required command '$cmd' is missing."
+      errors=$((errors + 1))
+    fi
+  done
+
+  # Step 2: Bootstrap Dry-run
+  echo ""
+  echo "2. Simulating system bootstrap actions..."
+  if "${SCRIPT_DIR}/bootstrap.sh" --dry-run >/dev/null; then
+    echo "[OK] Bootstrap dry-run simulated successfully."
+  else
+    echo "[FAIL] Bootstrap dry-run simulation failed."
+    errors=$((errors + 1))
+  fi
+
+  # Step 3: Profile User-Setup Dry-runs
+  for prof in desktop developer minimal; do
+    echo ""
+    echo "3. Simulating profile configuration apply: ${prof}..."
+    if python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "${prof}" --dry-run >/dev/null; then
+      echo "[OK] Profile '${prof}' dry-run simulated successfully."
+    else
+      echo "[FAIL] Profile '${prof}' dry-run simulation failed."
+      errors=$((errors + 1))
+    fi
+  done
+
+  # Step 4: Doctor readiness
+  echo ""
+  echo "4. Simulating doctor diagnostics readiness check..."
+  if "${SCRIPT_DIR}/cidre-doctor" --rc-readiness; then
+    echo "[OK] Doctor RC readiness diagnostics check passed."
+  else
+    echo "[WARN/FAIL] Doctor RC readiness diagnostics check failed or has warnings."
+    errors=$((errors + 1))
+  fi
+
+  echo ""
+  echo "=== RC Dry-Run Verification Summary ==="
+  if [ $errors -eq 0 ]; then
+    echo "SUCCESS: Release candidate dry-run completed with 0 errors."
+    exit 0
+  else
+    echo "FAILURE: Release candidate dry-run completed with ${errors} issues."
+    exit 1
+  fi
+fi
+
+# Setup logging
+USER_HOME="${HOME:-$(getent passwd "${USER:-$(id -un)}" | cut -d: -f6)}"
+LOG_DIR="${USER_HOME}/.local/state/cidre"
+LOG_FILE="${LOG_DIR}/install.log"
+mkdir -p "$LOG_DIR"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "Installation started at $(date)"
+
+write_user_resume_state() {
+  if [ "${RESUME_MODE}" = false ]; then
+    return 0
+  fi
+  local user_resume_dir="${LOG_DIR}/resume"
+  mkdir -p "${user_resume_dir}"
+  if [ -f "${CIDRE_SYSTEM_ROOT}/seed/manifest.json" ]; then
+    cp "${CIDRE_SYSTEM_ROOT}/seed/manifest.json" "${user_resume_dir}/manifest.json"
+  fi
+  printf '%s\n' "${PROFILE}" > "${user_resume_dir}/applied-profile"
+  date -Is > "${user_resume_dir}/applied-at"
+  {
+    echo "resume_mode=true"
+    echo "profile=${PROFILE}"
+    echo "source_commit=${CIDRE_RESUME_SOURCE_COMMIT:-unknown}"
+    echo "source_branch=${CIDRE_RESUME_SOURCE_BRANCH:-unknown}"
+    echo "applied_at=$(date -Is)"
+  } > "${user_resume_dir}/resume.log"
+}
+
+# Root check
+if [ "$EUID" -eq 0 ] && [ "$DRY_RUN" = false ] && [ "$CHECK_ONLY" = false ] && [ "$RC_DRY_RUN" = false ]; then
+  echo -e "\e[1;31mFAIL: Do not run ./install as root.\e[0m" >&2
+  echo "" >&2
+  echo "For fresh ALARM root-phase preparation, run:" >&2
+  echo "  ./preinstall" >&2
+  echo "" >&2
+  echo "To inspect current readiness first, run:" >&2
+  echo "  scripts/cidre-doctor --base-readiness --summary" >&2
+  echo "" >&2
+  echo "Then switch to your normal user and run:" >&2
+  echo "  ./install" >&2
+  exit 1
+fi
+
+# Step 1: System Checks
+echo "=== Step 1: Running System Preflight Checks ==="
+errors=0
+
+if [ -f /etc/arch-release ]; then
+  echo "[OK] Arch/ALARM-like environment detected."
+else
+  echo "[WARN] /etc/arch-release not found. This might not be Arch Linux."
+fi
+
+for cmd in pacman systemctl sudo bash python3 makepkg; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    echo "[OK] Command '$cmd' is available."
+  else
+    echo "[FAIL] Required command '$cmd' is missing."
+    errors=$((errors + 1))
+  fi
+done
+
+if [ $errors -gt 0 ]; then
+  echo -e "\e[1;31mFAIL: System compatibility checks failed. Please install missing commands.\e[0m" >&2
+  exit 1
+fi
+
+if [ "$CHECK_ONLY" = true ]; then
+  echo "Check-only mode complete. System is ready for install."
+  exit 0
+fi
+
+if [ "${NO_RESUME}" = true ]; then
+  RESUME_MODE=false
+fi
+
+if [ "${RESUME_MODE}" = true ]; then
+  if [ ! -f "${SYSTEM_RESUME_FILE}" ]; then
+    echo "ERROR: no Cidre resume state found." >&2
+    echo "Hint: run ./preinstall --import-seed /path/to/cidre-seed.tar.gz first, or run ./install normally." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "${SYSTEM_RESUME_FILE}"
+  RESUME_PROFILE="${CIDRE_RESUME_PROFILE:-}"
+  if [ -z "${RESUME_PROFILE}" ]; then
+    echo "ERROR: imported Cidre resume state does not include a profile." >&2
+    exit 1
+  fi
+  if [ -n "${PROFILE}" ] && [ "${PROFILE}" != "${RESUME_PROFILE}" ]; then
+    echo "[WARN] --profile ${PROFILE} overrides resume profile ${RESUME_PROFILE}."
+  else
+    PROFILE="${RESUME_PROFILE}"
+    echo "Resume profile selected from imported seed: ${PROFILE}"
+  fi
+fi
+
+# Step 2: Profile Selection
+if [ -z "$PROFILE" ]; then
+  if [ "$YES" = true ]; then
+    PROFILE="desktop"
+  else
+    echo "Choose installation profile:"
+    echo "  [1] Desktop       Recommended (Niri, Ghostty, waybar, fcitx5 Mozc)"
+    echo "  [2] Developer     Desktop + development toolchain (fish, starship prompt)"
+    echo "  [3] Minimal       Core session and config deployment only"
+    echo "  [4] Recovery      Diagnostics and recovery tools only"
+    read -p "Select option [1-4] (default: 1): " opt
+    case "$opt" in
+      2) PROFILE="developer" ;;
+      3) PROFILE="minimal" ;;
+      4) PROFILE="recovery" ;;
+      *) PROFILE="desktop" ;;
+    esac
+  fi
+fi
+
+# Verify profile
+case "$PROFILE" in
+  desktop|developer|minimal|recovery) ;;
+  *)
+    echo "Error: Invalid profile '$PROFILE'." >&2
+    exit 1
+    ;;
+esac
+echo "Selected profile: $PROFILE"
+
+# Step 3: Preview
+echo ""
+echo "=== Step 3: Previewing Planned Actions ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CIDRE_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "Proposed bootstrap system actions:"
+"${SCRIPT_DIR}/bootstrap.sh" --dry-run
+
+echo ""
+SETUP_PROFILE="$PROFILE"
+if [ "$PROFILE" = "recovery" ]; then
+  SETUP_PROFILE="minimal"
+fi
+
+echo "Proposed user configuration deployment actions:"
+python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "$SETUP_PROFILE" --dry-run
+
+if [ "$DRY_RUN" = true ]; then
+  echo ""
+  echo "Dry-run mode complete. No system modifications were performed."
+  exit 0
+fi
+
+# Step 4: Confirmation
+echo ""
+if [ "$YES" = false ]; then
+  read -p "Ready to install Cidre with profile '$PROFILE'. Continue? [y/N]: " conf
+  if [[ ! "$conf" =~ ^[yY] ]]; then
+    echo "Installation cancelled by user."
+    exit 0
+  fi
+fi
+
+# Step 5: Install
+echo ""
+echo "=== Step 5: Executing System Bootstrap ==="
+sudo "${SCRIPT_DIR}/bootstrap.sh" --install
+
+# Step 6: User Configuration
+echo ""
+echo "=== Step 6: Applying User Configurations ==="
+python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "$SETUP_PROFILE"
+python3 "${SCRIPT_DIR}/cidre-user-setup" verify
+write_user_resume_state
+
+# Step 7: Diagnostics
+echo ""
+echo "=== Step 7: Running Diagnostics Check ==="
+if XDG_SESSION_TYPE=wayland "${SCRIPT_DIR}/cidre-doctor"; then
+  echo ""
+  echo -e "\e[1;32m=== Step 8: Cidre Guided Installation Complete! ===\e[0m"
+  echo "Next steps:"
+  echo "  1. Reboot the system or log out of your current session."
+  echo "  2. Select the 'Cidre' graphical session at the greeter screen."
+  echo "  3. On your first login, the Welcome Dashboard will show basic hotkeys."
+  echo ""
+  echo "Maintenance Commands:"
+  echo "  * Update check:         cidre-update --check"
+  echo "  * Maintenance status:   cidre-maintenance status"
+  echo "  * System diagnostics:   cidre-doctor --maintenance"
+  echo ""
+else
+  echo ""
+  echo -e "\e[1;33m=== Diagnostics detected post-install warnings/errors ===\e[0m"
+  echo "Recovery suggests:"
+  echo "  * Restore latest config:  cidre-recovery restore latest"
+  echo "  * View last diagnostic:   cidre-doctor --last"
+  echo "  * Inspect action logs:    cidre-maintenance logs"
+  echo ""
+fi
+
+echo "Installation logs saved to: $LOG_FILE"

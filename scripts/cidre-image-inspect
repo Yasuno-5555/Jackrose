@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+mode=""
+target=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-image-inspect [options]
+
+Options:
+  --overlay <dir>   Inspect rootfs overlay directory
+  --tar <file>      Inspect overlay tarball listing
+  --rootfs <dir>    Inspect mounted rootfs directory
+  -h, --help        Show help
+EOF
+}
+
+check_tar_entry() {
+  path="$1"
+  tar -tzf "$target" | grep -Fx "$path" >/dev/null 2>&1 && return 0
+  tar -tzf "$target" | grep -Fx "$path/" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+check_path() {
+  path="$1"
+  case "$mode" in
+    --overlay|--rootfs)
+      [ -e "$target/$path" ] && printf '[OK] %s\n' "$path" || {
+        printf '[FAIL] missing: %s\n' "$path" >&2
+        exit 1
+      }
+      ;;
+    --tar)
+      check_tar_entry "$path" && printf '[OK] %s\n' "$path" || {
+        printf '[FAIL] missing in tar: %s\n' "$path" >&2
+        exit 1
+      }
+      ;;
+  esac
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --overlay|--tar|--rootfs)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: %s requires a path\n' "$1" >&2
+        exit 1
+      }
+      mode="$1"
+      target="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ERROR: unknown option: %s\n' "$1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+[ -n "$mode" ] || {
+  usage
+  exit 1
+}
+
+case "$mode" in
+  --overlay|--rootfs)
+    [ -d "$target" ] || {
+      printf 'ERROR: directory not found: %s\n' "$target" >&2
+      exit 1
+    }
+    ;;
+  --tar)
+    [ -f "$target" ] || {
+      printf 'ERROR: tarball not found: %s\n' "$target" >&2
+      exit 1
+    }
+    ;;
+esac
+
+printf 'Cidre image inspection\n\n'
+
+check_path usr/lib/cidre/cidre-firstboot-root
+check_path usr/lib/cidre/cidre-seed
+check_path usr/lib/cidre/cidre-seed-verify
+check_path usr/lib/cidre/cidre-seed-import
+check_path usr/lib/cidre/cidre-resume
+check_path usr/lib/cidre/cidre-doctor
+check_path usr/lib/cidre/cidre-recovery
+check_path usr/lib/cidre/cidre-preinstall
+check_path usr/lib/cidre/cidre-installer
+check_path etc/systemd/system/cidre-firstboot-root.service
+check_path etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service
+check_path var/lib/cidre/seed
+check_path var/lib/cidre/resume
+check_path var/lib/cidre/firstboot-root

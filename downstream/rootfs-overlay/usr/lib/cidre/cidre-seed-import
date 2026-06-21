@@ -1,0 +1,104 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SEED_DIR="$CIDRE_SYSTEM_ROOT/seed"
+RESUME_DIR="$CIDRE_SYSTEM_ROOT/resume"
+FORCE=0
+YES=0
+DRY_RUN=0
+SEED_PATH=""
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: cidre-seed-import [--force] [--yes] [--dry-run] <seed.tar.gz>
+EOF
+}
+
+confirm_overwrite() {
+  if [ "$FORCE" -eq 1 ] || [ "$YES" -eq 1 ]; then
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    return 1
+  fi
+  printf 'Existing seed state found at %s. Overwrite? [y/N]: ' "$SEED_DIR"
+  read answer || true
+  case "$answer" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --yes) YES=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    -*)
+      fail "unknown option: $1"
+      ;;
+    *)
+      [ -z "$SEED_PATH" ] || fail "only one seed path is supported"
+      SEED_PATH="$1"
+      shift
+      ;;
+  esac
+done
+
+[ -n "$SEED_PATH" ] || fail "seed path is required"
+[ "$(uname -s)" = "Linux" ] || fail "cidre-seed-import must be run on Linux."
+
+if [ "$DRY_RUN" -ne 1 ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  fail "cidre-seed-import must be run as root."
+fi
+
+"$SCRIPT_DIR/cidre-seed-verify" "$SEED_PATH"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '[DRY-RUN] Would create %s and %s\n' "$SEED_DIR" "$RESUME_DIR"
+  printf '[DRY-RUN] Would store imported seed state and generate resume.env\n'
+  exit 0
+fi
+
+if [ -e "$SEED_DIR" ] && ! confirm_overwrite; then
+  fail "existing seed state found; use --force to overwrite"
+fi
+
+TMPDIR_PATH="$(mktemp -d "${TMPDIR:-/tmp}/cidre-seed-import.XXXXXX")"
+trap 'rm -rf "$TMPDIR_PATH"' EXIT HUP INT TERM
+tar -xzf "$SEED_PATH" -C "$TMPDIR_PATH"
+
+mkdir -p "$SEED_DIR" "$RESUME_DIR"
+cp "$SEED_PATH" "$SEED_DIR/cidre-seed.tar.gz"
+cp "$TMPDIR_PATH/cidre-seed/manifest.json" "$SEED_DIR/manifest.json"
+cp "$TMPDIR_PATH/cidre-seed/resume.env" "$SEED_DIR/resume.env"
+cp "$TMPDIR_PATH/cidre-seed/checksum.txt" "$SEED_DIR/checksum.txt"
+cp "$TMPDIR_PATH/cidre-seed/handoff.txt" "$SEED_DIR/handoff.txt"
+cp "$TMPDIR_PATH/cidre-seed/repo-info.txt" "$SEED_DIR/repo-info.txt"
+date -Is > "$SEED_DIR/imported-at"
+printf '[%s] imported %s\n' "$(date -Is)" "$SEED_PATH" > "$SEED_DIR/import.log"
+
+. "$TMPDIR_PATH/cidre-seed/resume.env"
+cat > "$RESUME_DIR/resume.env" <<EOF
+CIDRE_RESUME_AVAILABLE=1
+CIDRE_RESUME_SCHEMA_VERSION=${CIDRE_SEED_SCHEMA_VERSION}
+CIDRE_RESUME_INSTALL_MODE=${CIDRE_SEED_INSTALL_MODE}
+CIDRE_RESUME_PROFILE=${CIDRE_SEED_PROFILE}
+CIDRE_RESUME_SOURCE_COMMIT=${CIDRE_SEED_SOURCE_COMMIT}
+CIDRE_RESUME_SOURCE_BRANCH=${CIDRE_SEED_SOURCE_BRANCH}
+CIDRE_RESUME_IMPORTED_AT=$(date -Is)
+EOF
+printf '%s\n' "${CIDRE_SEED_PROFILE}" > "$RESUME_DIR/profile"
+printf '%s\n' "${CIDRE_SEED_SOURCE_COMMIT}" > "$RESUME_DIR/source-commit"
+printf '%s\n' "${CIDRE_SEED_INSTALL_MODE}" > "$RESUME_DIR/install-mode"
+
+printf 'Seed imported to %s\n' "$SEED_DIR"
+printf 'Resume state created at %s/resume.env\n' "$RESUME_DIR"

@@ -1,0 +1,120 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+OUTPUT_PATH="${REPO_ROOT}/.local/state/cidre/image-build/cidre-image-manifest.json"
+IMAGE_NAME="${CIDRE_IMAGE_NAME:-cidre-prototype}"
+IMAGE_PROFILE="${CIDRE_IMAGE_PROFILE:-developer}"
+IMAGE_VERSION="${CIDRE_IMAGE_VERSION:-}"
+BUILDER_PATH="${CIDRE_ALARM_BUILDER_DIR:-}"
+OVERLAY_ARTIFACT="cidre-rootfs-overlay.tar.gz"
+IMAGE_ARTIFACT="${IMAGE_NAME}-rootfs.img.zst"
+CHECKSUM_ARTIFACT="${OVERLAY_ARTIFACT}.sha256"
+OVERLAY_INSPECTED=false
+IMAGE_BOOT_TESTED=false
+INSTALLER_INTEGRATED=false
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-image-manifest [options]
+
+Options:
+  --output <file>
+  --image-name <name>
+  --profile <name>
+  --version <version>
+  --builder <path>
+  --overlay <artifact-name>
+  --image <artifact-name>
+  --checksum <artifact-name>
+  --overlay-inspected <true|false>
+  --image-boot-tested <true|false>
+  --installer-integrated <true|false>
+  -h, --help
+EOF
+}
+
+validate_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+json_escape() {
+  printf '%s' "$1" | sed \
+    -e 's/\\/\\\\/g' \
+    -e 's/"/\\"/g' \
+    -e 's/\t/\\t/g' \
+    -e 's/\r/\\r/g' \
+    -e ':a;N;$!ba;s/\n/\\n/g'
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) OUTPUT_PATH="$2"; shift 2 ;;
+    --image-name) IMAGE_NAME="$2"; shift 2 ;;
+    --profile) IMAGE_PROFILE="$2"; validate_profile "$IMAGE_PROFILE"; shift 2 ;;
+    --version) IMAGE_VERSION="$2"; shift 2 ;;
+    --builder) BUILDER_PATH="$2"; shift 2 ;;
+    --overlay) OVERLAY_ARTIFACT="$2"; shift 2 ;;
+    --image) IMAGE_ARTIFACT="$2"; shift 2 ;;
+    --checksum) CHECKSUM_ARTIFACT="$2"; shift 2 ;;
+    --overlay-inspected) OVERLAY_INSPECTED="$2"; shift 2 ;;
+    --image-boot-tested) IMAGE_BOOT_TESTED="$2"; shift 2 ;;
+    --installer-integrated) INSTALLER_INTEGRATED="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
+  esac
+done
+
+validate_profile "$IMAGE_PROFILE"
+
+if [ -z "$IMAGE_VERSION" ]; then
+  IMAGE_VERSION="$(git -C "$REPO_ROOT" describe --tags --always 2>/dev/null || git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+fi
+
+COMMIT_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+BRANCH_NAME="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || printf 'unknown')"
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+  DIRTY_STATE=true
+else
+  DIRTY_STATE=false
+fi
+
+mkdir -p "$(dirname "$OUTPUT_PATH")"
+
+cat > "$OUTPUT_PATH" <<EOF
+{
+  "schema_version": 1,
+  "cidre_version": "0.15.0",
+  "image_name": "$(json_escape "$IMAGE_NAME")",
+  "image_profile": "$(json_escape "$IMAGE_PROFILE")",
+  "image_version": "$(json_escape "$IMAGE_VERSION")",
+  "source": {
+    "repository": "https://github.com/Yasuno-5555/Cidre",
+    "commit": "$(json_escape "$COMMIT_ID")",
+    "branch": "$(json_escape "$BRANCH_NAME")",
+    "dirty": $DIRTY_STATE
+  },
+  "base": {
+    "distribution": "ALARM",
+    "builder": "asahi-alarm-builder",
+    "builder_path": "$(json_escape "$BUILDER_PATH")"
+  },
+  "artifacts": {
+    "overlay": "$(json_escape "$OVERLAY_ARTIFACT")",
+    "image": "$(json_escape "$IMAGE_ARTIFACT")",
+    "checksum": "$(json_escape "$CHECKSUM_ARTIFACT")"
+  },
+  "validation": {
+    "overlay_inspected": $OVERLAY_INSPECTED,
+    "image_boot_tested": $IMAGE_BOOT_TESTED,
+    "installer_integrated": $INSTALLER_INTEGRATED
+  }
+}
+EOF
+
+printf '[OK] wrote %s\n' "$OUTPUT_PATH"
