@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# cidre-image-mount: Mount a rootfs image read-only for inspection
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-image-mount"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STATE_DIR="${CIDRE_STATE_DIR:-.local/state/cidre}"
+
+image_path=""
+mountpoint_dir=""
+write_mode=false
+confirm_write=false
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME <image> [options]
+
+Mount a rootfs image read-only for inspection.
+Default mode is read-only. Write mount requires explicit --write --yes.
+
+Options:
+  --mountpoint <dir>   Override mountpoint directory
+                       (default: $STATE_DIR/mount/<image-name>)
+  --read-only          Mount read-only (default)
+  --write              Allow write mount (requires --yes)
+  --yes                Confirm write mount
+  --help               Show this help
+EOF
+}
+
+if [ $# -eq 0 ]; then
+  usage >&2; exit 1
+fi
+
+case "$1" in
+  --help) usage; exit 0 ;;
+  -*) echo "ERROR: expected image path as first argument" >&2; usage >&2; exit 1 ;;
+  *) image_path="$1"; shift ;;
+esac
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mountpoint) mountpoint_dir="$2"; shift 2 ;;
+    --read-only) write_mode=false; shift ;;
+    --write) write_mode=true; shift ;;
+    --yes) confirm_write=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ ! -f "$image_path" ]; then
+  echo "ERROR: image not found: $image_path" >&2
+  echo "Hint: verify the image path or generate it with scripts/cidre-image-build" >&2
+  exit 1
+fi
+
+if "$write_mode" && ! "$confirm_write"; then
+  echo "ERROR: write mount requires both --write and --yes" >&2
+  exit 1
+fi
+
+image_name="$(basename "$image_path")"
+image_name="${image_name%.img}"
+image_name="${image_name%.tar.gz}"
+image_name="${image_name%.tar.zst}"
+: "${mountpoint_dir:=$STATE_DIR/mount/$image_name}"
+
+mkdir -p "$mountpoint_dir"
+
+if "$write_mode"; then
+  mount_opts="loop"
+  mount_mode="read-write"
+else
+  mount_opts="loop,ro"
+  mount_mode="read-only"
+fi
+
+echo "Mounting image:"
+echo "  image:      $image_path"
+echo "  mountpoint: $mountpoint_dir"
+echo "  mode:       $mount_mode"
+echo ""
+
+if ! command -v mount >/dev/null 2>&1; then
+  echo "ERROR: mount command not found." >&2
+  echo "Hint: image mounting requires root privileges and host tools (mount, losetup)." >&2
+  echo "      Mount the image manually, then run:" >&2
+  echo "        scripts/cidre-rootfs-inspect --rootfs <mounted-rootfs>" >&2
+  rmdir "$mountpoint_dir" 2>/dev/null || true
+  exit 1
+fi
+
+if mount -o "$mount_opts" "$image_path" "$mountpoint_dir" 2>/dev/null; then
+  echo "Mount successful."
+  echo ""
+  echo "Next:"
+  echo "  scripts/cidre-rootfs-inspect --rootfs $mountpoint_dir"
+  echo "  scripts/cidre-image-unmount $mountpoint_dir"
+else
+  echo "ERROR: failed to mount image." >&2
+  echo "Hint: verify the image format or mount it manually, then run:" >&2
+  echo "  scripts/cidre-rootfs-inspect --rootfs <mounted-rootfs>" >&2
+  rmdir "$mountpoint_dir" 2>/dev/null || true
+  exit 1
+fi

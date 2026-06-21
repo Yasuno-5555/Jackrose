@@ -44,3 +44,16 @@ scripts/cidre-image-build --overlay-only --inspect
 scripts/cidre-image-inspect --overlay downstream/rootfs-overlay
 python3 -m json.tool .local/state/cidre/image-build/cidre-image-manifest.json
 ```
+
+## v0.17.0: Boot validation extension
+
+v0.17.0 extends validation from overlay artifacts to mounted rootfs and boot readiness.
+
+New validation layers:
+
+- Builder status check (`scripts/cidre-builder-status`)
+- Image mount/unmount (`scripts/cidre-image-mount`, `scripts/cidre-image-unmount`)
+- Rootfs inspection (`scripts/cidre-rootfs-inspect`)
+- Boot readiness aggregation (`scripts/cidre-image-boot-readiness`)
+- Boot checklist generation (`scripts/cidre-boot-checklist`)
+- Boot log collection (`scripts/cidre-boot-log-collect`)

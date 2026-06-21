@@ -1,4 +1,4 @@
-# Cidre (v0.16.0 Firstboot OOBE Pack)
+# Cidre (v0.17.0 Image Boot Validation Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -25,6 +25,13 @@ Cidre v0.16.0 introduces the firstboot OOBE layer for future Cidre-controlled im
 
 The goal is to avoid requiring users to know default ALARM credentials such as `root/root`.
 This is not a public boot-validated image yet, but it establishes the firstboot setup path used by future Cidre images.
+
+## Boot Validation Status
+
+Cidre v0.17.0 adds image boot validation tooling.
+
+This includes rootfs inspection, boot readiness checks, boot checklists, and boot log collection helpers.
+It still does not mean Cidre ships a public bootable image.
 
 ## Installation Flow
 

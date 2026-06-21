@@ -23,3 +23,18 @@ The following matrix documents the verification scopes completed on Cidre before
 
 * **Live Session**: Compositions and greeter tests on standard VMs.
 * **Real Hardware**: Apple Silicon Mac environment validation is **deferred** until v1.0.0 clean-install validation.
+
+## Image boot validation (v0.17.0)
+
+| Check | Command |
+|---|---|
+| Builder status | `scripts/cidre-builder-status` |
+| Image mount read-only | `scripts/cidre-image-mount <image>` |
+| Rootfs inspect | `scripts/cidre-rootfs-inspect --rootfs <rootfs>` |
+| Firstboot service enabled | Check `etc/systemd/system/multi-user.target.wants/` |
+| Firstboot state clean | Verify `completed`/`skipped` markers absent |
+| Boot readiness | `scripts/cidre-image-boot-readiness --rootfs <rootfs>` |
+| Boot checklist | `scripts/cidre-boot-checklist --output checklist.md` |
+| Boot log collection | `scripts/cidre-boot-log-collect --dry-run` |
+| Doctor boot check | `scripts/cidre-doctor --boot` |
+| Recovery boot status | `scripts/cidre-recovery boot-status` |

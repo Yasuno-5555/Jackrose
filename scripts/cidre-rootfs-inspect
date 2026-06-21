@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# cidre-rootfs-inspect: Inspect a mounted rootfs for Cidre components
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-rootfs-inspect"
+
+rootfs_path=""
+strict=false
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME --rootfs <path> [options]
+
+Inspect a mounted rootfs for required Cidre components.
+
+Options:
+  --rootfs <path>   Path to mounted rootfs (required)
+  --strict          Enable strict checks (executable bits, symlink targets)
+  --json            Output as JSON (reserved)
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs) rootfs_path="$2"; shift 2 ;;
+    --strict) strict=true; shift ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$rootfs_path" ]; then
+  echo "ERROR: --rootfs <path> is required" >&2
+  usage >&2
+  exit 1
+fi
+
+if [ ! -d "$rootfs_path" ]; then
+  echo "ERROR: rootfs path not found: $rootfs_path" >&2
+  exit 1
+fi
+
+echo "Cidre rootfs inspection"
+echo "rootfs: $rootfs_path"
+echo ""
+
+result_ok=0
+result_warn=0
+result_fail=0
+
+_check() {
+  local status="$1" label="$2"
+  case "$status" in
+    OK)   echo "[OK]   $label"; result_ok=$((result_ok+1)) ;;
+    WARN) echo "[WARN] $label"; result_warn=$((result_warn+1)) ;;
+    FAIL) echo "[FAIL] $label"; result_fail=$((result_fail+1)) ;;
+  esac
+}
+
+check_file() {
+  local rel="$1"
+  local full="$rootfs_path/$rel"
+  if [ -f "$full" ]; then
+    _check OK "$rel"
+  else
+    _check FAIL "$rel (missing)"
+  fi
+}
+
+check_dir() {
+  local rel="$1"
+  local full="$rootfs_path/$rel"
+  if [ -d "$full" ]; then
+    _check OK "$rel/"
+  else
+    _check FAIL "$rel/ (missing)"
+  fi
+}
+
+echo "Cidre scripts:"
+check_file "usr/lib/cidre/cidre-firstboot-root"
+check_file "usr/lib/cidre/cidre-oobe"
+check_file "usr/lib/cidre/cidre-firstboot-state"
+check_file "usr/lib/cidre/cidre-firstboot-handoff"
+check_file "usr/lib/cidre/cidre-seed"
+check_file "usr/lib/cidre/cidre-resume"
+check_file "usr/lib/cidre/cidre-preinstall"
+check_file "usr/lib/cidre/cidre-installer"
+
+echo ""
+echo "Systemd:"
+check_file "etc/systemd/system/cidre-firstboot-root.service"
+check_file "etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service"
+
+echo ""
+echo "State directories:"
+check_dir "var/lib/cidre"
+check_dir "var/lib/cidre/seed"
+check_dir "var/lib/cidre/resume"
+check_dir "var/lib/cidre/firstboot-root"
+
+echo ""
+echo "Firstboot state (must be clean):"
+if [ -e "$rootfs_path/var/lib/cidre/firstboot-root/completed" ]; then
+  _check FAIL "firstboot completed marker must NOT exist in image"
+else
+  _check OK "firstboot completed marker absent"
+fi
+if [ -e "$rootfs_path/var/lib/cidre/firstboot-root/skipped" ]; then
+  _check FAIL "firstboot skipped marker must NOT exist in image"
+else
+  _check OK "firstboot skipped marker absent"
+fi
+
+if "$strict"; then
+  echo ""
+  echo "Strict checks:"
+  for script in \
+    cidre-firstboot-root \
+    cidre-oobe \
+    cidre-firstboot-state \
+    cidre-firstboot-handoff \
+    cidre-seed \
+    cidre-resume \
+    cidre-preinstall \
+    cidre-installer; do
+    full="$rootfs_path/usr/lib/cidre/$script"
+    if [ -f "$full" ]; then
+      if [ -x "$full" ]; then
+        _check OK "$script is executable"
+      else
+        _check FAIL "$script is not executable"
+      fi
+    fi
+  done
+
+  symlink="$rootfs_path/etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service"
+  if [ -L "$symlink" ]; then
+    _check OK "firstboot service symlink exists"
+  elif [ -f "$symlink" ]; then
+    _check WARN "firstboot service is a regular file, not a symlink"
+  fi
+fi
+
+echo ""
+echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
+
+if [ "$result_fail" -gt 0 ]; then
+  exit 1
+fi

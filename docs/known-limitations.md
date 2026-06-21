@@ -46,3 +46,11 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
    - v0.16.0 does not enable root autologin by default.
 21. **No Password Storage or Management**:
    - v0.16.0 does not store or manage user passwords.
+
+## v0.17.0 limitations
+
+- v0.17.0 does not publish a public bootable Cidre image.
+- v0.17.0 does not perform real Apple Silicon boot validation in CI.
+- Image mounting may require root privileges and depends on host tools (`mount`, `losetup`).
+- Rootfs inspection does not guarantee boot success.
+- Boot log collection only works after a successful or partially successful boot.

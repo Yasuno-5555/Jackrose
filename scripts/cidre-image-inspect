@@ -87,6 +87,14 @@ esac
 
 printf 'Cidre image inspection\n\n'
 
+# When in --rootfs mode, delegate to cidre-rootfs-inspect for richer output
+if [ "$mode" = "--rootfs" ]; then
+  SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+  if [ -x "$SCRIPT_DIR/cidre-rootfs-inspect" ]; then
+    exec "$SCRIPT_DIR/cidre-rootfs-inspect" --rootfs "$target" "$@"
+  fi
+fi
+
 check_path usr/lib/cidre/cidre-firstboot-root
 check_path usr/lib/cidre/cidre-oobe
 check_path usr/lib/cidre/cidre-firstboot-state

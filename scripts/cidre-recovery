@@ -20,6 +20,7 @@ show_help() {
   echo "  downstream-status    Show downstream foundation prototype status"
   echo "  image-status         Show prototype image artifact status"
   echo "  firstboot-status     Show firstboot OOBE state"
+  echo "  boot-status          Show image boot validation status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
   echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
   echo "  reset-niri           Restore default config.kdl to ~/.config/niri/"
@@ -208,6 +209,53 @@ case "$CMD" in
       echo "  handoff: present"
     else
       echo "  handoff: missing"
+    fi
+    ;;
+  boot-status)
+    SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+    IMAGE_OUTPUT_DIR="${REPO_ROOT}/.local/state/cidre/image-build"
+    BOOT_LOG_DIR="${HOME}/.local/state/cidre/boot-validation"
+
+    echo "Cidre boot validation:"
+
+    if [ -f "$IMAGE_OUTPUT_DIR/cidre-rootfs-overlay.tar.gz" ]; then
+      echo "  image artifact:     present"
+    else
+      echo "  image artifact:     missing"
+    fi
+
+    if [ -f "$IMAGE_OUTPUT_DIR/inspect.log" ]; then
+      echo "  rootfs inspected:   yes (inspect.log found)"
+    else
+      echo "  rootfs inspected:   no"
+    fi
+
+    if [ -f "$IMAGE_OUTPUT_DIR/cidre-image-manifest.json" ]; then
+      # Check boot_readiness_checked field if present
+      if command -v python3 >/dev/null 2>&1; then
+        brc="$(python3 -c "
+import json, sys
+try:
+  d = json.load(open('$IMAGE_OUTPUT_DIR/cidre-image-manifest.json'))
+  print(d.get('validation', {}).get('boot_readiness_checked', False))
+except:
+  print('unknown')
+" 2>/dev/null || echo 'unknown')"
+        echo "  boot readiness:     $brc"
+      else
+        echo "  boot readiness:     unknown (python3 not available)"
+      fi
+    else
+      echo "  boot readiness:     no manifest"
+    fi
+
+    echo "  real boot tested:   no"
+
+    if [ -d "$BOOT_LOG_DIR" ] && [ -n "$(ls -A "$BOOT_LOG_DIR" 2>/dev/null)" ]; then
+      echo "  last log bundle:    present ($BOOT_LOG_DIR)"
+    else
+      echo "  last log bundle:    missing"
     fi
     ;;
   disable-greetd)

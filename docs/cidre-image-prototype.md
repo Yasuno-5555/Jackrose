@@ -79,3 +79,15 @@ scripts/cidre-image-inspect --tar .local/state/cidre/image-build/cidre-rootfs-ov
 - boot validation is deferred
 - builder execution is still wrapper-first
 - no public Cidre image is shipped in v0.15.0
+
+## v0.17.0: Boot readiness checks
+
+v0.17.0 introduces boot readiness checks.
+
+A prototype image is not considered ready for controlled boot validation until:
+
+- `scripts/cidre-rootfs-inspect --rootfs <rootfs>` passes
+- `scripts/cidre-image-boot-readiness --rootfs <rootfs>` passes
+
+These checks confirm that Cidre components are present, firstboot service is enabled,
+and firstboot state is clean.

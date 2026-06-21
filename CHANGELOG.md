@@ -2,6 +2,33 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.17.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-builder-status` for ALARM builder / host tool status checks.
+- Added `scripts/cidre-image-mount` for read-only rootfs image mounting.
+- Added `scripts/cidre-image-unmount` for image unmounting.
+- Added `scripts/cidre-rootfs-inspect` for mounted rootfs Cidre component validation.
+- Added `scripts/cidre-image-boot-readiness` for aggregate boot readiness checks.
+- Added `scripts/cidre-boot-checklist` for boot validation checklist generation.
+- Added `scripts/cidre-boot-log-collect` for post-boot log collection.
+- Added image boot validation documentation.
+- Added rootfs inspection documentation.
+- Added boot log collection documentation.
+- Added `docs/v0.17.0-image-boot-validation.md` release doc.
+
+### Changed
+- Updated `scripts/cidre-image-build`: added `--boot-readiness` and `--builder-status`.
+- Updated `scripts/cidre-image-inspect`: delegates `--rootfs` to `cidre-rootfs-inspect`.
+- Updated `scripts/cidre-image-manifest`: added boot validation fields; bumped `cidre_version` to `0.17.0`.
+- Updated `scripts/cidre-doctor`: added `--boot`; updated `--rc-readiness` with boot validation scripts and docs.
+- Updated `scripts/cidre-recovery`: added `boot-status` subcommand.
+- Updated validation matrix and v1.0.0 clean install test plan with boot validation requirements.
+- Updated known limitations with v0.17.0 constraints.
+
+### Notes
+v0.17.0 does not ship a public bootable Cidre image.
+It adds the validation tooling needed to move prototype images toward controlled boot testing.
+
 ## [0.16.0] - 2026-06-21
 ### Added
 - Added `scripts/cidre-oobe` as the firstboot OOBE front-end.

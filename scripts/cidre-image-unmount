@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# cidre-image-unmount: Unmount a rootfs image mounted by cidre-image-mount
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-image-unmount"
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME <mountpoint>
+
+Unmount a rootfs image mounted by cidre-image-mount.
+
+Arguments:
+  <mountpoint>   Path to the mounted rootfs directory
+EOF
+}
+
+if [ $# -eq 0 ]; then
+  usage >&2; exit 1
+fi
+
+case "$1" in
+  --help) usage; exit 0 ;;
+esac
+
+mountpoint_dir="$1"
+
+if [ ! -d "$mountpoint_dir" ]; then
+  echo "ERROR: mountpoint directory not found: $mountpoint_dir" >&2
+  exit 1
+fi
+
+if ! command -v umount >/dev/null 2>&1; then
+  echo "ERROR: umount command not found." >&2
+  echo "Hint: unmount manually: sudo umount $mountpoint_dir" >&2
+  exit 1
+fi
+
+echo "Unmounting: $mountpoint_dir"
+
+if umount "$mountpoint_dir" 2>/dev/null; then
+  echo "Unmount successful."
+  rmdir "$mountpoint_dir" 2>/dev/null && echo "Mountpoint directory removed." || true
+else
+  echo "ERROR: failed to unmount: $mountpoint_dir" >&2
+  echo "Hint: try manually:" >&2
+  echo "  sudo umount $mountpoint_dir" >&2
+  if command -v losetup >/dev/null 2>&1; then
+    echo "  or: sudo losetup -d <device>   (to detach loop device)" >&2
+  fi
+  exit 1
+fi

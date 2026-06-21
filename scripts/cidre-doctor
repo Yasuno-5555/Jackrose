@@ -16,6 +16,7 @@ RESUME_MODE=false
 DOWNSTREAM_MODE=false
 IMAGE_MODE=false
 FIRSTBOOT_MODE=false
+BOOT_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
@@ -41,6 +42,7 @@ show_help() {
   echo "  --downstream        Inspect downstream foundation files and prototypes"
   echo "  --image             Inspect prototype image build scripts and artifacts"
   echo "  --firstboot         Inspect firstboot OOBE scripts and state"
+  echo "  --boot              Inspect image boot validation tooling and artifacts"
   echo "  --base-readiness    Verify root-phase base setup readiness for ./preinstall"
   echo "  --seed              Inspect imported Cidre seed state under /var/lib/cidre/seed"
   echo "  --resume            Inspect imported/system and user resume state"
@@ -62,6 +64,7 @@ while [ $# -gt 0 ]; do
     --downstream) DOWNSTREAM_MODE=true; shift ;;
     --image) IMAGE_MODE=true; shift ;;
     --firstboot) FIRSTBOOT_MODE=true; shift ;;
+    --boot) BOOT_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -516,6 +519,59 @@ elif [ "$FIRSTBOOT_MODE" = true ]; then
     print_result WARN "Firstboot handoff is missing."
   fi
 
+elif [ "$BOOT_MODE" = true ]; then
+  SCRIPT_PATH=$(realpath "$0")
+  REPO_ROOT=$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)
+  IMAGE_OUTPUT_DIR="${REPO_ROOT}/.local/state/cidre/image-build"
+  BOOT_LOG_DIR="${HOME}/.local/state/cidre/boot-validation"
+
+  echo "Cidre boot validation check"
+  echo ""
+
+  # New boot validation scripts
+  for script in \
+    scripts/cidre-image-mount \
+    scripts/cidre-image-unmount \
+    scripts/cidre-rootfs-inspect \
+    scripts/cidre-image-boot-readiness \
+    scripts/cidre-boot-checklist \
+    scripts/cidre-boot-log-collect \
+    scripts/cidre-builder-status; do
+    if [ -f "${REPO_ROOT}/${script}" ] && [ -x "${REPO_ROOT}/${script}" ]; then
+      print_result OK "Boot validation script present: $script"
+    else
+      print_result FAIL "Boot validation script missing: $script"
+    fi
+  done
+
+  echo ""
+  # Artifacts
+  if [ -f "$IMAGE_OUTPUT_DIR/cidre-rootfs-overlay.tar.gz" ]; then
+    print_result OK "Image overlay artifact exists."
+  else
+    print_result WARN "No overlay artifact generated yet."
+  fi
+
+  if [ -f "$IMAGE_OUTPUT_DIR/cidre-rootfs-overlay.tar.gz.sha256" ]; then
+    print_result OK "Overlay checksum exists."
+  else
+    print_result WARN "No overlay checksum generated yet."
+  fi
+
+  if [ -f "$IMAGE_OUTPUT_DIR/cidre-image-manifest.json" ]; then
+    print_result OK "Image manifest exists."
+  else
+    print_result WARN "No image manifest generated yet."
+  fi
+
+  if [ -d "$BOOT_LOG_DIR" ]; then
+    print_result OK "Boot validation log directory exists."
+  else
+    print_result WARN "No boot validation log directory yet."
+  fi
+
+  print_result WARN "Real Apple Silicon boot validation not yet performed."
+
 elif [ "$RC_READINESS_MODE" = true ]; then
   # 1. Try to find the Cidre repository root relative to this script
   SCRIPT_PATH=$(realpath "$0")
@@ -545,8 +601,17 @@ elif [ "$RC_READINESS_MODE" = true ]; then
       fi
     done
 
+    # Boot validation scripts (v0.17.0)
+    for cmd in scripts/cidre-builder-status scripts/cidre-image-mount scripts/cidre-image-unmount scripts/cidre-rootfs-inspect scripts/cidre-image-boot-readiness scripts/cidre-boot-checklist scripts/cidre-boot-log-collect; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Boot validation script present: ${cmd}"
+      else
+        print_result FAIL "Boot validation script missing or not executable: ${cmd}"
+      fi
+    done
+
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."
         # Extra verification for limitations presence

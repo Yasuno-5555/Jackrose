@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# cidre-boot-log-collect: Collect boot validation logs after a Cidre first boot
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-boot-log-collect"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEFAULT_OUTPUT_DIR=".local/state/cidre/boot-validation"
+
+output_dir="$DEFAULT_OUTPUT_DIR"
+no_journal=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Collect boot validation logs after a Cidre first boot.
+
+Options:
+  --output <dir>    Output directory (default: $DEFAULT_OUTPUT_DIR)
+  --no-journal      Skip journalctl collection
+  --dry-run         Show what would be collected without collecting
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_dir="$2"; shift 2 ;;
+    --no-journal) no_journal=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if "$dry_run"; then
+  echo "Cidre boot log collection (dry-run)"
+  echo ""
+  echo "Would collect to: $output_dir/"
+  echo ""
+  echo "Collection plan:"
+  if ! "$no_journal"; then
+    echo "  journalctl -b              -> $output_dir/journal.txt"
+  fi
+  echo "  systemctl status cidre-firstboot-root.service"
+  echo "                             -> $output_dir/cidre-firstboot-root.service.txt"
+  echo "  /var/lib/cidre/firstboot-root/firstboot.log"
+  echo "                             -> $output_dir/firstboot.log"
+  echo "  /var/lib/cidre/firstboot-root/handoff.txt"
+  echo "                             -> $output_dir/handoff.txt"
+  echo "  scripts/cidre-doctor --firstboot"
+  echo "                             -> $output_dir/doctor-firstboot.txt"
+  echo "  scripts/cidre-recovery firstboot-status"
+  echo "                             -> $output_dir/recovery-firstboot-status.txt"
+  echo ""
+  echo "No files written (dry-run)."
+  exit 0
+fi
+
+mkdir -p "$output_dir"
+
+_collect() {
+  local label="$1" dest="$2"
+  shift 2
+  echo "  Collecting: $label"
+  if "$@" > "$output_dir/$dest" 2>&1; then
+    echo "    -> $output_dir/$dest"
+  else
+    echo "    -> $output_dir/$dest (command exited non-zero; output may be partial)"
+  fi
+}
+
+echo "Cidre boot log collection"
+echo "output: $output_dir"
+echo ""
+
+if ! "$no_journal"; then
+  if command -v journalctl >/dev/null 2>&1; then
+    _collect "journalctl -b" "journal.txt" journalctl -b --no-pager
+  else
+    echo "  [SKIP] journalctl not available"
+  fi
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  _collect "systemctl status cidre-firstboot-root.service" \
+    "cidre-firstboot-root.service.txt" \
+    systemctl status cidre-firstboot-root.service --no-pager
+else
+  echo "  [SKIP] systemctl not available"
+fi
+
+if [ -f "/var/lib/cidre/firstboot-root/firstboot.log" ]; then
+  cp "/var/lib/cidre/firstboot-root/firstboot.log" "$output_dir/firstboot.log"
+  echo "  -> $output_dir/firstboot.log"
+else
+  echo "  [SKIP] /var/lib/cidre/firstboot-root/firstboot.log not found"
+fi
+
+if [ -f "/var/lib/cidre/firstboot-root/handoff.txt" ]; then
+  cp "/var/lib/cidre/firstboot-root/handoff.txt" "$output_dir/handoff.txt"
+  echo "  -> $output_dir/handoff.txt"
+else
+  echo "  [SKIP] /var/lib/cidre/firstboot-root/handoff.txt not found"
+fi
+
+if [ -x "$SCRIPT_DIR/cidre-doctor" ]; then
+  _collect "cidre-doctor --firstboot" "doctor-firstboot.txt" \
+    "$SCRIPT_DIR/cidre-doctor" --firstboot
+else
+  echo "  [SKIP] cidre-doctor not found"
+fi
+
+if [ -x "$SCRIPT_DIR/cidre-recovery" ]; then
+  _collect "cidre-recovery firstboot-status" "recovery-firstboot-status.txt" \
+    "$SCRIPT_DIR/cidre-recovery" firstboot-status
+else
+  echo "  [SKIP] cidre-recovery not found"
+fi
+
+echo ""
+echo "Collection complete: $output_dir/"
+ls -1 "$output_dir/" 2>/dev/null | sed 's/^/  /'

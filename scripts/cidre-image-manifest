@@ -14,6 +14,9 @@ CHECKSUM_ARTIFACT="${OVERLAY_ARTIFACT}.sha256"
 OVERLAY_INSPECTED=false
 IMAGE_BOOT_TESTED=false
 INSTALLER_INTEGRATED=false
+ROOTFS_INSPECTED=false
+BOOT_READINESS_CHECKED=false
+FIRSTBOOT_SERVICE_ENABLED=true
 FIRSTBOOT_OOBE=true
 FIRSTBOOT_AUTOLOGIN=false
 SEED_RESUME=true
@@ -37,6 +40,9 @@ Options:
   --overlay-inspected <true|false>
   --image-boot-tested <true|false>
   --installer-integrated <true|false>
+  --rootfs-inspected <true|false>
+  --boot-readiness-checked <true|false>
+  --firstboot-service-enabled <true|false>
   --firstboot-oobe <true|false>
   --firstboot-autologin <true|false>
   --seed-resume <true|false>
@@ -75,6 +81,9 @@ while [ "$#" -gt 0 ]; do
     --overlay-inspected) OVERLAY_INSPECTED="$2"; shift 2 ;;
     --image-boot-tested) IMAGE_BOOT_TESTED="$2"; shift 2 ;;
     --installer-integrated) INSTALLER_INTEGRATED="$2"; shift 2 ;;
+    --rootfs-inspected) ROOTFS_INSPECTED="$2"; shift 2 ;;
+    --boot-readiness-checked) BOOT_READINESS_CHECKED="$2"; shift 2 ;;
+    --firstboot-service-enabled) FIRSTBOOT_SERVICE_ENABLED="$2"; shift 2 ;;
     --firstboot-oobe) FIRSTBOOT_OOBE="$2"; shift 2 ;;
     --firstboot-autologin) FIRSTBOOT_AUTOLOGIN="$2"; shift 2 ;;
     --seed-resume) SEED_RESUME="$2"; shift 2 ;;
@@ -104,7 +113,7 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 cat > "$OUTPUT_PATH" <<EOF
 {
   "schema_version": 1,
-  "cidre_version": "0.15.0",
+  "cidre_version": "0.17.0",
   "image_name": "$(json_escape "$IMAGE_NAME")",
   "image_profile": "$(json_escape "$IMAGE_PROFILE")",
   "image_version": "$(json_escape "$IMAGE_VERSION")",
@@ -133,7 +142,11 @@ cat > "$OUTPUT_PATH" <<EOF
   },
   "validation": {
     "overlay_inspected": $OVERLAY_INSPECTED,
+    "rootfs_inspected": $ROOTFS_INSPECTED,
+    "boot_readiness_checked": $BOOT_READINESS_CHECKED,
     "image_boot_tested": $IMAGE_BOOT_TESTED,
+    "firstboot_oobe_included": $FIRSTBOOT_OOBE,
+    "firstboot_service_enabled": $FIRSTBOOT_SERVICE_ENABLED,
     "installer_integrated": $INSTALLER_INTEGRATED
   }
 }

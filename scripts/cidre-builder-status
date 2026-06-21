@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# cidre-builder-status: Check ALARM builder / image build environment status
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-builder-status"
+
+builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Check ALARM builder / Cidre image build environment status.
+
+Options:
+  --builder <path>   Override builder directory (or set CIDRE_ALARM_BUILDER_DIR)
+  --json             Output as JSON (not yet implemented, reserved)
+  --help             Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --builder) builder_dir="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+echo "Cidre builder status"
+echo ""
+
+result_ok=0
+result_warn=0
+result_fail=0
+
+check() {
+  local status="$1" label="$2"
+  case "$status" in
+    OK)   echo "[OK]   $label"; result_ok=$((result_ok+1)) ;;
+    WARN) echo "[WARN] $label"; result_warn=$((result_warn+1)) ;;
+    FAIL) echo "[FAIL] $label"; result_fail=$((result_fail+1)) ;;
+  esac
+}
+
+echo "Builder:"
+if [ -z "$builder_dir" ]; then
+  check WARN "CIDRE_ALARM_BUILDER_DIR not set (use --builder or set env var)"
+elif [ ! -d "$builder_dir" ]; then
+  check FAIL "builder directory not found: $builder_dir"
+else
+  check OK "builder directory found: $builder_dir"
+  if [ -d "$builder_dir/.git" ]; then
+    check OK "builder is a git repository"
+    if git -C "$builder_dir" remote -v 2>/dev/null | grep -q .; then
+      check OK "builder has upstream remote configured"
+    else
+      check WARN "builder has no upstream remote configured"
+    fi
+    if ! git -C "$builder_dir" diff --quiet 2>/dev/null; then
+      check WARN "builder working tree is dirty"
+    else
+      check OK "builder working tree is clean"
+    fi
+  else
+    check WARN "builder directory is not a git repository"
+  fi
+fi
+
+echo ""
+echo "Required host tools:"
+
+for tool in git tar; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    check OK "$tool found"
+  else
+    check WARN "$tool not found"
+  fi
+done
+
+# sha256sum or shasum
+if command -v sha256sum >/dev/null 2>&1; then
+  check OK "sha256sum found"
+elif command -v shasum >/dev/null 2>&1; then
+  check OK "shasum found (sha256sum fallback)"
+else
+  check WARN "sha256sum / shasum not found"
+fi
+
+if command -v zstd >/dev/null 2>&1; then
+  check OK "zstd found"
+else
+  check WARN "zstd not found (needed for .zst image compression)"
+fi
+
+echo ""
+echo "Privileged tools (may require root for image mount):"
+
+for tool in mount umount losetup findmnt; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    check OK "$tool found (may require root)"
+  else
+    check WARN "$tool not found (may require root for image mount operations)"
+  fi
+done
+
+echo ""
+echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
+
+if [ "$result_fail" -gt 0 ]; then
+  exit 1
+fi

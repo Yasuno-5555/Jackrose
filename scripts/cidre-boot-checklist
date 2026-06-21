@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# cidre-boot-checklist: Generate a boot validation checklist
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-boot-checklist"
+
+output_file=""
+profile="developer"
+image_path=""
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Generate a Cidre boot validation checklist.
+
+Options:
+  --output <file>    Write checklist to file (default: stdout)
+  --profile <name>   Profile name (default: developer)
+  --image <path>     Image artifact path (informational)
+  --help             Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --image) image_path="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+generate_checklist() {
+  local ts
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%SZ')"
+  local image_info=""
+  if [ -n "$image_path" ]; then
+    image_info=" ($image_path)"
+  fi
+
+  cat <<EOF
+# Cidre Boot Validation Checklist
+
+Generated: $ts
+Profile: $profile${image_info}
+
+---
+
+## Before boot
+
+- [ ] Image artifact generated
+- [ ] Checksum verified (scripts/cidre-image-checksum or sha256sum)
+- [ ] Rootfs inspected (scripts/cidre-rootfs-inspect --rootfs <rootfs>)
+- [ ] Boot readiness checked (scripts/cidre-image-boot-readiness --rootfs <rootfs>)
+- [ ] Firstboot service enabled in image (/etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service)
+- [ ] Firstboot completed/skipped markers absent from image
+- [ ] Recovery path documented
+- [ ] macOS installer handoff understood
+
+---
+
+## First boot
+
+- [ ] Cidre firstboot output appears on console
+- [ ] No manual root/root knowledge required from user
+- [ ] Network check result visible during OOBE
+- [ ] Seed/resume state detected or clear fallback shown
+- [ ] Normal user handoff message shown at end of OOBE
+- [ ] OOBE does not loop or crash on error
+
+---
+
+## After firstboot
+
+- [ ] /var/lib/cidre/firstboot-root/started exists
+- [ ] /var/lib/cidre/firstboot-root/completed exists
+- [ ] cidre-recovery firstboot-status works
+- [ ] ./install --resume works (or handoff to ./install is shown)
+- [ ] Firstboot service does not re-run after completion
+
+---
+
+## Boot log collection
+
+- [ ] journalctl -b collected
+- [ ] systemctl status cidre-firstboot-root.service collected
+- [ ] /var/lib/cidre/firstboot-root/firstboot.log collected
+- [ ] /var/lib/cidre/firstboot-root/handoff.txt collected
+- [ ] scripts/cidre-doctor --firstboot output collected
+- [ ] scripts/cidre-recovery firstboot-status output collected
+
+Use: scripts/cidre-boot-log-collect --output .local/state/cidre/boot-validation/
+
+---
+
+## Known limitations
+
+- Real Apple Silicon boot not yet validated by Cidre CI
+- ALARM installer metadata not integrated
+- Image mount requires root privileges on host
+- Boot log collection only works after a boot attempt
+
+---
+
+Next steps:
+  scripts/cidre-boot-log-collect --output .local/state/cidre/boot-validation/
+  scripts/cidre-doctor --boot
+  scripts/cidre-recovery boot-status
+EOF
+}
+
+if [ -n "$output_file" ]; then
+  mkdir -p "$(dirname "$output_file")"
+  generate_checklist > "$output_file"
+  echo "Checklist written to: $output_file"
+else
+  generate_checklist
+fi

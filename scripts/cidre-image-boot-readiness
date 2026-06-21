@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# cidre-image-boot-readiness: Check image / rootfs / firstboot boot readiness
+set -euo pipefail
+
+SCRIPT_VERSION="0.17.0"
+SCRIPT_NAME="cidre-image-boot-readiness"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STATE_DIR="${CIDRE_IMAGE_OUTPUT_DIR:-.local/state/cidre/image-build}"
+
+rootfs_path=""
+image_path=""
+manifest_path=""
+strict=false
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Check image / rootfs / firstboot boot readiness.
+
+Options:
+  --rootfs <path>     Mounted rootfs path to inspect
+  --image <path>      Image artifact path (default: $STATE_DIR/cidre-rootfs-overlay.tar.gz)
+  --manifest <path>   Manifest JSON path (default: $STATE_DIR/cidre-image-manifest.json)
+  --strict            Enable strict rootfs checks
+  --help              Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs) rootfs_path="$2"; shift 2 ;;
+    --image) image_path="$2"; shift 2 ;;
+    --manifest) manifest_path="$2"; shift 2 ;;
+    --strict) strict=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Default paths
+: "${image_path:=$STATE_DIR/cidre-rootfs-overlay.tar.gz}"
+: "${manifest_path:=$STATE_DIR/cidre-image-manifest.json}"
+
+echo "Cidre image boot readiness"
+echo ""
+
+result_ok=0
+result_warn=0
+result_fail=0
+
+check() {
+  local status="$1" label="$2"
+  case "$status" in
+    OK)   echo "[OK]   $label"; result_ok=$((result_ok+1)) ;;
+    WARN) echo "[WARN] $label"; result_warn=$((result_warn+1)) ;;
+    FAIL) echo "[FAIL] $label"; result_fail=$((result_fail+1)) ;;
+  esac
+}
+
+echo "Artifacts:"
+if [ -f "$image_path" ]; then
+  check OK "image artifact found: $(basename "$image_path")"
+else
+  check WARN "image artifact not found: $image_path"
+fi
+
+# Check for checksum file in common locations
+checksum_found=false
+for csum_ext in .sha256 .sha256sum; do
+  if [ -f "${image_path}${csum_ext}" ]; then
+    checksum_found=true; break
+  fi
+done
+if ! "$checksum_found" && [ -f "$STATE_DIR/cidre-rootfs-overlay.tar.gz.sha256" ]; then
+  checksum_found=true
+fi
+if "$checksum_found"; then
+  check OK "checksum found"
+else
+  check WARN "checksum not found"
+fi
+
+if [ -f "$manifest_path" ]; then
+  check OK "image manifest found: $(basename "$manifest_path")"
+else
+  check WARN "image manifest not found: $manifest_path"
+fi
+
+if [ -n "$rootfs_path" ]; then
+  echo ""
+  echo "Rootfs inspection:"
+  if [ -d "$rootfs_path" ]; then
+    check OK "rootfs path accessible: $rootfs_path"
+
+    # Delegate to cidre-rootfs-inspect and capture summary lines
+    if [ -x "$SCRIPT_DIR/cidre-rootfs-inspect" ]; then
+      strict_flag=""
+      "$strict" && strict_flag="--strict"
+      # Run inspect, prefix each [OK]/[WARN]/[FAIL] line with spaces
+      "$SCRIPT_DIR/cidre-rootfs-inspect" --rootfs "$rootfs_path" ${strict_flag} 2>&1 | \
+        grep -E '^\[(OK|WARN|FAIL)\]' | sed 's/^/  /' || true
+    fi
+
+    # Re-check critical markers for summary result
+    if [ ! -e "$rootfs_path/var/lib/cidre/firstboot-root/completed" ] && \
+       [ ! -e "$rootfs_path/var/lib/cidre/firstboot-root/skipped" ]; then
+      check OK "firstboot state is clean (not completed/skipped)"
+    else
+      check FAIL "firstboot completed or skipped marker present in image"
+    fi
+
+    if [ -f "$rootfs_path/etc/systemd/system/cidre-firstboot-root.service" ]; then
+      check OK "firstboot-root service unit present in rootfs"
+    else
+      check FAIL "firstboot-root service unit missing from rootfs"
+    fi
+  else
+    check FAIL "rootfs path not found: $rootfs_path"
+  fi
+fi
+
+echo ""
+echo "Boot validation status:"
+check WARN "real Apple Silicon boot not yet validated"
+check WARN "ALARM installer metadata not integrated"
+
+echo ""
+echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
+
+if [ "$result_fail" -gt 0 ]; then
+  echo ""
+  echo "Result: not ready for boot validation"
+  exit 1
+else
+  echo ""
+  echo "Result: ready for controlled boot validation"
+  exit 0
+fi

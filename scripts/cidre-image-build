@@ -16,6 +16,8 @@ SYNC_OVERLAY=0
 INSPECT_ARTIFACT=0
 CLEAN_OUTPUT=0
 NO_COMPRESS=0
+BOOT_READINESS=0
+BUILDER_STATUS=0
 
 usage() {
   cat <<'EOF'
@@ -32,6 +34,8 @@ Options:
   --inspect
   --clean
   --no-compress
+  --boot-readiness
+  --builder-status
   -h, --help
 EOF
 }
@@ -111,6 +115,8 @@ while [ "$#" -gt 0 ]; do
     --inspect) INSPECT_ARTIFACT=1; shift ;;
     --clean) CLEAN_OUTPUT=1; shift ;;
     --no-compress) NO_COMPRESS=1; shift ;;
+    --boot-readiness) BOOT_READINESS=1; shift ;;
+    --builder-status) BUILDER_STATUS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
   esac
@@ -226,6 +232,16 @@ fi
   --boot-tested false >> "$BUILD_LOG"
 
 log "manifest: $manifest_path"
+
+if [ "$BUILDER_STATUS" -eq 1 ]; then
+  "$SCRIPT_DIR/cidre-builder-status"
+fi
+
+if [ "$BOOT_READINESS" -eq 1 ]; then
+  "$SCRIPT_DIR/cidre-image-boot-readiness" \
+    --image "$overlay_artifact" \
+    --manifest "$manifest_path"
+fi
 
 if [ -n "$BUILDER_DIR" ]; then
   log "builder execution is not enabled in v0.15.0; path recorded for future integration"
