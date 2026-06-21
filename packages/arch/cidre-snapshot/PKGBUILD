@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-snapshot
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre configuration snapshot and rollback management tool'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=('bash' 'jq')
+source=('cidre-snapshot')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/cidre-snapshot" "${pkgdir}/usr/bin/cidre-snapshot"
+}

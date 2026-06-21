@@ -1,0 +1,12 @@
+pkgbase = cidre-user-setup
+	pkgdesc = Cidre user environment setup tool
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Yasuno-5555/Cidre
+	arch = any
+	license = custom
+	depends = bash
+	source = cidre-user-setup
+	sha256sums = SKIP
+
+pkgname = cidre-user-setup

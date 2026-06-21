@@ -1,0 +1,11 @@
+pkgbase = cidre-wallpapers
+	pkgdesc = Official premium wallpapers for Cidre desktop environment
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Yasuno-5555/Cidre
+	arch = any
+	license = custom
+	source = cidre-wallpaper.png
+	sha256sums = SKIP
+
+pkgname = cidre-wallpapers

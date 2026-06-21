@@ -23,7 +23,7 @@ pkgbase = niri-cidre
 	depends = seatd
 	optdepends = xwayland-satellite: on-demand X11 compatibility bridge
 	optdepends = power-profiles-daemon: desktop power profile integration
-	source = profile.txt
+	source = git+https://github.com/Yasuno-5555/niri-cidre.git
 	sha256sums = SKIP
 
 pkgname = niri-cidre

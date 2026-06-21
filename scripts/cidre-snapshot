@@ -1,0 +1,303 @@
+#!/bin/bash
+# cidre-snapshot: Cidre user-level configuration snapshot management tool
+set -euo pipefail
+
+STATE_DIR="${HOME}/.local/state/cidre"
+SNAPSHOT_DIR="${STATE_DIR}/snapshots"
+MANIFEST_PATH="${STATE_DIR}/manifest.json"
+
+show_help() {
+  echo "Usage: cidre-snapshot <command> [options]"
+  echo "Commands:"
+  echo "  create               Create a timestamped snapshot of Cidre-managed configs"
+  echo "  list                 List all available snapshots"
+  echo "  show <id>            Show metadata of a snapshot"
+  echo "  diff <id>            Show unified diff of snapshot files against current state"
+  echo "  restore <id|latest>  Restore files from a snapshot (requires confirmation)"
+  echo "  prune                Delete older snapshots, keeping a specified count"
+  echo ""
+  echo "Options:"
+  echo "  --label <name>       Add a descriptive label to a new snapshot"
+  echo "  --keep <num>         Number of snapshots to keep when pruning (default: 10)"
+  echo "  --dry-run            Show what files would be modified without executing"
+  echo "  --yes                Skip confirmation prompt during restore"
+}
+
+if [ $# -lt 1 ]; then
+  show_help
+  exit 1
+fi
+
+CMD=""
+LABEL=""
+KEEP=10
+DRY_RUN=false
+YES=false
+
+# First argument should be the subcommand
+if [[ ! "$1" =~ ^- ]]; then
+  CMD="$1"
+  shift
+else
+  echo "Error: Subcommand must be specified first." >&2
+  show_help
+  exit 1
+fi
+
+# Parse remaining options/arguments
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --label)
+      if [ $# -lt 2 ]; then
+        echo "Error: --label requires a value." >&2
+        exit 1
+      fi
+      LABEL="$2"
+      shift 2
+      ;;
+    --keep)
+      if [ $# -lt 2 ]; then
+        echo "Error: --keep requires a number." >&2
+        exit 1
+      fi
+      KEEP="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --yes)
+      YES=true
+      shift
+      ;;
+    *)
+      # Accumulate non-option arguments (like snapshot IDs)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Derived managed files list
+# We can fall back to a hardcoded list if manifest.json is missing
+get_managed_files() {
+  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
+    jq -r '.files | keys[]' "$MANIFEST_PATH"
+  else
+    # Sane default files based on profiles
+    cat <<EOF
+.config/niri/config.kdl
+.config/niri/config.cidre.kdl
+.config/fuzzel/fuzzel.ini
+.config/ghostty/config
+.config/fcitx5/profile
+.config/environment.d/90-cidre-ime.conf
+.config/waybar/config
+.config/waybar/style.css
+.local/share/applications/com.mitchellh.ghostty.desktop
+.local/share/backgrounds/cidre-wallpaper.png
+.config/fish/config.fish
+.config/starship/starship.toml
+.config/mimeapps.list
+EOF
+  fi
+}
+
+case "$CMD" in
+  create)
+    TS=$(date +%Y%m%d-%H%M%S)
+    SNAPSHOT_ID="${TS}${LABEL:+-}${LABEL:-}"
+    DEST_DIR="${SNAPSHOT_DIR}/${SNAPSHOT_ID}"
+    echo "Creating snapshot: ${SNAPSHOT_ID}..."
+    
+    if [ "$DRY_RUN" = true ]; then
+      echo "[Dry-Run] Would copy Cidre-managed files to ${DEST_DIR}"
+      exit 0
+    fi
+    
+    mkdir -p "${DEST_DIR}/files"
+    
+    # Save metadata
+    cat <<EOF > "${DEST_DIR}/metadata.json"
+{
+  "id": "${SNAPSHOT_ID}",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "label": "${LABEL}",
+  "profile": "$(if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then jq -r '.profile' "$MANIFEST_PATH"; else echo "unknown"; fi)"
+}
+EOF
+
+    # Copy managed files
+    get_managed_files | while read -r file; do
+      SRC_PATH="${HOME}/${file}"
+      if [ -e "$SRC_PATH" ]; then
+        DEST_PATH="${DEST_DIR}/files/${file}"
+        mkdir -p "$(dirname "$DEST_PATH")"
+        if [ -d "$SRC_PATH" ]; then
+          cp -r "$SRC_PATH" "$DEST_PATH"
+        else
+          cp "$SRC_PATH" "$DEST_PATH"
+        fi
+      fi
+    done
+    echo "Snapshot created successfully at ${DEST_DIR}"
+    ;;
+
+  list)
+    echo "=== Cidre Snapshots ==="
+    if [ ! -d "$SNAPSHOT_DIR" ]; then
+      echo "No snapshots available."
+      exit 0
+    fi
+    # List sorted chronologically
+    find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | while read -r sdir; do
+      ID=$(basename "$sdir")
+      META_FILE="${sdir}/metadata.json"
+      if [ -f "$META_FILE" ] && command -v jq >/dev/null 2>&1; then
+        LBL=$(jq -r '.label' "$META_FILE")
+        PROFILE=$(jq -r '.profile' "$META_FILE")
+        TS=$(jq -r '.timestamp' "$META_FILE")
+        echo -e "  \e[33m${ID}\e[0m (Profile: ${PROFILE}, Label: ${LBL:-none}, Created: ${TS})"
+      else
+        echo "  ${ID} (No metadata)"
+      fi
+    done
+    ;;
+
+  show)
+    ID="${ARGS[0]:-}"
+    if [ -z "$ID" ] || [ "$ID" = "latest" ]; then
+      if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A "$SNAPSHOT_DIR")" ]; then
+        echo "Error: No snapshots available." >&2
+        exit 1
+      fi
+      ID=$(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1 | xargs basename)
+    fi
+    SDIR="${SNAPSHOT_DIR}/${ID}"
+    if [ ! -d "$SDIR" ]; then
+      echo "Error: Snapshot ID '${ID}' not found." >&2
+      exit 1
+    fi
+    echo "=== Snapshot ${ID} ==="
+    cat "${SDIR}/metadata.json" || true
+    echo ""
+    echo "Files in snapshot:"
+    if [ -d "${SDIR}/files" ]; then
+      find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||"
+    fi
+    ;;
+
+  diff)
+    ID="${ARGS[0]:-}"
+    if [ -z "$ID" ] || [ "$ID" = "latest" ]; then
+      if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A "$SNAPSHOT_DIR")" ]; then
+        echo "No snapshots available."
+        exit 0
+      fi
+      ID=$(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1 | xargs basename)
+    fi
+    SDIR="${SNAPSHOT_DIR}/${ID}"
+    if [ ! -d "$SDIR" ]; then
+      echo "Error: Snapshot ID '${ID}' not found." >&2
+      exit 1
+    fi
+    echo "=== Diffing Snapshot ${ID} against current home configurations ==="
+    
+    if [ -d "${SDIR}/files" ]; then
+      find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||" | while read -r file; do
+        SNAP_FILE="${SDIR}/files/${file}"
+        HOME_FILE="${HOME}/${file}"
+        if [ -f "$HOME_FILE" ]; then
+          diff -u "$SNAP_FILE" "$HOME_FILE" || true
+        else
+          echo "File is missing in current Home: ${file}"
+        fi
+      done
+    fi
+    ;;
+
+  restore)
+    ID="${ARGS[0]:-}"
+    if [ -z "$ID" ] || [ "$ID" = "latest" ]; then
+      if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A "$SNAPSHOT_DIR")" ]; then
+        echo "Error: No snapshots available to restore." >&2
+        exit 1
+      fi
+      ID=$(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1 | xargs basename)
+    fi
+    SDIR="${SNAPSHOT_DIR}/${ID}"
+    if [ ! -d "$SDIR" ]; then
+      echo "Error: Snapshot ID '${ID}' not found." >&2
+      exit 1
+    fi
+    
+    echo "Proposed restore from snapshot: ${ID}"
+    if [ -d "${SDIR}/files" ]; then
+      find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||" | while read -r file; do
+        echo "  Will overwrite: ~/${file}"
+      done
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+      echo "[Dry-Run] Would restore snapshot ${ID}."
+      exit 0
+    fi
+
+    if [ "$YES" = false ]; then
+      read -p "Are you sure you want to restore these configurations? This will overwrite existing files. [y/N]: " conf
+      if [[ ! "$conf" =~ ^[yY] ]]; then
+        echo "Restore cancelled."
+        exit 0
+      fi
+    fi
+
+    # Create backup snapshot first (risky change protection)
+    echo "Creating safety snapshot before restoring..."
+    SCRIPT_PATH=$(realpath "$0")
+    "$SCRIPT_PATH" create --label "pre-restore-${ID}"
+
+    # Perform copy
+    if [ -d "${SDIR}/files" ]; then
+      find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||" | while read -r file; do
+        mkdir -p "$(dirname "${HOME}/${file}")"
+        cp "${SDIR}/files/${file}" "${HOME}/${file}"
+      done
+    fi
+    echo "Snapshot ${ID} successfully restored."
+    ;;
+
+  prune)
+    echo "Pruning older snapshots, keeping latest ${KEEP}..."
+    if [ ! -d "$SNAPSHOT_DIR" ]; then
+      echo "No snapshots available."
+      exit 0
+    fi
+    
+    # List chronological snapshots to keep
+    mapfile -t ALL_SNAPS < <(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+    COUNT=${#ALL_SNAPS[@]}
+    if [ "$COUNT" -le "$KEEP" ]; then
+      echo "Total snapshots ($COUNT) is less than or equal to keep limit ($KEEP). No prune needed."
+      exit 0
+    fi
+    
+    PRUNE_LIMIT=$((COUNT - KEEP))
+    for ((i=0; i<PRUNE_LIMIT; i++)); do
+      sdir="${ALL_SNAPS[$i]}"
+      if [ "$DRY_RUN" = true ]; then
+        echo "[Dry-Run] Would delete snapshot: $(basename "$sdir")"
+      else
+        echo "Deleting snapshot: $(basename "$sdir")"
+        rm -rf "$sdir"
+      fi
+    done
+    echo "Pruning completed."
+    ;;
+
+  *)
+    show_help
+    exit 1
+    ;;
+esac

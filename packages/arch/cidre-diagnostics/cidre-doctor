@@ -1,0 +1,271 @@
+#!/bin/bash
+# cidre-doctor: Cidre system health diagnostics command
+set -euo pipefail
+
+DAILY_MODE=false
+SUMMARY_MODE=false
+VERBOSE_MODE=false
+LAST_MODE=false
+HISTORY_MODE=false
+SUGGESTIONS_MODE=false
+
+STATE_DIR="${HOME}/.local/state/cidre"
+DOCTOR_DIR="${STATE_DIR}/doctor"
+LAST_SUMMARY="${DOCTOR_DIR}/last-summary.txt"
+HISTORY_LOG="${DOCTOR_DIR}/history.log"
+
+show_help() {
+  echo "Usage: cidre-doctor [options]"
+  echo "Options:"
+  echo "  --daily             Run standard daily-driver check suite"
+  echo "  --summary           Show a condensed status overview"
+  echo "  --verbose           Display detailed diagnostic parameters"
+  echo "  --last              Show details from the last diagnostic run"
+  echo "  --history           Show recent diagnostic execution history"
+  echo "  --fix-suggestions   Show recovery suggestions based on previous diagnostics"
+  echo "  --help              Show this help message"
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --daily) DAILY_MODE=true; shift ;;
+    --summary) SUMMARY_MODE=true; shift ;;
+    --verbose) VERBOSE_MODE=true; shift ;;
+    --last) LAST_MODE=true; shift ;;
+    --history) HISTORY_MODE=true; shift ;;
+    --fix-suggestions) SUGGESTIONS_MODE=true; shift ;;
+    --help) show_help; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
+  esac
+done
+
+if [ "$LAST_MODE" = true ]; then
+  echo "=== Last Saved Diagnostics Summary ==="
+  if [ -f "$LAST_SUMMARY" ]; then
+    cat "$LAST_SUMMARY"
+  else
+    echo "No diagnostic runs recorded yet."
+  fi
+  exit 0
+fi
+
+if [ "$HISTORY_MODE" = true ]; then
+  echo "=== Diagnostics Execution History ==="
+  if [ -f "$HISTORY_LOG" ]; then
+    cat "$HISTORY_LOG"
+  else
+    echo "No history log found."
+  fi
+  exit 0
+fi
+
+if [ "$SUGGESTIONS_MODE" = true ]; then
+  echo "=== Recommended Recovery & Fix Suggestions ==="
+  # Analyze last summary or report defaults
+  if [ -f "$LAST_SUMMARY" ]; then
+    if grep -q "FAIL" "$LAST_SUMMARY"; then
+      echo "Critical failures detected in the last run. Suggested fixes:"
+      if grep -q "Niri configuration" "$LAST_SUMMARY" | grep -q "missing"; then
+        echo "  * Niri Config Missing: Run 'cidre-recovery reset-niri'"
+      fi
+      if grep -q "Fcitx5 user service is inactive" "$LAST_SUMMARY"; then
+        echo "  * IME Service Offline: Run 'systemctl --user restart fcitx5'"
+      fi
+      if grep -q "missing on the system" "$LAST_SUMMARY"; then
+        echo "  * Core Tools Missing: Re-run guided installer via './install'"
+      fi
+    else
+      echo "All critical items were OK on last check. For config issues, you can run:"
+      echo "  * 'cidre-snapshot list' to inspect recovery snapshots."
+      echo "  * 'cidre-snapshot restore latest' to rollback."
+    fi
+  else
+    echo "No previous logs found. Default suggestions:"
+    echo "  * Run 'cidre-doctor --daily' first to profile environment."
+    echo "  * Run 'cidre-recovery safe-mode' if screen fails to launch."
+  fi
+  exit 0
+fi
+
+if [ "$SUMMARY_MODE" = false ]; then
+  echo "=== Running Cidre Diagnostics (cidre-doctor) ==="
+fi
+
+STATUS=0
+OK_COUNT=0
+WARN_COUNT=0
+FAIL_COUNT=0
+
+# Clean temporary log target
+mkdir -p "$DOCTOR_DIR"
+TMP_SUMMARY=$(mktemp)
+
+# Helper to print colored outputs
+print_result() {
+  local type="$1"
+  local msg="$2"
+  case "$type" in
+    OK)
+      OK_COUNT=$((OK_COUNT + 1))
+      if [ "$SUMMARY_MODE" = false ]; then
+        echo -e "[\e[32mOK\e[0m] $msg"
+      fi
+      echo "OK: $msg" >> "$TMP_SUMMARY"
+      ;;
+    WARN)
+      WARN_COUNT=$((WARN_COUNT + 1))
+      if [ "$SUMMARY_MODE" = false ]; then
+        echo -e "[\e[33mWARN\e[0m] $msg"
+      fi
+      echo "WARN: $msg" >> "$TMP_SUMMARY"
+      ;;
+    FAIL)
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      STATUS=1
+      if [ "$SUMMARY_MODE" = false ]; then
+        echo -e "[\e[31mFAIL\e[0m] $msg"
+      fi
+      echo "FAIL: $msg" >> "$TMP_SUMMARY"
+      ;;
+  esac
+}
+
+# 1. Session check
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+  print_result OK "Graphical session is Wayland."
+else
+  print_result WARN "Graphical session is not Wayland (XDG_SESSION_TYPE='${XDG_SESSION_TYPE:-}')."
+fi
+
+# 2. Config presence checks
+check_file_exists() {
+  local filepath="$1"
+  local name="$2"
+  if [ -f "$filepath" ]; then
+    print_result OK "$name is present."
+  elif [ -d "$filepath" ]; then
+    print_result OK "$name directory is present."
+  else
+    print_result FAIL "$name is missing at $filepath."
+  fi
+}
+
+check_file_exists "$HOME/.config/niri/config.kdl" "Niri configuration"
+check_file_exists "$HOME/.config/waybar/config" "Waybar configuration"
+check_file_exists "$HOME/.config/ghostty/config" "Ghostty configuration"
+check_file_exists "$HOME/.config/fish/config.fish" "Fish configuration"
+check_file_exists "$HOME/.local/state/cidre/manifest.json" "Cidre setup manifest"
+
+# 3. Fcitx5 systemd user service check
+if systemctl --user is-active --quiet fcitx5 2>/dev/null; then
+  print_result OK "Fcitx5 user service is active."
+elif systemctl --user is-enabled --quiet fcitx5 2>/dev/null; then
+  print_result WARN "Fcitx5 user service is enabled but not currently running."
+else
+  print_result FAIL "Fcitx5 user service is inactive or not configured."
+fi
+
+# 4. speakersafetyd system daemon check
+if systemctl is-active --quiet speakersafetyd 2>/dev/null; then
+  print_result OK "speakersafetyd service is active."
+else
+  print_result WARN "speakersafetyd service is inactive (needed for safe audio output)."
+fi
+
+# 5. rtkit-daemon check
+if systemctl is-active --quiet rtkit-daemon 2>/dev/null; then
+  print_result OK "rtkit-daemon service is active."
+else
+  print_result WARN "rtkit-daemon service is inactive (needed for real-time scheduling priority)."
+fi
+
+# 6. Audio package check
+if command -v pipewire >/dev/null 2>&1; then
+  print_result OK "PipeWire command is available."
+else
+  print_result FAIL "PipeWire command is missing."
+fi
+
+# 7. Check expected binaries
+for cmd in ghostty fuzzel waybar starship fcitx5; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    print_result OK "Executable '$cmd' is available."
+  else
+    print_result FAIL "Core executable '$cmd' is missing on the system."
+  fi
+done
+
+# 8. Daily driver specific checks
+if [ "$DAILY_MODE" = true ] || [ "$VERBOSE_MODE" = true ]; then
+  # Brightness tool
+  if command -v brightnessctl >/dev/null 2>&1; then
+    print_result OK "brightnessctl tool is installed."
+  else
+    print_result WARN "brightnessctl tool is missing. Brightness hotkeys will not function."
+  fi
+
+  # Screenshot tools
+  if command -v grim >/dev/null 2>&1 && command -v slurp >/dev/null 2>&1; then
+    print_result OK "Screenshot utilities (grim, slurp) are available."
+  else
+    print_result WARN "Screenshot utilities (grim, slurp) are missing. Screenshot flow will be limited."
+  fi
+
+  # Battery status availability check (Apple Silicon Macs / laptops)
+  if [ -d /sys/class/power_supply ] && ls /sys/class/power_supply/BAT* >/dev/null 2>&1; then
+    print_result OK "Battery info is visible in /sys/class/power_supply."
+  else
+    print_result WARN "No battery interface (BAT*) found in /sys/class/power_supply. Ignore if running on desktop Mac."
+  fi
+
+  # Mozc IME check
+  if command -v fcitx5-remote >/dev/null 2>&1; then
+    print_result OK "fcitx5-remote client is available."
+  else
+    print_result WARN "fcitx5-remote tool is missing; IME diagnostics cannot be queried."
+  fi
+  
+  # Network status tool
+  if command -v nmcli >/dev/null 2>&1; then
+    print_result OK "nmcli network management tool is available."
+  else
+    print_result WARN "nmcli is missing; network status indicator might be incomplete."
+  fi
+
+  # Firstboot completion state check
+  if [ -f "$HOME/.local/state/cidre/firstboot-done" ]; then
+    print_result OK "Firstboot diagnostic check has run successfully."
+  else
+    print_result WARN "Firstboot diagnostic is pending or has not completed."
+  fi
+
+  # Install logs
+  if [ -f "/var/log/cidre/bootstrap.log" ]; then
+    print_result OK "Cidre installation log is present."
+  else
+    print_result WARN "Cidre installation log not found at /var/log/cidre/bootstrap.log."
+  fi
+fi
+
+# Save log results
+mv "$TMP_SUMMARY" "$LAST_SUMMARY"
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+echo "[${ts}] OK: ${OK_COUNT}, WARN: ${WARN_COUNT}, FAIL: ${FAIL_COUNT}" >> "$HISTORY_LOG"
+
+if [ "$SUMMARY_MODE" = true ]; then
+  echo "Cidre Health: OK=$OK_COUNT, WARN=$WARN_COUNT, FAIL=$FAIL_COUNT"
+else
+  echo ""
+  if [ $STATUS -eq 0 ]; then
+    echo "Diagnostics complete: ALL checks passed."
+  else
+    echo "Diagnostics complete: SOME warnings or critical failures were detected."
+    echo "Recommended recovery commands:"
+    echo "  * To check detailed recommendations:  cidre-doctor --fix-suggestions"
+    echo "  * To restore config from snapshot:    cidre-recovery restore latest"
+    echo "  * To reset configs back to default:   cidre-user-setup --force"
+  fi
+fi
+
+exit $STATUS

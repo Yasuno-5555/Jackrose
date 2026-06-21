@@ -5,12 +5,20 @@ set -euo pipefail
 show_help() {
   echo "Usage: cidre-recovery <command> [options]"
   echo "Commands:"
+  echo "  help                 Show this help message"
+  echo "  status               Show status of critical login, session, and keyboard services"
+  echo "  doctor               Run diagnostic health checks on key desktop services"
+  echo "  list                 List available legacy niri configurations and backups"
+  echo "  snapshots            List available configuration snapshots (cidre-snapshot list)"
+  echo "  restore <id|latest>  Restore files from a snapshot (delegates to cidre-snapshot)"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
-  echo "  reset-niri-config    Restore default config.kdl to ~/.config/niri/"
+  echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
+  echo "  reset-niri           Restore default config.kdl to ~/.config/niri/"
+  echo "  reset-waybar         Restore default waybar configuration to ~/.config/waybar/"
+  echo "  reset-shell          Restore default fish shell configuration to ~/.config/fish/"
   echo "  reset-user-config    Re-run cidre-user-setup with --force option"
-  echo "  reset-audio          Reset pipewire/wireplumber service state and asahi-audio profile"
-  echo "  collect-logs         Collect system logs for debugging and save to /var/log/cidre-recovery-bundle.tar.gz"
-  echo "  safe-mode            Launch niri compositor in safe-mode with minimal features"
+  echo "  collect-logs         Collect system logs for debugging and save to ~/cidre-recovery-report-*.tar.gz"
+  echo "  safe-mode            Back up config, disable greetd, and set up safe defaults"
 }
 
 if [ $# -lt 1 ]; then
@@ -22,6 +30,95 @@ CMD="$1"
 shift
 
 case "$CMD" in
+  help)
+    show_help
+    ;;
+  status)
+    echo "=== Cidre System Status ==="
+    if systemctl is-active --quiet greetd; then
+      echo "greetd service:    Active (Graphical Login)"
+    else
+      echo "greetd service:    Inactive (Console Login)"
+    fi
+    if systemctl --user is-active --quiet pipewire 2>/dev/null; then
+      echo "PipeWire:          Active"
+    else
+      echo "PipeWire:          Inactive"
+    fi
+    if command -v localectl >/dev/null 2>&1; then
+      echo "Locale keymap:"
+      localectl status | grep "Keymap" || echo "  Unknown"
+    fi
+    ;;
+  doctor)
+    echo "=== Running Cidre Recovery Doctor ==="
+    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+      echo "[OK] Session is running Wayland."
+    else
+      echo "[WARN] Session is not running Wayland (XDG_SESSION_TYPE='${XDG_SESSION_TYPE:-}')."
+    fi
+    if [ -f "$HOME/.config/niri/config.kdl" ]; then
+      echo "[OK] Niri configuration found."
+    else
+      echo "[FAIL] Niri configuration is missing at ~/.config/niri/config.kdl."
+    fi
+    if systemctl --user is-active --quiet fcitx5 2>/dev/null; then
+      echo "[OK] fcitx5.service systemd user unit is running."
+    else
+      echo "[WARN] fcitx5.service is not active."
+    fi
+    if pgrep waybar >/dev/null; then
+      echo "[OK] Waybar is running."
+    else
+      echo "[WARN] Waybar is not running."
+    fi
+    
+    echo ""
+    echo "Rollback Suggestion:"
+    echo "  If things broke after a config change, run: 'cidre-recovery restore latest'"
+    ;;
+  list)
+    echo "=== Available Niri Config Backups ==="
+    if [ -d "$HOME/.config/niri" ]; then
+      find "$HOME/.config/niri" -name "config.kdl.bak.*" -type f | sort -r || echo "No backups found."
+    else
+      echo "Niri config directory does not exist."
+    fi
+    ;;
+  snapshots)
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot list
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot list
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot list
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" list
+    else
+      echo "Error: cidre-snapshot command not found." >&2
+      exit 1
+    fi
+    ;;
+  restore)
+    if [ $# -lt 1 ]; then
+      echo "Error: Please specify a snapshot ID or 'latest'." >&2
+      exit 1
+    fi
+    TARGET="$1"
+    # Delegate directly to cidre-snapshot
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot restore "$TARGET"
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot restore "$TARGET"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot restore "$TARGET"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" restore "$TARGET"
+    else
+      echo "Error: cidre-snapshot command not found." >&2
+      exit 1
+    fi
+    ;;
   disable-greetd)
     if [ "$EUID" -ne 0 ]; then
       echo "Error: Please run as root (sudo)." >&2
@@ -32,22 +129,100 @@ case "$CMD" in
     systemctl stop greetd || true
     echo "greetd disabled. Fallback to TTY is now active."
     ;;
-  reset-niri-config)
-    echo "Resetting niri config..."
-    if command -v cidre-user-setup >/dev/null 2>&1; then
-      cidre-user-setup --force
+  enable-greetd)
+    if [ "$EUID" -ne 0 ]; then
+      echo "Error: Please run as root (sudo)." >&2
+      exit 1
+    fi
+    echo "Enabling greetd..."
+    systemctl enable greetd
+    systemctl start greetd || true
+    echo "greetd enabled and started."
+    ;;
+  reset-niri)
+    read -p "Are you sure you want to reset Niri configuration to system defaults? [y/N]: " conf
+    if [[ ! "$conf" =~ ^[yY] ]]; then
+      echo "Reset cancelled."
+      exit 0
+    fi
+    # Make backup snapshot first
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot create --label "pre-reset-niri"
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot create --label "pre-reset-niri"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot create --label "pre-reset-niri"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" create --label "pre-reset-niri"
+    fi
+    mkdir -p "$HOME/.config/niri"
+    if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
+      cp /usr/share/cidre/defaults/niri/config.kdl "$HOME/.config/niri/config.kdl"
+      echo "Niri config reset from system defaults."
     else
-      mkdir -p "$HOME/.config/niri"
-      if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
-        cp /usr/share/cidre/defaults/niri/config.kdl "$HOME/.config/niri/config.kdl"
-        echo "Niri config reset from system defaults."
-      else
-        echo "Error: System defaults not found." >&2
-        exit 1
-      fi
+      echo "Error: System defaults not found." >&2
+      exit 1
     fi
     ;;
+  reset-waybar)
+    read -p "Are you sure you want to reset Waybar configuration to system defaults? [y/N]: " conf
+    if [[ ! "$conf" =~ ^[yY] ]]; then
+      echo "Reset cancelled."
+      exit 0
+    fi
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot create --label "pre-reset-waybar"
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot create --label "pre-reset-waybar"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot create --label "pre-reset-waybar"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" create --label "pre-reset-waybar"
+    fi
+    mkdir -p "$HOME/.config/waybar"
+    if [ -f "/usr/share/cidre/defaults/waybar/config" ]; then
+      cp /usr/share/cidre/defaults/waybar/config "$HOME/.config/waybar/config"
+      cp /usr/share/cidre/defaults/waybar/style.css "$HOME/.config/waybar/style.css"
+      echo "Waybar config reset from system defaults."
+    else
+      echo "Error: System defaults not found." >&2
+      exit 1
+    fi
+    ;;
+  reset-shell)
+    read -p "Are you sure you want to reset Fish configuration to system defaults? [y/N]: " conf
+    if [[ ! "$conf" =~ ^[yY] ]]; then
+      echo "Reset cancelled."
+      exit 0
+    fi
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot create --label "pre-reset-shell"
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot create --label "pre-reset-shell"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot create --label "pre-reset-shell"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" create --label "pre-reset-shell"
+    fi
+    mkdir -p "$HOME/.config/fish"
+    if [ -f "/usr/share/cidre/defaults/fish/config.fish" ]; then
+      cp /usr/share/cidre/defaults/fish/config.fish "$HOME/.config/fish/config.fish"
+      echo "Fish config reset from system defaults."
+    else
+      echo "Error: System defaults not found." >&2
+      exit 1
+    fi
+    ;;
+  reset-niri-config)
+    echo "Note: reset-niri-config is deprecated, redirecting to reset-niri..."
+    $0 reset-niri
+    ;;
   reset-user-config)
+    read -p "Are you sure you want to re-run cidre-user-setup --force? [y/N]: " conf
+    if [[ ! "$conf" =~ ^[yY] ]]; then
+      echo "Reset cancelled."
+      exit 0
+    fi
     echo "Resetting user config..."
     if command -v cidre-user-setup >/dev/null 2>&1; then
       cidre-user-setup --force
@@ -60,33 +235,61 @@ case "$CMD" in
       exit 1
     fi
     ;;
-  reset-audio)
-    echo "Resetting user-level audio service configuration..."
-    systemctl --user stop pipewire wireplumber || true
-    systemctl --user reset-failed pipewire wireplumber || true
-    rm -rf "$HOME/.config/pulse" "$HOME/.config/pipewire" || true
-    systemctl --user start pipewire wireplumber
-    echo "Audio stack reset completed."
-    ;;
   collect-logs)
     echo "Collecting logs..."
-    mkdir -p /tmp/cidre-logs
-    journalctl -u greetd -n 100 > /tmp/cidre-logs/greetd.log || true
-    journalctl --user -n 100 > /tmp/cidre-logs/user-units.log || true
-    dmesg | tail -n 100 > /tmp/cidre-logs/dmesg.log || true
-    cp /var/log/cidre/*.log /tmp/cidre-logs/ 2>/dev/null || true
-    tar -czf /var/log/cidre-recovery-bundle.tar.gz -C /tmp cidre-logs
-    rm -rf /tmp/cidre-logs
-    echo "Logs collected at /var/log/cidre-recovery-bundle.tar.gz"
+    TS=$(date +%Y%m%d-%H%M%S)
+    REPORT_DIR="/tmp/cidre-recovery-report-${TS}"
+    mkdir -p "$REPORT_DIR"
+    
+    journalctl -b -n 200 > "${REPORT_DIR}/journal.log" || true
+    journalctl --user -b -n 200 > "${REPORT_DIR}/journal-user.log" || true
+    systemctl status greetd > "${REPORT_DIR}/greetd-status.log" || true
+    wpctl status > "${REPORT_DIR}/wireplumber.log" || true
+    localectl status > "${REPORT_DIR}/locale.log" || true
+    
+    mkdir -p "${REPORT_DIR}/configs"
+    cp -r "$HOME/.config/niri" "${REPORT_DIR}/configs/niri" || true
+    cp -r "$HOME/.config/fcitx5" "${REPORT_DIR}/configs/fcitx5" || true
+    cp -r "$HOME/.config/environment.d" "${REPORT_DIR}/configs/environment.d" || true
+    
+    REPORT_FILE="${HOME}/cidre-recovery-report-${TS}.tar.gz"
+    tar -czf "$REPORT_FILE" -C /tmp "cidre-recovery-report-${TS}"
+    rm -rf "$REPORT_DIR"
+    echo "Logs collected at $REPORT_FILE"
     ;;
   safe-mode)
-    echo "Starting compositor in safe-mode..."
-    if command -v niri-cidre >/dev/null 2>&1; then
-      niri-cidre --safe-mode
+    echo "Activating Safe-Mode..."
+    if [ "$EUID" -eq 0 ]; then
+      systemctl disable greetd
+      systemctl stop greetd || true
     else
-      echo "niri-cidre not found." >&2
-      exit 1
+      echo "Warning: Not root, cannot disable greetd automatically."
+      echo "Please run: sudo cidre-recovery disable-greetd"
     fi
+    
+    # Save a safety snapshot first
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      cidre-snapshot create --label "pre-safemode"
+    elif [ -f "./cidre-snapshot" ]; then
+      ./cidre-snapshot create --label "pre-safemode"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      /usr/bin/cidre-snapshot create --label "pre-safemode"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" create --label "pre-safemode"
+    fi
+    
+    NIRI_CONF="$HOME/.config/niri/config.kdl"
+    if [ -f "$NIRI_CONF" ]; then
+      echo "Backing up niri config..."
+      mv "$NIRI_CONF" "${NIRI_CONF}.bak.$(date +%Y%m%d-%H%M%S)"
+    fi
+    
+    mkdir -p "$HOME/.config/niri"
+    if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
+      cp /usr/share/cidre/defaults/niri/config.kdl "$NIRI_CONF"
+      echo "Restored default safe-profile KDL config."
+    fi
+    echo "Safe-Mode configuration complete."
     ;;
   *)
     show_help

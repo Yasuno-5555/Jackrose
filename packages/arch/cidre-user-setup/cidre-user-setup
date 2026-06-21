@@ -1,123 +1,377 @@
-#!/bin/bash
-# cidre-user-setup: Deploy default Cidre configs to user's $HOME
-set -euo pipefail
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import shutil
+import hashlib
+import json
+import difflib
+import subprocess
+from datetime import datetime
 
-DRY_RUN=false
-FORCE=false
-
-show_help() {
-  echo "Usage: cidre-user-setup [options]"
-  echo "Options:"
-  echo "  --dry-run  Show what would be done without making changes"
-  echo "  --force    Force overwrite of configurations without backing up"
-  echo "  --help     Show this help"
+# Profile definition mapping files to profiles
+PROFILES = {
+    "minimal": [
+        ("niri/config.kdl", ".config/niri/config.kdl"),
+        ("niri/config.kdl", ".config/niri/config.cidre.kdl"),
+        ("fuzzel/fuzzel.ini", ".config/fuzzel/fuzzel.ini")
+    ],
+    "desktop": [
+        ("ghostty/config", ".config/ghostty/config"),
+        ("fcitx5/profile", ".config/fcitx5/profile"),
+        ("environment.d/90-cidre-ime.conf", ".config/environment.d/90-cidre-ime.conf"),
+        ("waybar/config", ".config/waybar/config"),
+        ("waybar/style.css", ".config/waybar/style.css"),
+        ("applications/com.mitchellh.ghostty.desktop", ".local/share/applications/com.mitchellh.ghostty.desktop"),
+        ("cidre-wallpaper.png", ".local/share/backgrounds/cidre-wallpaper.png")
+    ],
+    "developer": [
+        ("fish/config.fish", ".config/fish/config.fish"),
+        ("starship/starship.toml", ".config/starship/starship.toml")
+    ],
+    "full": []
 }
 
-# Parse options
-for arg in "$@"; do
-  case "$arg" in
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    --force)
-      FORCE=true
-      shift
-      ;;
-    --help)
-      show_help
-      exit 0
-      ;;
-  esac
-done
+def get_profile_files(profile_name):
+    files = []
+    order = ["minimal", "desktop", "developer", "full"]
+    if profile_name not in order:
+        profile_name = "desktop"
+    
+    for p in order:
+        files.extend(PROFILES.get(p, []))
+        if p == profile_name:
+            break
+    return files
 
-DEFAULTS_DIR="/usr/share/cidre/defaults"
-# If local repo run, look for config/ relatively
-if [ ! -d "$DEFAULTS_DIR" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  DEFAULTS_DIR="$(dirname "$SCRIPT_DIR")/config"
-fi
+def get_defaults_dir():
+    sys_defaults = "/usr/share/cidre/defaults"
+    if os.path.isdir(sys_defaults):
+        return sys_defaults
+    # Fallback to local config dir relative to script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    local_config = os.path.join(os.path.dirname(script_dir), "config")
+    if os.path.isdir(local_config):
+        return local_config
+    return None
 
-if [ ! -d "$DEFAULTS_DIR" ]; then
-  echo "Error: Default configurations directory not found. Please install cidre-config first." >&2
-  exit 1
-fi
+def sha256_file(filepath):
+    if not os.path.isfile(filepath):
+        return None
+    h = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
-TARGET_USER="${USER:-$(id -un)}"
-TARGET_HOME="${HOME:-$(getent passwd "$TARGET_USER" | cut -d: -f6)}"
+class SetupManager:
+    def __init__(self, dry_run=False, force=False, no_snapshot=False):
+        self.dry_run = dry_run
+        self.force = force
+        self.no_snapshot = no_snapshot
+        self.user = os.environ.get("USER") or os.environ.get("LOGNAME") or "cidre"
+        # Avoid running getent if home env variable is set
+        self.home = os.environ.get("HOME") or "/home/" + self.user
+        self.state_dir = os.path.join(self.home, ".local/state/cidre")
+        self.manifest_path = os.path.join(self.state_dir, "manifest.json")
+        self.backup_dir = os.path.join(self.state_dir, "backups")
+        self.setup_history_path = os.path.join(self.state_dir, "setup/history.log")
+        self.defaults_dir = get_defaults_dir()
 
-echo "=== Cidre User Setup ==="
-echo "Target User: $TARGET_USER"
-echo "Target Home: $TARGET_HOME"
-if [ "$DRY_RUN" = true ]; then
-  echo "Running in DRY RUN mode. No changes will be written."
-fi
+        if not self.defaults_dir:
+            print("Error: Default configuration directory not found.", file=sys.stderr)
+            sys.exit(1)
 
-# Function to deploy config safely
-deploy_file() {
-  local src="$1"
-  local dest="$2"
+    def load_manifest(self):
+        if os.path.isfile(self.manifest_path):
+            try:
+                with open(self.manifest_path, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {"version": "0.7.0", "profile": "desktop", "installed_at": "", "files": {}}
 
-  if [ ! -f "$src" ] && [ ! -d "$src" ]; then
-    echo "Warning: Source $src does not exist, skipping."
-    return
-  fi
+    def save_manifest(self, manifest):
+        if self.dry_run:
+            return
+        os.makedirs(self.state_dir, exist_ok=True)
+        with open(self.manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
 
-  if [ "$DRY_RUN" = true ]; then
-    echo "[Dry-Run] Would deploy $src to $dest"
-    return
-  fi
+    def log_history(self, action, details):
+        if self.dry_run:
+            return
+        log_dir = os.path.dirname(self.setup_history_path)
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now().isoformat()
+        with open(self.setup_history_path, 'a') as f:
+            f.write(f"[{ts}] ACTION: {action} | {details}\n")
 
-  # Backup if exists
-  if [ -e "$dest" ]; then
-    if [ "$FORCE" = false ]; then
-      local timestamp
-      timestamp=$(date +%Y%m%d-%H%M%S)
-      local backup="${dest}.bak.${timestamp}"
-      echo "Backing up $dest to $backup"
-      cp -r "$dest" "$backup"
-    fi
-  else
-    # Ensure parent dir exists
-    mkdir -p "$(dirname "$dest")"
-  fi
+    def create_snapshot(self, label=""):
+        if self.dry_run:
+            return
+        # Call scripts/cidre-snapshot create
+        cmd = ["cidre-snapshot", "create"]
+        if label:
+            cmd.extend(["--label", label])
+        try:
+            subprocess.run(cmd, check=True)
+        except Exception as e:
+            print(f"Warning: Failed to create configuration snapshot: {e}", file=sys.stderr)
 
-  echo "Deploying $dest"
-  cp -r "$src" "$dest"
-}
+    def backup_file(self, dest_path, timestamp_dir=None):
+        if not os.path.exists(dest_path):
+            return None
+        if self.dry_run:
+            return "[Dry backup of " + dest_path + "]"
+        
+        if not timestamp_dir:
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            timestamp_dir = os.path.join(self.backup_dir, ts)
+            
+        os.makedirs(timestamp_dir, exist_ok=True)
+        rel_path = os.path.relpath(dest_path, self.home)
+        backup_dest = os.path.join(timestamp_dir, rel_path)
+        os.makedirs(os.path.dirname(backup_dest), exist_ok=True)
+        if os.path.isdir(dest_path):
+            shutil.copytree(dest_path, backup_dest, dirs_exist_ok=True)
+        else:
+            shutil.copy2(dest_path, backup_dest)
+        return backup_dest
 
-# Deploy configs
-deploy_file "$DEFAULTS_DIR/niri/config.kdl" "$TARGET_HOME/.config/niri/config.cidre.kdl"
-deploy_file "$DEFAULTS_DIR/niri/config.kdl" "$TARGET_HOME/.config/niri/config.kdl"
-deploy_file "$DEFAULTS_DIR/ghostty/config" "$TARGET_HOME/.config/ghostty/config"
-deploy_file "$DEFAULTS_DIR/fcitx5/profile" "$TARGET_HOME/.config/fcitx5/profile"
-deploy_file "$DEFAULTS_DIR/environment.d/90-cidre-ime.conf" "$TARGET_HOME/.config/environment.d/90-cidre-ime.conf"
-deploy_file "$DEFAULTS_DIR/fish/config.fish" "$TARGET_HOME/.config/fish/config.fish"
-deploy_file "$DEFAULTS_DIR/starship/starship.toml" "$TARGET_HOME/.config/starship/starship.toml"
-deploy_file "$DEFAULTS_DIR/fuzzel/fuzzel.ini" "$TARGET_HOME/.config/fuzzel/fuzzel.ini"
-deploy_file "$DEFAULTS_DIR/waybar/config" "$TARGET_HOME/.config/waybar/config"
-deploy_file "$DEFAULTS_DIR/waybar/style.css" "$TARGET_HOME/.config/waybar/style.css"
-deploy_file "$DEFAULTS_DIR/applications/com.mitchellh.ghostty.desktop" "$TARGET_HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
+    def apply_profile(self, profile_name="desktop"):
+        print(f"=== Applying Cidre profile: {profile_name} ===")
+        
+        if not self.no_snapshot and not self.dry_run:
+            print("Creating pre-apply snapshot...")
+            self.create_snapshot(label=f"pre-apply-{profile_name}")
+            
+        files = get_profile_files(profile_name)
+        manifest = self.load_manifest()
+        manifest["profile"] = profile_name
+        manifest["installed_at"] = datetime.now().isoformat()
+        
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp_dir = os.path.join(self.backup_dir, ts)
+        backup_created = False
 
-# Set default applications
-if [ "$DRY_RUN" = false ]; then
-  mkdir -p "$TARGET_HOME/.config"
-  cat <<EOF > "$TARGET_HOME/.config/mimeapps.list"
-[Default Applications]
+        for src_rel, dest_rel in files:
+            src_path = os.path.join(self.defaults_dir, src_rel)
+            dest_path = os.path.join(self.home, dest_rel)
+
+            if not os.path.exists(src_path):
+                print(f"Warning: Default source {src_rel} does not exist. Skipping.")
+                continue
+
+            if os.path.exists(dest_path):
+                if not self.force:
+                    # Check if hash changed or file is not matched
+                    current_hash = sha256_file(dest_path)
+                    expected_hash = manifest.get("files", {}).get(dest_rel, {}).get("sha256")
+                    if current_hash == expected_hash and expected_hash is not None:
+                        # File is identical to what we last installed, safe to skip or update quietly
+                        pass
+                    else:
+                        print(f"Backing up existing modified file: {dest_rel}")
+                        self.backup_file(dest_path, timestamp_dir)
+                        backup_created = True
+                else:
+                    print(f"Overwriting (force): {dest_rel}")
+
+            if self.dry_run:
+                print(f"[Dry-Run] Would deploy {src_rel} to {dest_rel}")
+            else:
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src_path, dest_path)
+                
+                h = sha256_file(dest_path)
+                manifest["files"][dest_rel] = {
+                    "source": src_path,
+                    "sha256": h,
+                    "managed": True
+                }
+                print(f"Deployed: {dest_rel}")
+
+        # Deploy mimeapps.list for desktop
+        if profile_name in ["desktop", "developer", "full"]:
+            mime_path = os.path.join(self.home, ".config/mimeapps.list")
+            mime_content = """[Default Applications]
 text/html=firefox.desktop
 x-scheme-handler/http=firefox.desktop
 x-scheme-handler/https=firefox.desktop
 x-scheme-handler/about=firefox.desktop
 x-scheme-handler/unknown=firefox.desktop
 terminal=com.mitchellh.ghostty.desktop
-EOF
-else
-  echo "[Dry-Run] Would write mimeapps.list to set default applications."
-fi
+"""
+            if os.path.exists(mime_path) and not self.force:
+                self.backup_file(mime_path, timestamp_dir)
+                backup_created = True
+            
+            if self.dry_run:
+                print("[Dry-Run] Would deploy default mimeapps.list")
+            else:
+                os.makedirs(os.path.dirname(mime_path), exist_ok=True)
+                with open(mime_path, 'w') as f:
+                    f.write(mime_content)
+                print("Deployed: .config/mimeapps.list")
 
-# Ensure user owns their own files in home directory
-if [ "$DRY_RUN" = false ] && [ "$EUID" -eq 0 ]; then
-  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" "$TARGET_HOME/.local" || true
-fi
+        self.save_manifest(manifest)
+        if backup_created and not self.dry_run:
+            print(f"Backups successfully saved to {timestamp_dir}")
+        
+        self.log_history("apply", f"Profile: {profile_name}, Force: {self.force}")
+        print("Profile application complete.")
 
-echo "=== Setup Completed Successfully ==="
+    def status(self):
+        print("=== Cidre Configuration Status ===")
+        manifest = self.load_manifest()
+        files = get_profile_files(manifest.get("profile", "desktop"))
+        
+        for src_rel, dest_rel in files:
+            dest_path = os.path.join(self.home, dest_rel)
+            if not os.path.exists(dest_path):
+                print(f"{dest_rel:<50} MISSING")
+            else:
+                current_hash = sha256_file(dest_path)
+                expected_hash = manifest.get("files", {}).get(dest_rel, {}).get("sha256")
+                if current_hash == expected_hash:
+                    print(f"{dest_rel:<50} CLEAN")
+                else:
+                    print(f"{dest_rel:<50} MODIFIED")
+
+    def diff_configs(self):
+        print("=== Diffing User Configs against Defaults ===")
+        manifest = self.load_manifest()
+        files = get_profile_files(manifest.get("profile", "desktop"))
+
+        for src_rel, dest_rel in files:
+            src_path = os.path.join(self.defaults_dir, src_rel)
+            dest_path = os.path.join(self.home, dest_rel)
+
+            if os.path.isdir(src_path) or not os.path.exists(dest_path):
+                continue
+
+            with open(src_path, 'r', errors='replace') as sf, open(dest_path, 'r', errors='replace') as df:
+                s_lines = sf.readlines()
+                d_lines = df.readlines()
+            
+            diff = list(difflib.unified_diff(
+                s_lines, d_lines,
+                fromfile=f"default/{src_rel}",
+                tofile=f"user/{dest_rel}"
+            ))
+            if diff:
+                print("".join(diff))
+
+    def backup(self):
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp_dir = os.path.join(self.backup_dir, ts)
+        print(f"Backing up all managed configuration files to {timestamp_dir}...")
+        manifest = self.load_manifest()
+        files = get_profile_files(manifest.get("profile", "desktop"))
+
+        for _, dest_rel in files:
+            dest_path = os.path.join(self.home, dest_rel)
+            self.backup_file(dest_path, timestamp_dir)
+        print("Backup complete.")
+
+    def restore(self):
+        if not os.path.exists(self.backup_dir):
+            print("No backups found.")
+            return
+        backups = sorted(os.listdir(self.backup_dir))
+        if not backups:
+            print("No backups found.")
+            return
+        
+        latest = backups[-1]
+        latest_dir = os.path.join(self.backup_dir, latest)
+        print(f"Restoring latest backup from: {latest_dir}...")
+        
+        if self.dry_run:
+            print(f"[Dry-Run] Would restore all configs from {latest_dir}")
+            return
+        
+        # Deploy pre-restore snapshot as safety
+        if not self.no_snapshot:
+            self.create_snapshot(label=f"pre-restore-{latest}")
+
+        for root, _, files in os.walk(latest_dir):
+            for file in files:
+                backup_file = os.path.join(root, file)
+                rel_path = os.path.relpath(backup_file, latest_dir)
+                dest_path = os.path.join(self.home, rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                shutil.copy2(backup_file, dest_path)
+                print(f"Restored: {rel_path}")
+        self.log_history("restore", f"Backup: {latest}")
+        print("Restore complete.")
+
+    def rollback(self, target="latest"):
+        print(f"=== Performing Rollback: target={target} ===")
+        if self.dry_run:
+            print(f"[Dry-Run] Would run: cidre-snapshot restore {target}")
+            return
+        
+        cmd = ["cidre-snapshot", "restore", target, "--yes"]
+        try:
+            subprocess.run(cmd, check=True)
+            self.log_history("rollback", f"Target: {target}")
+        except Exception as e:
+            print(f"Error: Rollback failed: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def print_history(self):
+        print("=== Cidre Configuration History ===")
+        if not os.path.isfile(self.setup_history_path):
+            print("No configuration history found.")
+            return
+        with open(self.setup_history_path, 'r') as f:
+            print(f.read())
+
+    def list_files(self, profile_name="desktop"):
+        print(f"=== Managed Files for Profile: {profile_name} ===")
+        files = get_profile_files(profile_name)
+        for src_rel, dest_rel in files:
+            print(f"Source template: {src_rel:<40} Destination in Home: {dest_rel}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Cidre User Setup & RICE Utility")
+    parser.add_argument("command", choices=["apply", "dry-run", "status", "verify", "list", "backup", "restore", "reset", "diff", "rollback", "history"], nargs="?", default="status")
+    parser.add_argument("--profile", choices=["minimal", "desktop", "developer", "full"], default="desktop")
+    parser.add_argument("--force", action="store_true", help="Force configuration overwrite")
+    parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode showing proposed changes")
+    parser.add_argument("--no-snapshot", action="store_true", help="Do not create automatic snapshot before applying configurations")
+    args = parser.parse_args()
+
+    # Dry-run flag override
+    dry_run = args.command == "dry-run" or args.dry_run
+    force = args.force
+
+    manager = SetupManager(dry_run=dry_run, force=force, no_snapshot=args.no_snapshot)
+
+    if args.command == "apply" or args.command == "dry-run":
+        manager.apply_profile(args.profile)
+    elif args.command == "status" or args.command == "verify":
+        manager.status()
+    elif args.command == "list":
+        manager.list_files(args.profile)
+    elif args.command == "diff":
+        manager.diff_configs()
+    elif args.command == "backup":
+        manager.backup()
+    elif args.command == "restore":
+        manager.restore()
+    elif args.command == "rollback":
+        manager.rollback()
+    elif args.command == "history":
+        manager.print_history()
+    elif args.command == "reset":
+        manager.force = True
+        manager.apply_profile(args.profile)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,99 @@
+#!/bin/bash
+# check-packages: Validate package metadata (.SRCINFO) and lint PKGBUILDs
+set -euo pipefail
+
+SRCINFO=false
+NAMCAP=false
+ALL=false
+
+show_help() {
+  echo "Usage: check-packages [options]"
+  echo "Options:"
+  echo "  --srcinfo    Verify or regenerate .SRCINFO files for all packages"
+  echo "  --namcap     Run namcap checks on all PKGBUILD files"
+  echo "  --all        Run all package validation tests"
+  echo "  --help       Show this help message"
+}
+
+if [ $# -eq 0 ]; then
+  show_help
+  exit 0
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --srcinfo)
+      SRCINFO=true
+      ;;
+    --namcap)
+      NAMCAP=true
+      ;;
+    --all)
+      ALL=true
+      ;;
+    --help)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CIDRE_ROOT="$(dirname "$SCRIPT_DIR")"
+PACKAGES_DIR="${CIDRE_ROOT}/packages/arch"
+
+if [ "$ALL" = true ]; then
+  SRCINFO=true
+  NAMCAP=true
+fi
+
+STATUS=0
+
+if [ "$SRCINFO" = true ]; then
+  echo "=== Running SRCINFO Validation ==="
+  for pkg_dir in "$PACKAGES_DIR"/*; do
+    if [ -d "$pkg_dir" ]; then
+      if [ -f "${pkg_dir}/PKGBUILD" ]; then
+        echo "Checking $(basename "$pkg_dir")..."
+        (
+          cd "$pkg_dir"
+          makepkg --printsrcinfo > .SRCINFO.tmp
+          if [ -f .SRCINFO ]; then
+            if diff -q .SRCINFO .SRCINFO.tmp >/dev/null; then
+              echo "  [OK] .SRCINFO is up to date."
+              rm -f .SRCINFO.tmp
+            else
+              echo "  [WARN] .SRCINFO is out of date. Regenerating..."
+              mv .SRCINFO.tmp .SRCINFO
+            fi
+          else
+            echo "  [WARN] .SRCINFO missing. Generating..."
+            mv .SRCINFO.tmp .SRCINFO
+          fi
+        )
+      fi
+    fi
+  done
+fi
+
+if [ "$NAMCAP" = true ]; then
+  echo "=== Running Namcap PKGBUILD Checks ==="
+  if command -v namcap >/dev/null 2>&1; then
+    for pkg_dir in "$PACKAGES_DIR"/*; do
+      if [ -d "$pkg_dir" ] && [ -f "${pkg_dir}/PKGBUILD" ]; then
+        echo "Linting $(basename "$pkg_dir")/PKGBUILD..."
+        namcap "${pkg_dir}/PKGBUILD" || true
+      fi
+    done
+  else
+    echo "[WARN] namcap command not found. Skipping linting checks."
+  fi
+fi
+
+echo "Package validation check completed."
+exit $STATUS

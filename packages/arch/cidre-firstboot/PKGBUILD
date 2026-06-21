@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-firstboot
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre environment first-boot diagnostic verification script'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=('bash')
+source=('cidre-firstboot')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/cidre-firstboot" "${pkgdir}/usr/bin/cidre-firstboot"
+}

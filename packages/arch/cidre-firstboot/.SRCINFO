@@ -1,0 +1,12 @@
+pkgbase = cidre-firstboot
+	pkgdesc = Cidre environment first-boot diagnostic verification script
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Yasuno-5555/Cidre
+	arch = any
+	license = custom
+	depends = bash
+	source = cidre-firstboot
+	sha256sums = SKIP
+
+pkgname = cidre-firstboot

@@ -1,0 +1,187 @@
+#!/bin/bash
+# cidre-installer: Main guided installer orchestration tool for Cidre desktop
+set -euo pipefail
+
+# Print banner
+echo -e "\e[1;36m====================================================\e[0m"
+echo -e "\e[1;35m               Cidre Guided Installer               \e[0m"
+echo -e "\e[1;36m====================================================\e[0m"
+echo "  The cider after Homebrew."
+echo ""
+
+# Configuration variables
+DRY_RUN=false
+CHECK_ONLY=false
+PROFILE=""
+YES=false
+NO_COLOR=false
+
+show_help() {
+  echo "Usage: install [options]"
+  echo "Options:"
+  echo "  --check             Perform preflight system checks without making changes"
+  echo "  --dry-run           Show the commands that would be executed"
+  echo "  --profile <name>    Set installation profile (desktop, developer, minimal, recovery)"
+  echo "  --yes               Skip confirmation prompts"
+  echo "  --no-color          Disable colored terminal output"
+  echo "  --help              Show this help message"
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_ONLY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --profile)
+      if [ $# -lt 2 ]; then
+        echo "Error: --profile requires an argument." >&2
+        exit 1
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --yes) YES=true; shift ;;
+    --no-color) NO_COLOR=true; shift ;;
+    --help) show_help; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+# Setup logging
+USER_HOME="${HOME:-$(getent passwd "${USER:-$(id -un)}" | cut -d: -f6)}"
+LOG_DIR="${USER_HOME}/.local/state/cidre"
+LOG_FILE="${LOG_DIR}/install.log"
+mkdir -p "$LOG_DIR"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "Installation started at $(date)"
+
+# Root check
+if [ "$EUID" -eq 0 ] && [ "$DRY_RUN" = false ] && [ "$CHECK_ONLY" = false ]; then
+  echo -e "\e[1;31mFAIL: Do not run the full installer as root.\e[0m" >&2
+  echo "Run ./install as your normal user. The installer will ask for sudo only when needed." >&2
+  exit 1
+fi
+
+# Step 1: System Checks
+echo "=== Step 1: Running System Preflight Checks ==="
+errors=0
+
+if [ -f /etc/arch-release ]; then
+  echo "[OK] Arch/ALARM-like environment detected."
+else
+  echo "[WARN] /etc/arch-release not found. This might not be Arch Linux."
+fi
+
+for cmd in pacman systemctl sudo bash python3 makepkg; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    echo "[OK] Command '$cmd' is available."
+  else
+    echo "[FAIL] Required command '$cmd' is missing."
+    errors=$((errors + 1))
+  fi
+done
+
+if [ $errors -gt 0 ]; then
+  echo -e "\e[1;31mFAIL: System compatibility checks failed. Please install missing commands.\e[0m" >&2
+  exit 1
+fi
+
+if [ "$CHECK_ONLY" = true ]; then
+  echo "Check-only mode complete. System is ready for install."
+  exit 0
+fi
+
+# Step 2: Profile Selection
+if [ -z "$PROFILE" ]; then
+  if [ "$YES" = true ]; then
+    PROFILE="desktop"
+  else
+    echo "Choose installation profile:"
+    echo "  [1] Desktop       Recommended (Niri, Ghostty, waybar, fcitx5 Mozc)"
+    echo "  [2] Developer     Desktop + development toolchain (fish, starship prompt)"
+    echo "  [3] Minimal       Core session and config deployment only"
+    echo "  [4] Recovery      Diagnostics and recovery tools only"
+    read -p "Select option [1-4] (default: 1): " opt
+    case "$opt" in
+      2) PROFILE="developer" ;;
+      3) PROFILE="minimal" ;;
+      4) PROFILE="recovery" ;;
+      *) PROFILE="desktop" ;;
+    esac
+  fi
+fi
+
+# Verify profile
+case "$PROFILE" in
+  desktop|developer|minimal|recovery) ;;
+  *)
+    echo "Error: Invalid profile '$PROFILE'." >&2
+    exit 1
+    ;;
+esac
+echo "Selected profile: $PROFILE"
+
+# Step 3: Preview
+echo ""
+echo "=== Step 3: Previewing Planned Actions ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CIDRE_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "Proposed bootstrap system actions:"
+"${SCRIPT_DIR}/bootstrap.sh" --dry-run
+
+echo ""
+echo "Proposed user configuration deployment actions:"
+python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "$PROFILE" --dry-run
+
+if [ "$DRY_RUN" = true ]; then
+  echo ""
+  echo "Dry-run mode complete. No system modifications were performed."
+  exit 0
+fi
+
+# Step 4: Confirmation
+echo ""
+if [ "$YES" = false ]; then
+  read -p "Ready to install Cidre with profile '$PROFILE'. Continue? [y/N]: " conf
+  if [[ ! "$conf" =~ ^[yY] ]]; then
+    echo "Installation cancelled by user."
+    exit 0
+  fi
+fi
+
+# Step 5: Install
+echo ""
+echo "=== Step 5: Executing System Bootstrap ==="
+sudo "${SCRIPT_DIR}/bootstrap.sh" --install
+
+# Step 6: User Configuration
+echo ""
+echo "=== Step 6: Applying User Configurations ==="
+python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "$PROFILE"
+python3 "${SCRIPT_DIR}/cidre-user-setup" verify
+
+# Step 7: Diagnostics
+echo ""
+echo "=== Step 7: Running Diagnostics Check ==="
+XDG_SESSION_TYPE=wayland "${SCRIPT_DIR}/cidre-doctor" || {
+  echo -e "\e[1;33mWARN: Diagnostics detected post-install warnings/errors.\e[0m"
+}
+
+# Step 8: Completion
+echo ""
+echo -e "\e[1;32m=== Step 8: Cidre Guided Installation Complete! ===\e[0m"
+echo "Next steps:"
+echo "  1. Reboot the system or log out of your current session."
+echo "  2. Select the 'Cidre' graphical session at the greeter screen."
+echo "  3. On your first login, the Welcome Dashboard will show basic hotkeys and commands."
+echo "  4. If you encounter any issues, run 'cidre-doctor --daily'."
+echo "  5. You can rollback configuration changes at any time by running:"
+echo "     'cidre-snapshot restore latest' or 'cidre-user-setup rollback'"
+echo ""
+echo "Installation logs saved to: $LOG_FILE"

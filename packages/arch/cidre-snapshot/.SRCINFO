@@ -1,0 +1,13 @@
+pkgbase = cidre-snapshot
+	pkgdesc = Cidre configuration snapshot and rollback management tool
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Yasuno-5555/Cidre
+	arch = any
+	license = custom
+	depends = bash
+	depends = jq
+	source = cidre-snapshot
+	sha256sums = SKIP
+
+pkgname = cidre-snapshot

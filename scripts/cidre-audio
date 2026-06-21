@@ -5,6 +5,11 @@ set -euo pipefail
 show_help() {
   echo "Usage: cidre-audio <command> [options]"
   echo "Commands:"
+  echo "  status         Display currently active audio profile and system state"
+  echo "  volume [val]   Get or set the system volume (e.g. 5%+, 5%-, 0.5, or raw value)"
+  echo "  mute           Mute active speaker/audio output sink"
+  echo "  unmute         Unmute active speaker/audio output sink"
+  echo "  restart        Restart systemd user pipewire and wireplumber services"
   echo "  doctor         Check and attempt to fix common Asahi audio issues"
   echo "  diagnose       Gather audio state and run tests for debugging"
   echo "  reset          Reset WirePlumber and PipeWire configuration state"
@@ -20,6 +25,80 @@ CMD="$1"
 shift
 
 case "$CMD" in
+  status)
+    echo "=== Cidre Audio Status ==="
+    if systemctl --user is-active --quiet pipewire; then
+      echo "PipeWire:       Active"
+    else
+      echo "PipeWire:       Inactive"
+    fi
+    if systemctl --user is-active --quiet wireplumber; then
+      echo "WirePlumber:    Active"
+    else
+      echo "WirePlumber:    Inactive"
+    fi
+    if systemctl is-active --quiet speakersafetyd; then
+      echo "speakersafetyd: Active"
+    else
+      echo "speakersafetyd: Inactive"
+    fi
+
+    CONF_FILE="$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-audio.conf"
+    if [ -f "$CONF_FILE" ]; then
+      if grep -q "node.quantum = 1024" "$CONF_FILE"; then
+        echo "Active Profile: stable"
+      elif grep -q "node.quantum = 512" "$CONF_FILE"; then
+        echo "Active Profile: balanced"
+      elif grep -q "node.quantum = 256" "$CONF_FILE"; then
+        echo "Active Profile: low-latency"
+      else
+        echo "Active Profile: custom"
+      fi
+    else
+      echo "Active Profile: default (unmanaged)"
+    fi
+    
+    if command -v wpctl >/dev/null 2>&1; then
+      echo "--- Current volume state ---"
+      wpctl get-volume @DEFAULT_AUDIO_SINK@ || true
+    fi
+    ;;
+  volume)
+    if [ $# -lt 1 ]; then
+      wpctl get-volume @DEFAULT_AUDIO_SINK@
+    else
+      VAL="$1"
+      # support formats like '5%+', '5%-', '0.5'
+      if [[ "$VAL" =~ ^[0-9]+%$ ]]; then
+        # Convert e.g., 5% to float fraction
+        NUM=$(echo "$VAL" | tr -d '%')
+        FRAC=$(awk "BEGIN {print $NUM/100}")
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$FRAC"
+      elif [[ "$VAL" =~ ^[0-9]+%[+-]$ ]]; then
+        # relative change like 5%+ or 5%-
+        NUM=$(echo "$VAL" | tr -d '%+-')
+        DIR="${VAL: -1}"
+        FRAC=$(awk "BEGIN {print $NUM/100}")
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ "${FRAC}${DIR}"
+      else
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$VAL"
+      fi
+      echo "Volume set to $VAL"
+    fi
+    ;;
+  mute)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 1
+    echo "Audio output muted."
+    ;;
+  unmute)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+    echo "Audio output unmuted."
+    ;;
+  restart)
+    echo "Restarting PipeWire and WirePlumber services..."
+    systemctl --user restart pipewire wireplumber
+    echo "Audio services restarted."
+    ;;
   doctor)
     echo "=== Running Cidre Audio Doctor ==="
     STATUS=0
@@ -39,6 +118,14 @@ case "$CMD" in
       systemctl --user restart pipewire || STATUS=1
     fi
 
+    # Check wireplumber
+    if systemctl --user is-active --quiet wireplumber; then
+      echo "[OK] User wireplumber is active."
+    else
+      echo "[WARN] User wireplumber is not active. Restarting..."
+      systemctl --user restart wireplumber || STATUS=1
+    fi
+
     if [ $STATUS -eq 0 ]; then
       echo "Cidre Audio Doctor successfully finished diagnostics and minor fixes."
     else
@@ -53,9 +140,16 @@ case "$CMD" in
     wpctl status || echo "WirePlumber not found"
     echo "--- Speaker Safety daemon status ---"
     systemctl status speakersafetyd --no-pager || true
+    echo "--- WirePlumber log snippets ---"
+    journalctl --user -u wireplumber -n 30 --no-pager || true
     ;;
   reset)
-    echo "Resetting WirePlumber/PipeWire cache..."
+    echo "Resetting WirePlumber/PipeWire cache and local user overrides..."
+    CONF_FILE="$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-audio.conf"
+    if [ -f "$CONF_FILE" ]; then
+      echo "Removing local custom profile: $CONF_FILE"
+      rm -f "$CONF_FILE"
+    fi
     rm -rf "$HOME/.config/pulse" "$HOME/.config/pipewire" || true
     systemctl --user restart pipewire wireplumber
     echo "Reset completed."
@@ -67,11 +161,20 @@ case "$CMD" in
     fi
     PROF="$1"
     echo "Switching to audio profile: $PROF"
+    
+    CONF_DIR="$HOME/.config/wireplumber/wireplumber.conf.d"
+    CONF_FILE="$CONF_DIR/99-cidre-audio.conf"
+    
+    mkdir -p "$CONF_DIR"
+    
+    if [ -f "$CONF_FILE" ]; then
+      cp "$CONF_FILE" "${CONF_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+    fi
+
     case "$PROF" in
       stable)
-        echo "Configuring WirePlumber buffer sizes for stable playback..."
-        mkdir -p "$HOME/.config/wireplumber/wireplumber.conf.d"
-        cat <<EOF > "$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-stable.conf"
+        echo "Configuring WirePlumber buffer sizes for stable playback (quantum=1024)..."
+        cat <<EOF > "$CONF_FILE"
 monitor.alsa.rules = [
   {
     matches = [
@@ -89,13 +192,10 @@ monitor.alsa.rules = [
   }
 ]
 EOF
-        systemctl --user restart wireplumber pipewire || true
-        echo "Stable profile configured."
         ;;
-      balanced|low-latency)
-        echo "Configuring balanced/low-latency profile..."
-        mkdir -p "$HOME/.config/wireplumber/wireplumber.conf.d"
-        cat <<EOF > "$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-stable.conf"
+      balanced)
+        echo "Configuring WirePlumber buffer sizes for balanced playback (quantum=512)..."
+        cat <<EOF > "$CONF_FILE"
 monitor.alsa.rules = [
   {
     matches = [
@@ -113,14 +213,36 @@ monitor.alsa.rules = [
   }
 ]
 EOF
-        systemctl --user restart wireplumber pipewire || true
-        echo "$PROF profile configured."
+        ;;
+      low-latency)
+        echo "Configuring WirePlumber buffer sizes for low-latency playback (quantum=256)..."
+        cat <<EOF > "$CONF_FILE"
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        node.name = "~alsa_output.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        node.quantum = 256
+        api.alsa.period-size = 256
+        api.alsa.headroom = 128
+      }
+    }
+  }
+]
+EOF
         ;;
       *)
         echo "Unknown profile: $PROF"
         exit 1
         ;;
     esac
+    
+    systemctl --user restart wireplumber pipewire || true
+    echo "$PROF profile successfully applied."
     ;;
   *)
     show_help

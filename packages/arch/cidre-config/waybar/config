@@ -5,24 +5,32 @@
     "spacing": 4,
     "modules-left": ["niri/workspaces", "niri/window"],
     "modules-center": ["clock"],
-    "modules-right": ["pulseaudio", "network", "battery", "tray"],
+    "modules-right": ["wireplumber", "network", "battery", "tray"],
     "clock": {
         "format": "{:%Y-%m-%d %H:%M}"
     },
     "battery": {
+        "states": {
+            "warning": 30,
+            "critical": 15
+        },
         "format": "{capacity}% {icon}",
+        "format-charging": "{capacity}% ",
+        "format-plugged": "{capacity}% ",
+        "format-alt": "{time} {icon}",
         "format-icons": ["", "", "", "", ""]
     },
     "network": {
         "format-wifi": "{essid} ",
         "format-ethernet": "{ifname} 🖧",
-        "format-disconnected": "Disconnected ⚠"
+        "format-disconnected": "Disconnected ⚠",
+        "tooltip-format": "{ifname} via {gwaddr} ",
+        "tooltip-format-wifi": "{essid} ({signaldBm}dBm) "
     },
-    "pulseaudio": {
+    "wireplumber": {
         "format": "{volume}% {icon}",
         "format-muted": "🔇",
-        "format-icons": {
-            "default": ["🔈", "🔉", "🔊"]
-        }
+        "format-icons": ["🔈", "🔉", "🔊"],
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     }
 }

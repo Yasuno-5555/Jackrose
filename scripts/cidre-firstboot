@@ -1,0 +1,62 @@
+#!/bin/bash
+# cidre-firstboot: Validates post-install configurations on first graphical login
+set -euo pipefail
+
+STATE_DIR="${HOME}/.local/state/cidre"
+MARKER_FILE="${STATE_DIR}/firstboot-done"
+FORCE=false
+STATUS_ONLY=false
+
+show_help() {
+  echo "Usage: cidre-firstboot [options]"
+  echo "Options:"
+  echo "  --force       Rerun the first-boot diagnostic check"
+  echo "  --status      Show whether the first-boot diagnostic has completed"
+  echo "  --help        Show this help message"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=true; shift ;;
+    --status) STATUS_ONLY=true; shift ;;
+    --help) show_help; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
+  esac
+done
+
+if [ "$STATUS_ONLY" = true ]; then
+  if [ -f "$MARKER_FILE" ]; then
+    echo "First-boot verification: Completed"
+  else
+    echo "First-boot verification: Pending"
+  fi
+  exit 0
+fi
+
+if [ -f "$MARKER_FILE" ] && [ "$FORCE" = false ]; then
+  exit 0
+fi
+
+echo "=== Cidre First-Boot Health Check ==="
+echo "Verifying environment health..."
+
+STATUS_FILE="${STATE_DIR}/firstboot-status"
+mkdir -p "$STATE_DIR"
+
+if command -v cidre-doctor >/dev/null 2>&1; then
+  if cidre-doctor --daily; then
+    echo "SUCCESS" > "$STATUS_FILE"
+  else
+    echo "FAILED" > "$STATUS_FILE"
+    echo ""
+    echo "WARNING: One or more daily diagnostic checks failed."
+    echo "To see diagnostic recommendations, run: 'cidre-doctor --fix-suggestions'"
+    echo "To restore a previous working state, run: 'cidre-recovery restore latest'"
+  fi
+else
+  echo "FAILED" > "$STATUS_FILE"
+  echo "Error: 'cidre-doctor' utility not found." >&2
+fi
+
+touch "$MARKER_FILE"
+echo "First-boot validation marked as complete."

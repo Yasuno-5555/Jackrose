@@ -1,0 +1,12 @@
+pkgbase = cidre-recovery
+	pkgdesc = Cidre emergency system recovery command
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Yasuno-5555/Cidre
+	arch = any
+	license = custom
+	depends = bash
+	source = cidre-recovery
+	sha256sums = SKIP
+
+pkgname = cidre-recovery
