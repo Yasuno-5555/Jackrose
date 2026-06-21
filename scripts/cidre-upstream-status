@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+
+check_repo() {
+  label="$1"
+  dir_path="$2"
+
+  if [ -z "$dir_path" ]; then
+    printf '[WARN] %s directory not configured\n' "$label"
+    return 0
+  fi
+
+  if [ ! -d "$dir_path" ]; then
+    printf '[WARN] %s directory missing: %s\n' "$label" "$dir_path"
+    return 0
+  fi
+
+  if ! git -C "$dir_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf '[WARN] %s is not a git repository: %s\n' "$label" "$dir_path"
+    return 0
+  fi
+
+  printf '[OK] %s repository: %s\n' "$label" "$dir_path"
+  if git -C "$dir_path" remote get-url upstream >/dev/null 2>&1; then
+    printf '[OK] %s upstream remote configured\n' "$label"
+  else
+    printf '[WARN] %s upstream remote missing\n' "$label"
+  fi
+  if git -C "$dir_path" remote get-url origin >/dev/null 2>&1; then
+    printf '[OK] %s origin remote configured\n' "$label"
+  else
+    printf '[WARN] %s origin remote missing\n' "$label"
+  fi
+  printf '[INFO] %s branch: %s\n' "$label" "$(git -C "$dir_path" branch --show-current 2>/dev/null || printf unknown)"
+  if [ -n "$(git -C "$dir_path" status --porcelain 2>/dev/null)" ]; then
+    printf '[WARN] %s working tree dirty\n' "$label"
+  else
+    printf '[OK] %s working tree clean\n' "$label"
+  fi
+}
+
+printf 'Cidre upstream status\n\n'
+check_repo "cidre-alarm-installer" "${CIDRE_ALARM_INSTALLER_DIR:-}"
+check_repo "cidre-alarm-builder" "${CIDRE_ALARM_BUILDER_DIR:-}"
+check_repo "cidre-installer-data" "${CIDRE_INSTALLER_DATA_DIR:-}"

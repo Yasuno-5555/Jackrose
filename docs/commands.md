@@ -25,6 +25,21 @@ Reads imported resume state from `/var/lib/cidre/resume/`.
 * `show`: Prints profile, install mode, and source commit summary.
 * `profile`: Prints the imported profile name for installer reuse.
 
+### `scripts/cidre-downstream-check`
+Checks whether the downstream foundation files, docs, units, and skeleton directories exist.
+
+### `scripts/cidre-upstream-status`
+Inspects local downstream fork/reference repositories using configured environment variables.
+
+### `scripts/cidre-image-layout-check`
+Validates the rootfs overlay prototype structure under `downstream/rootfs-overlay/`.
+
+### `scripts/cidre-installer-metadata-check`
+Validates the prototype installer entry example as JSON when `python3` is available.
+
+### `scripts/cidre-firstboot-root`
+Prototype root-phase firstboot OOBE entrypoint intended for future Cidre-controlled images.
+
 ### `./preinstall` / `cidre-preinstall`
 The root-phase base system helper.
 * `--tui`: Forces the guided dashboard/wizard mode.
@@ -63,6 +78,7 @@ Diagnoses system compatibility and environment state.
 * `--base-readiness --summary`: Condensed readiness status for handoff/debugging.
 * `--seed`: Audits imported seed state under `/var/lib/cidre/seed`.
 * `--resume`: Audits system and user resume state.
+* `--downstream`: Audits downstream foundation files, prototypes, and metadata examples.
 * `--fix-suggestions`: Renders actionable recovery commands based on the last run.
 
 ### `cidre-recovery`
@@ -73,6 +89,7 @@ Dispatches rescue triggers from console TTY in emergency loops.
 * `reset-niri`: Resets composer files to stable factory defaults.
 * `seed-status`: Shows imported seed profile and source commit summary.
 * `resume-status`: Shows whether resume state exists and whether it has been applied.
+* `downstream-status`: Shows whether downstream prototype files are available.
 
 ### `cidre-snapshot`
 Takes snapshot points of Cidre configuration directories.

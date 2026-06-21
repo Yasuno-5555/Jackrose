@@ -6,6 +6,12 @@ Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Ar
 > **Cidre is not a niri fork.**
 > Cidre is a full integration layer that manages installer scripts, configuration deployment, system recovery, sound optimization, and desktop session profiles. The compositor itself is managed under a separate component called `niri-cidre`.
 
+## Project Direction
+
+Cidre is moving from a post-install setup project toward a downstream ALARM/Asahi image for Apple Silicon MacBooks.
+
+The goal is to make Cidre feel less like “install Linux and then run scripts” and more like “install Cidre on your MacBook”.
+
 ## Installation Flow
 
 Cidre has three phases.
@@ -51,6 +57,12 @@ After switching to the normal user, resume the Cidre setup:
 - [macOS to Cidre Flow](./docs/macos-to-cidre-flow.md)
 - [Installer Threat Model](./docs/installer-threat-model.md)
 - [Seed & Resume](./docs/seed-resume.md)
+- [Downstream Strategy](./docs/downstream-strategy.md)
+- [ALARM Fork Strategy](./docs/alarm-fork-strategy.md)
+- [Cidre Image Plan](./docs/cidre-image-plan.md)
+- [Installer Integration](./docs/installer-integration.md)
+- [Image Build Notes](./docs/image-build-notes.md)
+- [Firstboot Root Login Problem](./docs/firstboot-root-login-problem.md)
 - [Fresh ALARM Base Setup](./docs/base-install.md)
 - [Installation Guide (Advanced)](./docs/installation.md)
 - [Stable Commands Reference](./docs/commands.md)
@@ -66,6 +78,7 @@ After switching to the normal user, resume the Cidre setup:
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
 - [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)
+- [v0.14.0 Release Notes](./docs/v0.14.0-downstream-foundation.md)
 - [v0.12.0 Release Notes](./docs/v0.12.0-macos-bootstrap.md)
 - [v0.11.0 Release Notes](./docs/v0.11.0-base-setup-tui.md)
 - [v0.10.0 Release Notes](./docs/v0.10.0-base-install-simplification.md)

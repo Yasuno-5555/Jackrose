@@ -1,0 +1,16 @@
+# Example Remote Layout
+
+For a forked downstream repository:
+
+```sh
+git remote rename origin upstream
+git remote add origin git@github.com:Yasuno-5555/cidre-alarm-installer.git
+git fetch upstream
+git fetch origin
+```
+
+Suggested branch names:
+
+- `cidre/main`
+- `cidre/image-prototype`
+- `cidre/installer-entry`

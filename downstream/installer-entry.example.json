@@ -1,0 +1,9 @@
+{
+  "name": "Cidre",
+  "default_os_name": "Cidre",
+  "description": "A flowing Linux workspace for Apple Silicon MacBooks.",
+  "image": "cidre-rootfs.img.zst",
+  "icon": "cidre",
+  "variant": "developer",
+  "experimental": true
+}

@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+FILE="${1:-downstream/installer-entry.example.json}"
+
+[ -f "$FILE" ] || {
+  printf 'ERROR: metadata file not found: %s\n' "$FILE" >&2
+  exit 1
+}
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 -m json.tool "$FILE" >/dev/null
+  printf '[OK] %s is valid JSON\n' "$FILE"
+else
+  printf '[WARN] python3 not found; skipping JSON validation\n' >&2
+fi

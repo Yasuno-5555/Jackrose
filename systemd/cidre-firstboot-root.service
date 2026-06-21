@@ -1,0 +1,14 @@
+[Unit]
+Description=Cidre Firstboot Root Setup
+Documentation=man:cidre-firstboot-root
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/cidre/firstboot-root/completed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/cidre/cidre-firstboot-root
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

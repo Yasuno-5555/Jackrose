@@ -17,6 +17,7 @@ show_help() {
   echo "  restore <id|latest>  Restore files from a snapshot (delegates to cidre-snapshot)"
   echo "  seed-status          Show imported seed status"
   echo "  resume-status        Show imported resume status"
+  echo "  downstream-status    Show downstream foundation prototype status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
   echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
   echo "  reset-niri           Restore default config.kdl to ~/.config/niri/"
@@ -152,6 +153,21 @@ case "$CMD" in
     else
       echo "  available: no"
     fi
+    ;;
+  downstream-status)
+    echo "Cidre downstream foundation:"
+    echo "  image prototype: not built"
+    if [ -f "systemd/cidre-firstboot-root.service" ] || [ -f "/usr/lib/cidre/cidre-firstboot-root" ]; then
+      echo "  firstboot-root service: available"
+    else
+      echo "  firstboot-root service: missing"
+    fi
+    if [ -f "downstream/installer-entry.example.json" ]; then
+      echo "  installer entry example: available"
+    else
+      echo "  installer entry example: missing"
+    fi
+    echo "  public image: not available"
     ;;
   disable-greetd)
     if [ "$EUID" -ne 0 ]; then

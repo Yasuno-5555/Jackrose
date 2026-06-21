@@ -20,3 +20,9 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
    - v0.13.0 does not automatically inject the generated seed into the ALARM rootfs. Users must manually move the seed into the fresh ALARM environment.
 8. **Offline Guarantees Not Provided**:
    - v0.13.0 does not guarantee offline installation unless all required packages are already available locally.
+9. **No Public Cidre Image Yet**:
+   - Cidre v0.14.0 does not ship a public Cidre image or production installer metadata.
+10. **Existing ALARM Login Prompt Still Exists**:
+   - Cidre v0.14.0 documents the root/root problem and provides firstboot-root prototypes, but it does not remove the login prompt from existing ALARM images.
+11. **firstboot-root Prototype Only**:
+   - `cidre-firstboot-root` and the autologin example are prototypes and are not installed or enabled by default.

@@ -1,0 +1,84 @@
+#!/bin/sh
+set -eu
+
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+STATE_DIR="${CIDRE_SYSTEM_ROOT}/firstboot-root"
+DRY_RUN=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-firstboot-root [options]
+
+Options:
+  --dry-run         Show planned firstboot actions
+  --status          Show firstboot-root status
+  --mark-complete   Mark firstboot-root as completed
+  -h, --help        Show this help
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --status)
+      if [ -f "$STATE_DIR/completed" ]; then
+        printf '[OK] cidre firstboot-root completed\n'
+      elif [ -f "$STATE_DIR/started" ]; then
+        printf '[WARN] cidre firstboot-root started but not completed\n'
+      else
+        printf '[INFO] cidre firstboot-root not started\n'
+      fi
+      exit 0
+      ;;
+    --mark-complete)
+      mkdir -p "$STATE_DIR"
+      date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/completed"
+      printf '[OK] marked cidre firstboot-root completed\n'
+      exit 0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ERROR: unknown option: %s\n' "$1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+printf 'Cidre Firstboot Root Setup\n\n'
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '[DRY-RUN] would create firstboot-root state directory\n'
+  printf '[DRY-RUN] would check seed/resume state\n'
+  printf '[DRY-RUN] would hand off to cidre-preinstall or cidre-oobe\n'
+  exit 0
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  printf 'ERROR: cidre-firstboot-root must run as root.\n' >&2
+  exit 1
+fi
+
+mkdir -p "$STATE_DIR"
+date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/started"
+
+cat <<'EOF'
+This is the prototype Cidre firstboot-root entrypoint.
+
+Future releases will use this to guide the first boot of a Cidre image,
+create or verify the normal user, import seed/resume state, and hand off
+to the user-phase Cidre installer.
+
+For existing ALARM images, continue with:
+
+  ./preinstall --import-seed /path/to/cidre-seed.tar.gz
+  su - <user>
+  ./install --resume
+EOF

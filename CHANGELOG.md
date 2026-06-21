@@ -2,6 +2,35 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.14.0] - 2026-06-21
+### Added
+- Added downstream strategy documentation for moving Cidre toward an ALARM/Asahi downstream image.
+- Added upstream repository tracking notes.
+- Added Cidre image layout plan.
+- Added installer integration notes.
+- Added firstboot root login problem documentation.
+- Added downstream workspace under `downstream/`.
+- Added prototype Cidre installer entry example.
+- Added rootfs overlay prototype layout.
+- Added `scripts/cidre-downstream-check`.
+- Added `scripts/cidre-upstream-status`.
+- Added `scripts/cidre-image-layout-check`.
+- Added `scripts/cidre-installer-metadata-check`.
+- Added prototype `scripts/cidre-firstboot-root`.
+- Added `systemd/cidre-firstboot-root.service`.
+- Added one-shot root autologin example drop-in for future Cidre-controlled images.
+
+### Changed
+- Updated README to describe Cidre's downstream image direction.
+- Updated known limitations with public image and installer integration status.
+- Updated validation matrix with downstream foundation checks.
+- Updated v1.0.0 clean install test plan with firstboot OOBE requirements.
+- Updated `cidre-doctor --rc-readiness` to include downstream foundation scripts.
+
+### Notes
+- v0.14.0 does not ship a public Cidre image.
+- It establishes the downstream foundation needed to build one in a future release.
+
 ## [0.13.0] - 2026-06-21
 ### Added
 - Added `scripts/cidre-seed` for seed operations.

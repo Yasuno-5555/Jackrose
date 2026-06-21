@@ -13,6 +13,7 @@ RC_READINESS_MODE=false
 BASE_READINESS_MODE=false
 SEED_MODE=false
 RESUME_MODE=false
+DOWNSTREAM_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
@@ -35,6 +36,7 @@ show_help() {
   echo "  --update-readiness  Alias for --maintenance"
   echo "  --state             Alias for --maintenance"
   echo "  --rc-readiness      Verify if repository state is ready for release candidate"
+  echo "  --downstream        Inspect downstream foundation files and prototypes"
   echo "  --base-readiness    Verify root-phase base setup readiness for ./preinstall"
   echo "  --seed              Inspect imported Cidre seed state under /var/lib/cidre/seed"
   echo "  --resume            Inspect imported/system and user resume state"
@@ -53,6 +55,7 @@ while [ $# -gt 0 ]; do
     --fix-suggestions) SUGGESTIONS_MODE=true; shift ;;
     --maintenance|--update-readiness|--state) MAINTENANCE_MODE=true; shift ;;
     --rc-readiness) RC_READINESS_MODE=true; shift ;;
+    --downstream) DOWNSTREAM_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -358,6 +361,58 @@ elif [ "$RESUME_MODE" = true ]; then
     print_result WARN "User resume applied state is missing."
   fi
 
+elif [ "$DOWNSTREAM_MODE" = true ]; then
+  for dir in \
+    downstream \
+    downstream/rootfs-overlay \
+    downstream/rootfs-overlay/usr/lib/cidre \
+    downstream/rootfs-overlay/etc/systemd/system \
+    downstream/rootfs-overlay/var/lib/cidre; do
+    if [ -d "$dir" ]; then
+      print_result OK "Directory present: $dir"
+    else
+      print_result FAIL "Missing directory: $dir"
+    fi
+  done
+
+  for file in \
+    downstream/README.md \
+    downstream/upstreams.md \
+    downstream/image-layout.md \
+    downstream/installer-entry.example.json \
+    docs/downstream-strategy.md \
+    docs/alarm-fork-strategy.md \
+    docs/cidre-image-plan.md \
+    docs/installer-integration.md \
+    docs/image-build-notes.md \
+    docs/firstboot-root-login-problem.md \
+    docs/v0.14.0-downstream-foundation.md \
+    scripts/cidre-downstream-check \
+    scripts/cidre-upstream-status \
+    scripts/cidre-image-layout-check \
+    scripts/cidre-installer-metadata-check \
+    scripts/cidre-firstboot-root \
+    systemd/cidre-firstboot-root.service \
+    systemd/getty@tty1.service.d/cidre-firstboot-autologin.conf.example; do
+    if [ -f "$file" ]; then
+      print_result OK "File present: $file"
+    else
+      print_result FAIL "Missing file: $file"
+    fi
+  done
+
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 -m json.tool downstream/installer-entry.example.json >/dev/null 2>&1; then
+      print_result OK "Installer metadata example is valid JSON."
+    else
+      print_result FAIL "Installer metadata example is not valid JSON."
+    fi
+  else
+    print_result WARN "python3 not found; skipping installer metadata JSON validation."
+  fi
+
+  print_result WARN "Public Cidre image is not available yet."
+
 elif [ "$RC_READINESS_MODE" = true ]; then
   # 1. Try to find the Cidre repository root relative to this script
   SCRIPT_PATH=$(realpath "$0")
@@ -374,7 +429,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
     print_result OK "Cidre repository tree found at $REPO_ROOT."
 
     # Verify all commands exist and are executable in tree
-    for cmd in install install-macos scripts/cidre-installer scripts/cidre-macos-installer scripts/cidre-macos-check scripts/cidre-macos-seed scripts/cidre-macos-handoff scripts/cidre-seed scripts/cidre-seed-verify scripts/cidre-seed-import scripts/cidre-resume scripts/cidre-user-setup scripts/cidre-doctor scripts/cidre-recovery scripts/cidre-snapshot scripts/cidre-update scripts/cidre-maintenance scripts/cidre-firstboot scripts/cidre-welcome scripts/cidre-audio scripts/check-packages; do
+    for cmd in install install-macos scripts/cidre-installer scripts/cidre-macos-installer scripts/cidre-macos-check scripts/cidre-macos-seed scripts/cidre-macos-handoff scripts/cidre-seed scripts/cidre-seed-verify scripts/cidre-seed-import scripts/cidre-resume scripts/cidre-downstream-check scripts/cidre-upstream-status scripts/cidre-image-layout-check scripts/cidre-installer-metadata-check scripts/cidre-firstboot-root scripts/cidre-user-setup scripts/cidre-doctor scripts/cidre-recovery scripts/cidre-snapshot scripts/cidre-update scripts/cidre-maintenance scripts/cidre-firstboot scripts/cidre-welcome scripts/cidre-audio scripts/check-packages; do
       if [ -f "${REPO_ROOT}/${cmd}" ]; then
         print_result OK "Command tree file '${cmd}' exists."
         if [ -x "${REPO_ROOT}/${cmd}" ] || [[ "$cmd" == *.py ]]; then
@@ -388,7 +443,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
     done
 
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/installer-integration.md docs/image-build-notes.md docs/firstboot-root-login-problem.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md; do
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."
         # Extra verification for limitations presence

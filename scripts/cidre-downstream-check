@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+ok() {
+  printf '[OK] %s\n' "$*"
+}
+
+warn() {
+  printf '[WARN] %s\n' "$*" >&2
+}
+
+fail() {
+  printf '[FAIL] %s\n' "$*" >&2
+  exit 1
+}
+
+check_file() {
+  [ -f "$1" ] && ok "$1" || fail "missing file: $1"
+}
+
+check_dir() {
+  [ -d "$1" ] && ok "$1" || fail "missing directory: $1"
+}
+
+printf 'Cidre downstream foundation check\n\n'
+
+check_dir downstream
+check_file downstream/README.md
+check_file downstream/upstreams.md
+check_file downstream/image-layout.md
+check_file downstream/installer-entry.example.json
+check_dir downstream/rootfs-overlay
+
+check_file docs/downstream-strategy.md
+check_file docs/alarm-fork-strategy.md
+check_file docs/cidre-image-plan.md
+check_file docs/installer-integration.md
+check_file docs/image-build-notes.md
+check_file docs/firstboot-root-login-problem.md
+check_file docs/v0.14.0-downstream-foundation.md
+
+check_file scripts/cidre-firstboot-root
+check_file systemd/cidre-firstboot-root.service
+check_file systemd/getty@tty1.service.d/cidre-firstboot-autologin.conf.example
+
+if [ -z "${CIDRE_ALARM_BUILDER_DIR:-}" ]; then
+  warn "cidre-alarm-builder fork not configured"
+fi
+
+ok "downstream foundation looks complete"

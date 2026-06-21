@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+ok() {
+  printf '[OK] %s\n' "$*"
+}
+
+fail() {
+  printf '[FAIL] %s\n' "$*" >&2
+  exit 1
+}
+
+check_dir() {
+  [ -d "$1" ] && ok "$1" || fail "missing directory: $1"
+}
+
+printf 'Cidre image layout check\n\n'
+check_dir downstream/rootfs-overlay
+check_dir downstream/rootfs-overlay/usr/lib/cidre
+check_dir downstream/rootfs-overlay/etc/systemd/system
+check_dir downstream/rootfs-overlay/var/lib/cidre
+ok "rootfs overlay layout looks complete"
