@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-maintenance
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre daily maintenance utility'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=('bash' 'jq' 'cidre-snapshot' 'cidre-user-setup')
+source=('cidre-maintenance')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/cidre-maintenance" "${pkgdir}/usr/bin/cidre-maintenance"
+}

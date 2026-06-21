@@ -1,0 +1,176 @@
+#!/bin/bash
+# cidre-maintenance: Daily maintenance log, snapshot, and configuration drift verification tool
+set -euo pipefail
+
+STATE_DIR="${HOME}/.local/state/cidre"
+SNAPSHOT_DIR="${STATE_DIR}/snapshots"
+MANIFEST_PATH="${STATE_DIR}/manifest.json"
+
+show_help() {
+  echo "Usage: cidre-maintenance <command> [options]"
+  echo "Commands:"
+  echo "  status               Show status of logs, snapshots, updates, and setup profiles"
+  echo "  prune                Cleanup older snapshots and logs (requires confirmation)"
+  echo "  drift                Check configuration changes/drift since deployment"
+  echo "  logs                 Print path and locations of logs or print last entries"
+  echo ""
+  echo "Options:"
+  echo "  --keep <num>         Number of snapshots to keep during prune (default: 10)"
+  echo "  --dry-run            Show proposed changes/deletions without executing"
+  echo "  --yes                Skip confirmation prompt during prune"
+}
+
+if [ $# -lt 1 ]; then
+  show_help
+  exit 1
+fi
+
+CMD="$1"
+shift
+
+KEEP=10
+DRY_RUN=false
+YES=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep)
+      if [ $# -lt 2 ]; then
+        echo "Error: --keep requires an argument." >&2
+        exit 1
+      fi
+      KEEP="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --yes)
+      YES=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+case "$CMD" in
+  status)
+    echo "=== Cidre Maintenance Status ==="
+    echo "State Directory:  ${STATE_DIR}"
+
+    if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
+      echo "Active Profile:   $(jq -r '.profile' "$MANIFEST_PATH")"
+    else
+      echo "Active Profile:   unknown (No manifest)"
+    fi
+
+    # Snapshot summary
+    if [ -d "$SNAPSHOT_DIR" ]; then
+      SNAP_COUNT=$(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
+      echo "Saved Snapshots:  ${SNAP_COUNT}"
+      if [ "$SNAP_COUNT" -gt 0 ]; then
+        LATEST_SNAP=$(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1 | xargs basename)
+        echo "Latest Snapshot:  ${LATEST_SNAP}"
+      fi
+    else
+      echo "Saved Snapshots:  0"
+    fi
+
+    # Logs summary
+    echo "Stale log check:"
+    for log in install.log doctor/history.log setup/history.log update/history.log; do
+      LPATH="${STATE_DIR}/${log}"
+      if [ -f "$LPATH" ]; then
+        echo "  [Present] $log ($(du -h "$LPATH" | cut -f1))"
+      else
+        echo "  [Missing] $log"
+      fi
+    done
+    ;;
+
+  prune)
+    echo "=== Pruning Snapshots and Logs ==="
+
+    # Prune snapshots via cidre-snapshot
+    SNAP_CMD=("cidre-snapshot" "prune" "--keep" "${KEEP}")
+    if [ "$DRY_RUN" = true ]; then
+      SNAP_CMD+=("--dry-run")
+    fi
+    if [ "$YES" = true ]; then
+      SNAP_CMD+=("--yes")
+    fi
+
+    if command -v cidre-snapshot >/dev/null 2>&1; then
+      "${SNAP_CMD[@]}"
+    elif [ -f "./cidre-snapshot" ]; then
+      "./${SNAP_CMD[@]}"
+    elif [ -f "/usr/bin/cidre-snapshot" ]; then
+      "/usr/bin/cidre-snapshot" "${SNAP_CMD[@]}"
+    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
+      "$(dirname "$0")/cidre-snapshot" "${SNAP_CMD[@]}"
+    else
+      echo "Warning: cidre-snapshot not found. Cannot prune snapshots."
+    fi
+
+    # Prune logs
+    echo "Cleaning log backups older than 30 days..."
+    if [ "$DRY_RUN" = true ]; then
+      echo "[Dry-Run] Would truncate logs older than 30 days."
+    else
+      if [ "$YES" = false ]; then
+        read -p "Truncate history log files to keep size minimal? [y/N]: " conf
+        if [[ ! "$conf" =~ ^[yY] ]]; then
+          echo "Log prune skipped."
+          exit 0
+        fi
+      fi
+      # Simple log rotation - keep last 100 lines
+      for log in doctor/history.log setup/history.log update/history.log; do
+        LPATH="${STATE_DIR}/${log}"
+        if [ -f "$LPATH" ]; then
+          tail -n 100 "$LPATH" > "${LPATH}.tmp"
+          mv "${LPATH}.tmp" "$LPATH"
+          echo "Truncated $log to last 100 entries."
+        fi
+      done
+    fi
+    ;;
+
+  drift)
+    echo "=== Checking Configuration Drift ==="
+    if command -v cidre-user-setup >/dev/null 2>&1; then
+      cidre-user-setup diff
+    elif [ -f "./cidre-user-setup" ]; then
+      python3 ./cidre-user-setup diff
+    elif [ -f "/usr/bin/cidre-user-setup" ]; then
+      /usr/bin/cidre-user-setup diff
+    elif [ -f "$(dirname "$0")/cidre-user-setup" ]; then
+      python3 "$(dirname "$0")/cidre-user-setup" diff
+    else
+      echo "Error: cidre-user-setup not found." >&2
+      exit 1
+    fi
+    ;;
+
+  logs)
+    echo "=== Cidre Operations Logs ==="
+    for log in install.log doctor/history.log setup/history.log update/history.log; do
+      LPATH="${STATE_DIR}/${log}"
+      if [ -f "$LPATH" ]; then
+        echo "--- Last 5 entries of $log (Path: $LPATH) ---"
+        tail -n 5 "$LPATH"
+        echo ""
+      fi
+    done
+    ;;
+
+  *)
+    show_help
+    exit 1
+    ;;
+esac

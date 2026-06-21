@@ -44,12 +44,24 @@ STATUS_FILE="${STATE_DIR}/firstboot-status"
 mkdir -p "$STATE_DIR"
 
 if command -v cidre-doctor >/dev/null 2>&1; then
-  if cidre-doctor --daily; then
+  echo "Running daily driver diagnostics..."
+  DAILY_OK=true
+  cidre-doctor --daily || DAILY_OK=false
+
+  echo "Running update & maintenance readiness diagnostics..."
+  MAINT_OK=true
+  cidre-doctor --maintenance || MAINT_OK=false
+
+  if [ "$DAILY_OK" = true ] && [ "$MAINT_OK" = true ]; then
     echo "SUCCESS" > "$STATUS_FILE"
+    echo "Daily: SUCCESS" >> "$STATUS_FILE"
+    echo "Maintenance: SUCCESS" >> "$STATUS_FILE"
   else
     echo "FAILED" > "$STATUS_FILE"
+    echo "Daily: $([ "$DAILY_OK" = true ] && echo "SUCCESS" || echo "FAILED")" >> "$STATUS_FILE"
+    echo "Maintenance: $([ "$MAINT_OK" = true ] && echo "SUCCESS" || echo "FAILED")" >> "$STATUS_FILE"
     echo ""
-    echo "WARNING: One or more daily diagnostic checks failed."
+    echo "WARNING: One or more daily or maintenance diagnostic checks failed."
     echo "To see diagnostic recommendations, run: 'cidre-doctor --fix-suggestions'"
     echo "To restore a previous working state, run: 'cidre-recovery restore latest'"
   fi

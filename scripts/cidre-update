@@ -1,0 +1,173 @@
+#!/bin/bash
+# cidre-update: Cidre desktop layer updater
+set -euo pipefail
+
+STATE_DIR="${HOME}/.local/state/cidre"
+UPDATE_DIR="${STATE_DIR}/update"
+HISTORY_LOG="${UPDATE_DIR}/history.log"
+LAST_UPDATE="${UPDATE_DIR}/last-update.log"
+MANIFEST_PATH="${STATE_DIR}/manifest.json"
+
+DRY_RUN=false
+CHECK_ONLY=false
+APPLY=false
+PROFILE=""
+
+show_help() {
+  echo "Usage: cidre-update [options]"
+  echo "Options:"
+  echo "  --check             Verify update status and requirements"
+  echo "  --dry-run           Show what updates and modifications would be made"
+  echo "  --apply             Perform pre-update snapshot, package update, and config apply"
+  echo "  --profile <name>    Target installation profile to apply (desktop, developer, minimal, recovery)"
+  echo "  --doctor            Run post-update checks via cidre-doctor"
+  echo "  --help              Show this help message"
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_ONLY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --apply) APPLY=true; shift ;;
+    --profile)
+      if [ $# -lt 2 ]; then
+        echo "Error: --profile requires an argument." >&2
+        exit 1
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --doctor)
+      if command -v cidre-doctor >/dev/null 2>&1; then
+        cidre-doctor --maintenance
+      else
+        echo "Error: cidre-doctor not found." >&2
+      fi
+      exit 0
+      ;;
+    --help) show_help; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
+  esac
+done
+
+if [ "$CHECK_ONLY" = false ] && [ "$DRY_RUN" = false ] && [ "$APPLY" = false ]; then
+  show_help
+  exit 1
+fi
+
+log_history() {
+  local action="$1"
+  local status="$2"
+  local details="$3"
+  mkdir -p "$UPDATE_DIR"
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  echo "[${ts}] ACTION: ${action} | STATUS: ${status} | ${details}" >> "$HISTORY_LOG"
+}
+
+# --check Mode
+if [ "$CHECK_ONLY" = true ]; then
+  echo "=== Running Cidre Update Check ==="
+  ERRS=0
+
+  if [ -d "$STATE_DIR" ]; then
+    echo "[OK] Cidre state directory exists."
+  else
+    echo "[WARN] Cidre state directory is missing."
+    ERRS=$((ERRS + 1))
+  fi
+
+  if [ -f "$MANIFEST_PATH" ]; then
+    echo "[OK] Cidre installation manifest found."
+  else
+    echo "[FAIL] Cidre installation manifest is missing."
+    ERRS=$((ERRS + 1))
+  fi
+
+  for cmd in cidre-snapshot cidre-recovery cidre-doctor cidre-user-setup jq; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      echo "[OK] Required utility '$cmd' is available."
+    else
+      echo "[FAIL] Required utility '$cmd' is missing."
+      ERRS=$((ERRS + 1))
+    fi
+  done
+
+  echo "Update readiness check complete. Total issues/warnings: ${ERRS}"
+  exit $ERRS
+fi
+
+# Determine Profile
+if [ -z "$PROFILE" ]; then
+  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
+    PROFILE=$(jq -r '.profile' "$MANIFEST_PATH")
+  else
+    PROFILE="desktop"
+  fi
+fi
+
+# --dry-run Mode
+if [ "$DRY_RUN" = true ]; then
+  echo "=== Update Dry-Run Preview ==="
+  echo "Profile Target: ${PROFILE}"
+  echo "Pre-Update Actions:"
+  echo "  [Dry-Run] Would create pre-update snapshot: 'pre-update-$(date +%Y%m%d)'"
+
+  echo "Package Update Actions:"
+  if command -v pacman >/dev/null 2>&1; then
+    echo "  [Dry-Run] Would run package database check (pacman -Sy)"
+  fi
+
+  echo "Configuration Deploy Actions:"
+  if command -v cidre-user-setup >/dev/null 2>&1; then
+    cidre-user-setup apply --profile "$PROFILE" --dry-run
+  fi
+
+  echo "Post-Update Actions:"
+  echo "  [Dry-Run] Would run post-update diagnostics: 'cidre-doctor --maintenance'"
+  exit 0
+fi
+
+# --apply Mode
+if [ "$APPLY" = true ]; then
+  echo "=== Applying Cidre Update ==="
+  mkdir -p "$UPDATE_DIR"
+  exec > >(tee "$LAST_UPDATE") 2>&1
+
+  echo "Step 1: Creating safety pre-update snapshot..."
+  SNAP_LABEL="pre-update-$(date +%Y%m%d-%H%M%S)"
+  if command -v cidre-snapshot >/dev/null 2>&1; then
+    cidre-snapshot create --label "$SNAP_LABEL"
+  else
+    echo "Warning: cidre-snapshot not found. Skipping snapshot."
+  fi
+
+  echo "Step 2: Syncing system packages (Requires sudo)..."
+  if command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy || echo "Warning: Pacman sync returned errors."
+  fi
+
+  echo "Step 3: Re-deploying profile templates: ${PROFILE}..."
+  if command -v cidre-user-setup >/dev/null 2>&1; then
+    cidre-user-setup apply --profile "$PROFILE" --no-snapshot --force
+  fi
+
+  echo "Step 4: Running post-update diagnostics..."
+  STATUS="SUCCESS"
+  if command -v cidre-doctor >/dev/null 2>&1; then
+    cidre-doctor --maintenance || STATUS="WARNINGS"
+  fi
+
+  log_history "apply" "$STATUS" "Profile: ${PROFILE}, Snapshot: ${SNAP_LABEL}"
+
+  echo ""
+  echo "=== Cidre Update Complete ==="
+  if [ "$STATUS" = "WARNINGS" ]; then
+    echo "Update finished with warnings. Please run 'cidre-doctor --maintenance' to review details."
+  else
+    echo "Update finished successfully."
+  fi
+  echo "Rollback hint: If configuration issues occur, run 'cidre-recovery restore latest'"
+  exit 0
+fi

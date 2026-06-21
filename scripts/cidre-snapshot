@@ -19,8 +19,9 @@ show_help() {
   echo "Options:"
   echo "  --label <name>       Add a descriptive label to a new snapshot"
   echo "  --keep <num>         Number of snapshots to keep when pruning (default: 10)"
+  echo "  --older-than <dur>   Prune snapshots older than duration (e.g. 30d, 12h)"
   echo "  --dry-run            Show what files would be modified without executing"
-  echo "  --yes                Skip confirmation prompt during restore"
+  echo "  --yes                Skip confirmation prompt during restore or prune"
 }
 
 if [ $# -lt 1 ]; then
@@ -31,6 +32,7 @@ fi
 CMD=""
 LABEL=""
 KEEP=10
+OLDER_THAN=""
 DRY_RUN=false
 YES=false
 
@@ -62,6 +64,14 @@ while [ $# -gt 0 ]; do
         exit 1
       fi
       KEEP="$2"
+      shift 2
+      ;;
+    --older-than)
+      if [ $# -lt 2 ]; then
+        echo "Error: --older-than requires a value." >&2
+        exit 1
+      fi
+      OLDER_THAN="$2"
       shift 2
       ;;
     --dry-run)
@@ -111,14 +121,14 @@ case "$CMD" in
     SNAPSHOT_ID="${TS}${LABEL:+-}${LABEL:-}"
     DEST_DIR="${SNAPSHOT_DIR}/${SNAPSHOT_ID}"
     echo "Creating snapshot: ${SNAPSHOT_ID}..."
-    
+
     if [ "$DRY_RUN" = true ]; then
       echo "[Dry-Run] Would copy Cidre-managed files to ${DEST_DIR}"
       exit 0
     fi
-    
+
     mkdir -p "${DEST_DIR}/files"
-    
+
     # Save metadata
     cat <<EOF > "${DEST_DIR}/metadata.json"
 {
@@ -204,7 +214,7 @@ EOF
       exit 1
     fi
     echo "=== Diffing Snapshot ${ID} against current home configurations ==="
-    
+
     if [ -d "${SDIR}/files" ]; then
       find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||" | while read -r file; do
         SNAP_FILE="${SDIR}/files/${file}"
@@ -232,7 +242,7 @@ EOF
       echo "Error: Snapshot ID '${ID}' not found." >&2
       exit 1
     fi
-    
+
     echo "Proposed restore from snapshot: ${ID}"
     if [ -d "${SDIR}/files" ]; then
       find "${SDIR}/files" -type f | sed "s|^${SDIR}/files/||" | while read -r file; do
@@ -269,29 +279,106 @@ EOF
     ;;
 
   prune)
-    echo "Pruning older snapshots, keeping latest ${KEEP}..."
     if [ ! -d "$SNAPSHOT_DIR" ]; then
       echo "No snapshots available."
       exit 0
     fi
-    
+
     # List chronological snapshots to keep
     mapfile -t ALL_SNAPS < <(find "$SNAPSHOT_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
     COUNT=${#ALL_SNAPS[@]}
-    if [ "$COUNT" -le "$KEEP" ]; then
-      echo "Total snapshots ($COUNT) is less than or equal to keep limit ($KEEP). No prune needed."
+    if [ "$COUNT" -eq 0 ]; then
+      echo "No snapshots found to prune."
       exit 0
     fi
-    
-    PRUNE_LIMIT=$((COUNT - KEEP))
-    for ((i=0; i<PRUNE_LIMIT; i++)); do
-      sdir="${ALL_SNAPS[$i]}"
-      if [ "$DRY_RUN" = true ]; then
-        echo "[Dry-Run] Would delete snapshot: $(basename "$sdir")"
+
+    LATEST_SNAP_DIR="${ALL_SNAPS[-1]}"
+    TO_DELETE=()
+
+    if [ -n "$OLDER_THAN" ]; then
+      echo "Checking snapshots older than ${OLDER_THAN}..."
+      current_time=$(date +%s)
+      if [[ "$OLDER_THAN" =~ ^([0-9]+)([dhms]?)$ ]]; then
+        VAL="${BASH_REMATCH[1]}"
+        UNIT="${BASH_REMATCH[2]}"
+        case "$UNIT" in
+          d|"") SECS=$((VAL * 86400)) ;;
+          h) SECS=$((VAL * 3600)) ;;
+          m) SECS=$((VAL * 60)) ;;
+          s) SECS=$VAL ;;
+        esac
+        CUTOFF=$((current_time - SECS))
       else
-        echo "Deleting snapshot: $(basename "$sdir")"
-        rm -rf "$sdir"
+        echo "Error: Invalid --older-than format. Use e.g. 30d, 12h." >&2
+        exit 1
       fi
+
+      for sdir in "${ALL_SNAPS[@]}"; do
+        if [ "$sdir" = "$LATEST_SNAP_DIR" ]; then
+          continue
+        fi
+
+        SNAP_EPOCH=0
+        if [ -f "${sdir}/metadata.json" ] && command -v jq >/dev/null 2>&1; then
+          TS_STR=$(jq -r '.timestamp' "${sdir}/metadata.json")
+          SNAP_EPOCH=$(date -d "$TS_STR" +%s 2>/dev/null || date -u -d "$TS_STR" +%s 2>/dev/null || echo 0)
+        fi
+
+        if [ "$SNAP_EPOCH" -eq 0 ]; then
+          DIRNAME=$(basename "$sdir")
+          if [[ "$DIRNAME" =~ ^([0-9]{8})-([0-9]{6}) ]]; then
+            DATE_STR="${BASH_REMATCH[1]} ${BASH_REMATCH[2]:0:2}:${BASH_REMATCH[2]:2:2}:${BASH_REMATCH[2]:4:2}"
+            SNAP_EPOCH=$(date -d "$DATE_STR" +%s 2>/dev/null || echo 0)
+          else
+            SNAP_EPOCH=$(stat -c %Y "$sdir" 2>/dev/null || echo 0)
+          fi
+        fi
+
+        if [ "$SNAP_EPOCH" -gt 0 ] && [ "$SNAP_EPOCH" -lt "$CUTOFF" ]; then
+          TO_DELETE+=("$sdir")
+        fi
+      done
+    else
+      echo "Pruning older snapshots, keeping latest ${KEEP}..."
+      if [ "$COUNT" -le "$KEEP" ]; then
+        echo "Total snapshots ($COUNT) is less than or equal to keep limit ($KEEP). No prune needed."
+        exit 0
+      fi
+      PRUNE_LIMIT=$((COUNT - KEEP))
+      for ((i=0; i<PRUNE_LIMIT; i++)); do
+        sdir="${ALL_SNAPS[$i]}"
+        if [ "$sdir" != "$LATEST_SNAP_DIR" ]; then
+          TO_DELETE+=("$sdir")
+        fi
+      done
+    fi
+
+    if [ ${#TO_DELETE[@]} -eq 0 ]; then
+      echo "No snapshots qualify for pruning."
+      exit 0
+    fi
+
+    echo "Snapshots proposed for pruning (latest snapshot is always protected):"
+    for sdir in "${TO_DELETE[@]}"; do
+      echo "  $(basename "$sdir")"
+    done
+
+    if [ "$DRY_RUN" = true ]; then
+      echo "[Dry-Run] Pruning simulation completed. No files deleted."
+      exit 0
+    fi
+
+    if [ "$YES" = false ]; then
+      read -p "Are you sure you want to delete these ${#TO_DELETE[@]} snapshots? [y/N]: " conf
+      if [[ ! "$conf" =~ ^[yY] ]]; then
+        echo "Prune cancelled."
+        exit 0
+      fi
+    fi
+
+    for sdir in "${TO_DELETE[@]}"; do
+      echo "Deleting snapshot: $(basename "$sdir")"
+      rm -rf "$sdir"
     done
     echo "Pruning completed."
     ;;

@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-update
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre desktop layer updater'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=('bash' 'jq' 'cidre-snapshot' 'cidre-recovery' 'cidre-diagnostics' 'cidre-user-setup')
+source=('cidre-update')
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/cidre-update" "${pkgdir}/usr/bin/cidre-update"
+}
