@@ -1,4 +1,4 @@
-# Cidre v0.15.0 Validation Matrix
+# Cidre v0.16.0 Validation Matrix
 
 The following matrix documents the verification scopes completed on Cidre before the v1.0.0 release.
 
@@ -11,6 +11,7 @@ The following matrix documents the verification scopes completed on Cidre before
 | **seed verify/import/resume** | Yes | Partial | N/A | No | No | Valid seed verification, invalid profile rejection, unsafe path rejection, non-root import rejection, and resume path wiring checked |
 | **downstream foundation** | Yes | Partial | N/A | No | No | Downstream docs exist, installer entry example validates as JSON, rootfs overlay layout exists, and firstboot-root prototype passes syntax checks |
 | **image prototype** | Yes | Yes | N/A | No | No | Image build scripts parse, overlay sync runs, overlay tarball and checksum generate, manifest writes, and overlay inspection passes |
+| **firstboot OOBE** | Yes | Yes | N/A | No | No | firstboot-root dry-run and status work, state transitions and handoff generation work under simulated roots, doctor/recovery report state, and overlay inspection includes OOBE scripts |
 | **bootstrap system** | Yes | Yes | N/A | Partial | No | System commands and pacman dependencies simulated |
 | **user config apply** | Yes | Yes | Yes | Partial | No | Sandboxed user home file deployment fully tested |
 | **diagnostics (doctor)** | Yes | Yes | Yes | Partial | No | Script parsing & maintenance checks verified |

@@ -1,4 +1,4 @@
-# Cidre (v0.15.0 Cidre Image Prototype Pack)
+# Cidre (v0.16.0 Firstboot OOBE Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -18,6 +18,13 @@ Cidre v0.15.0 introduces the first prototype image artifact flow.
 
 This does not mean Cidre ships a public installable image yet.
 The goal is to generate and inspect prototype rootfs artifacts containing Cidre firstboot, seed/resume, and downstream overlay components.
+
+## Firstboot OOBE Status
+
+Cidre v0.16.0 introduces the firstboot OOBE layer for future Cidre-controlled images.
+
+The goal is to avoid requiring users to know default ALARM credentials such as `root/root`.
+This is not a public boot-validated image yet, but it establishes the firstboot setup path used by future Cidre images.
 
 ## Installation Flow
 
@@ -71,6 +78,8 @@ After switching to the normal user, resume the Cidre setup:
 - [Installer Integration](./docs/installer-integration.md)
 - [Image Build Notes](./docs/image-build-notes.md)
 - [Image Build Validation](./docs/image-build-validation.md)
+- [Firstboot OOBE](./docs/firstboot-oobe.md)
+- [Firstboot Security](./docs/firstboot-security.md)
 - [Firstboot Root Login Problem](./docs/firstboot-root-login-problem.md)
 - [Fresh ALARM Base Setup](./docs/base-install.md)
 - [Installation Guide (Advanced)](./docs/installation.md)
@@ -86,6 +95,7 @@ After switching to the normal user, resume the Cidre setup:
 - [Recovery Guide](./docs/recovery.md)
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
+- [v0.16.0 Release Notes](./docs/v0.16.0-firstboot-oobe.md)
 - [v0.15.0 Release Notes](./docs/v0.15.0-cidre-image-prototype.md)
 - [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)
 - [v0.14.0 Release Notes](./docs/v0.14.0-downstream-foundation.md)

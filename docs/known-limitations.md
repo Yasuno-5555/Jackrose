@@ -36,3 +36,13 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
    - v0.15.0 does not yet connect prototype artifacts to production installer metadata.
 16. **Partition Growth and UUID Behavior Not Verified**:
    - v0.15.0 does not guarantee root partition growth or root UUID scrambling behavior.
+17. **Firstboot OOBE is Shell/TUI Based**:
+   - v0.16.0 firstboot OOBE is script/TUI based and does not provide a GUI installer.
+18. **Existing ALARM Login Prompts Remain**:
+   - v0.16.0 does not automatically remove login prompts on existing ALARM images.
+19. **Real Image Boot Not Guaranteed**:
+   - v0.16.0 does not require real image boot validation to complete.
+20. **Root Autologin is Not Enabled by Default**:
+   - v0.16.0 does not enable root autologin by default.
+21. **No Password Storage or Management**:
+   - v0.16.0 does not store or manage user passwords.

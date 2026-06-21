@@ -38,7 +38,16 @@ Validates the rootfs overlay prototype structure under `downstream/rootfs-overla
 Validates the prototype installer entry example as JSON when `python3` is available.
 
 ### `scripts/cidre-firstboot-root`
-Prototype root-phase firstboot OOBE entrypoint intended for future Cidre-controlled images.
+Root-phase firstboot OOBE orchestration entrypoint intended for future Cidre-controlled images.
+
+### `scripts/cidre-oobe`
+Firstboot OOBE front-end with pure shell fallback and optional dialog/whiptail backends.
+
+### `scripts/cidre-firstboot-state`
+Reads and writes firstboot state markers, selected user/profile, and handoff output.
+
+### `scripts/cidre-firstboot-handoff`
+Generates root-to-user handoff instructions for the user-phase installer.
 
 ### `scripts/cidre-image-build`
 Builds prototype Cidre image artifacts and overlay tarballs.
@@ -95,6 +104,7 @@ Diagnoses system compatibility and environment state.
 * `--resume`: Audits system and user resume state.
 * `--downstream`: Audits downstream foundation files, prototypes, and metadata examples.
 * `--image`: Audits prototype image scripts, overlay contents, workspace docs, and latest generated artifacts.
+* `--firstboot`: Audits firstboot scripts, state markers, handoff files, and overlay OOBE content.
 * `--fix-suggestions`: Renders actionable recovery commands based on the last run.
 
 ### `cidre-recovery`
@@ -107,6 +117,7 @@ Dispatches rescue triggers from console TTY in emergency loops.
 * `resume-status`: Shows whether resume state exists and whether it has been applied.
 * `downstream-status`: Shows whether downstream prototype files are available.
 * `image-status`: Shows whether prototype image artifacts have been generated.
+* `firstboot-status`: Shows firstboot started/completed/skipped/failed status and handoff presence.
 
 ### `cidre-snapshot`
 Takes snapshot points of Cidre configuration directories.

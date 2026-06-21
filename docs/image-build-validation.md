@@ -15,6 +15,16 @@ v0.15.0 validates the prototype image artifact flow, not a production image rele
 - overlay directory inspection
 - optional mounted rootfs inspection
 
+## Firstboot OOBE Validation
+
+- `cidre-firstboot-root --dry-run`
+- `cidre-firstboot-root --status` with a simulated root
+- `cidre-firstboot-state mark-started`
+- `cidre-firstboot-state mark-completed`
+- `cidre-firstboot-state mark-skipped`
+- handoff generation
+- overlay inspection
+
 ## Boot Validation
 
 Boot validation is explicitly deferred.

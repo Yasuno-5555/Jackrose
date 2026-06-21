@@ -1,0 +1,82 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}"
+USER_NAME=""
+PROFILE_NAME=""
+REPO_PATH="$REPO_ROOT"
+
+state_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/firstboot-root\n'
+  else
+    printf '%s/var/lib/cidre/firstboot-root\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+
+STATE_DIR="$(state_dir)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-firstboot-handoff [options]
+
+Options:
+  --user <name>
+  --profile <name>
+  --repo-path <path>
+  -h, --help
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --user) USER_NAME="$2"; shift 2 ;;
+    --profile) PROFILE_NAME="$2"; shift 2 ;;
+    --repo-path) REPO_PATH="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
+  esac
+done
+
+[ -n "$USER_NAME" ] || {
+  printf 'ERROR: --user is required\n' >&2
+  exit 1
+}
+
+mkdir -p "$STATE_DIR"
+
+{
+  printf 'Cidre firstboot root setup is complete.\n\n'
+  printf 'Next:\n\n'
+  printf '  su - %s\n' "$USER_NAME"
+  printf '  cd %s\n' "$REPO_PATH"
+  if [ -n "$PROFILE_NAME" ]; then
+    printf '  ./install --resume\n'
+  else
+    printf '  ./install\n'
+  fi
+  printf '\n'
+  if [ -n "$PROFILE_NAME" ]; then
+    printf 'Detected profile:\n'
+    printf '  %s\n\n' "$PROFILE_NAME"
+    printf 'profile: %s\n' "$PROFILE_NAME"
+    printf 'Resume command:\n'
+    printf '  ./install --resume\n\n'
+  fi
+  printf 'If resume state is missing, run:\n\n'
+  printf '  ./install\n\n'
+  printf 'Default root credentials are unsafe.\n'
+  printf 'Change the root password before using this system as a daily driver.\n\n'
+  printf 'Recommended:\n\n'
+  printf '  passwd root\n'
+} > "$STATE_DIR/handoff.txt"
+
+printf '%s\n' "$USER_NAME" > "$STATE_DIR/selected-user"
+if [ -n "$PROFILE_NAME" ]; then
+  printf '%s\n' "$PROFILE_NAME" > "$STATE_DIR/selected-profile"
+fi
+
+cat "$STATE_DIR/handoff.txt"

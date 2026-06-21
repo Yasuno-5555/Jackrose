@@ -88,6 +88,9 @@ esac
 printf 'Cidre image inspection\n\n'
 
 check_path usr/lib/cidre/cidre-firstboot-root
+check_path usr/lib/cidre/cidre-oobe
+check_path usr/lib/cidre/cidre-firstboot-state
+check_path usr/lib/cidre/cidre-firstboot-handoff
 check_path usr/lib/cidre/cidre-seed
 check_path usr/lib/cidre/cidre-seed-verify
 check_path usr/lib/cidre/cidre-seed-import

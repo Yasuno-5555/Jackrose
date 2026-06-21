@@ -1,9 +1,17 @@
 #!/bin/sh
 set -eu
 
-CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
-STATE_DIR="${CIDRE_SYSTEM_ROOT}/firstboot-root"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}"
+STATE_DIR=""
 DRY_RUN=0
+NON_INTERACTIVE=0
+IMPORT_SEED_PATH=""
+USER_NAME=""
+PROFILE_NAME=""
+SKIP_MODE=0
+HANDOFF_MODE=0
 
 usage() {
   cat <<'EOF'
@@ -12,10 +20,61 @@ Usage:
 
 Options:
   --dry-run         Show planned firstboot actions
+  --non-interactive Do not prompt for missing values
   --status          Show firstboot-root status
   --mark-complete   Mark firstboot-root as completed
+  --skip            Mark firstboot-root as skipped
+  --handoff         Show handoff text
+  --import-seed <p> Import a seed before handoff generation
+  --user <name>     Select or confirm target user
+  --profile <name>  Select or confirm profile
   -h, --help        Show this help
 EOF
+}
+
+state_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/firstboot-root\n'
+  else
+    printf '%s/var/lib/cidre/firstboot-root\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+
+system_seed_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/seed\n'
+  else
+    printf '%s/var/lib/cidre/seed\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+
+system_resume_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/resume\n'
+  else
+    printf '%s/var/lib/cidre/resume\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+
+STATE_DIR="$(state_dir)"
+SEED_DIR="$(system_seed_dir)"
+RESUME_DIR="$(system_resume_dir)"
+
+validate_profile() {
+  case "$1" in
+    ""|desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+resume_profile() {
+  if [ -f "$RESUME_DIR/resume.env" ]; then
+    grep -E '^CIDRE_RESUME_PROFILE=' "$RESUME_DIR/resume.env" | head -n1 | cut -d= -f2-
+  fi
+}
+
+normal_users() {
+  awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd 2>/dev/null || true
 }
 
 while [ "$#" -gt 0 ]; do
@@ -24,21 +83,38 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
+    --non-interactive)
+      NON_INTERACTIVE=1
+      shift
+      ;;
     --status)
-      if [ -f "$STATE_DIR/completed" ]; then
-        printf '[OK] cidre firstboot-root completed\n'
-      elif [ -f "$STATE_DIR/started" ]; then
-        printf '[WARN] cidre firstboot-root started but not completed\n'
-      else
-        printf '[INFO] cidre firstboot-root not started\n'
-      fi
+      "$SCRIPT_DIR/cidre-firstboot-state" status
       exit 0
       ;;
     --mark-complete)
-      mkdir -p "$STATE_DIR"
-      date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/completed"
-      printf '[OK] marked cidre firstboot-root completed\n'
+      "$SCRIPT_DIR/cidre-firstboot-state" mark-completed
       exit 0
+      ;;
+    --skip)
+      SKIP_MODE=1
+      shift
+      ;;
+    --handoff)
+      HANDOFF_MODE=1
+      shift
+      ;;
+    --import-seed)
+      IMPORT_SEED_PATH="$2"
+      shift 2
+      ;;
+    --user)
+      USER_NAME="$2"
+      shift 2
+      ;;
+    --profile)
+      PROFILE_NAME="$2"
+      validate_profile "$PROFILE_NAME"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -54,10 +130,57 @@ done
 
 printf 'Cidre Firstboot Root Setup\n\n'
 
+if [ "$SKIP_MODE" -eq 1 ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[DRY-RUN] would mark firstboot-root skipped\n'
+  else
+    "$SCRIPT_DIR/cidre-firstboot-state" mark-skipped
+  fi
+  exit 0
+fi
+
+if [ "$HANDOFF_MODE" -eq 1 ]; then
+  if [ -f "$STATE_DIR/handoff.txt" ]; then
+    "$SCRIPT_DIR/cidre-firstboot-state" show-handoff
+  else
+    [ -n "$USER_NAME" ] || USER_NAME="$(cat "$STATE_DIR/selected-user" 2>/dev/null || true)"
+    [ -n "$PROFILE_NAME" ] || PROFILE_NAME="$(cat "$STATE_DIR/selected-profile" 2>/dev/null || true)"
+    [ -n "$USER_NAME" ] || {
+      printf 'ERROR: no handoff available and no user selected\n' >&2
+      exit 1
+    }
+    if [ -n "$PROFILE_NAME" ]; then
+      "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME" --profile "$PROFILE_NAME"
+    else
+      "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME"
+    fi
+  fi
+  exit 0
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
-  printf '[DRY-RUN] would create firstboot-root state directory\n'
-  printf '[DRY-RUN] would check seed/resume state\n'
-  printf '[DRY-RUN] would hand off to cidre-preinstall or cidre-oobe\n'
+  [ -n "$PROFILE_NAME" ] || PROFILE_NAME="$(resume_profile)"
+  printf '[DRY-RUN] state dir: %s\n' "$STATE_DIR"
+  printf '[DRY-RUN] would mark firstboot started\n'
+  if [ -n "$IMPORT_SEED_PATH" ]; then
+    printf '[DRY-RUN] would import seed: %s\n' "$IMPORT_SEED_PATH"
+  fi
+  if [ -f "$RESUME_DIR/resume.env" ]; then
+    printf '[DRY-RUN] detected resume state: %s\n' "$RESUME_DIR/resume.env"
+  else
+    printf '[DRY-RUN] no resume state detected\n'
+  fi
+  if [ -n "$USER_NAME" ]; then
+    printf '[DRY-RUN] selected user: %s\n' "$USER_NAME"
+  fi
+  if [ -n "$PROFILE_NAME" ]; then
+    printf '[DRY-RUN] selected profile: %s\n' "$PROFILE_NAME"
+  fi
+  printf '[DRY-RUN] would run lightweight network/pacman checks\n'
+  printf '[DRY-RUN] would run cidre-oobe\n'
+  printf '[DRY-RUN] would delegate to cidre-preinstall\n'
+  printf '[DRY-RUN] would generate root-to-user handoff\n'
+  printf '[DRY-RUN] would warn about changing the root password\n'
   exit 0
 fi
 
@@ -66,19 +189,94 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+[ "$(uname -s)" = "Linux" ] || {
+  printf 'ERROR: cidre-firstboot-root must run on Linux.\n' >&2
+  exit 1
+}
+
 mkdir -p "$STATE_DIR"
-date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/started"
+"$SCRIPT_DIR/cidre-firstboot-state" mark-started >/dev/null
 
-cat <<'EOF'
-This is the prototype Cidre firstboot-root entrypoint.
+if [ -n "$IMPORT_SEED_PATH" ]; then
+  CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}" "$SCRIPT_DIR/cidre-seed-import" "$IMPORT_SEED_PATH"
+fi
 
-Future releases will use this to guide the first boot of a Cidre image,
-create or verify the normal user, import seed/resume state, and hand off
-to the user-phase Cidre installer.
+[ -n "$PROFILE_NAME" ] || PROFILE_NAME="$(resume_profile)"
 
-For existing ALARM images, continue with:
+if [ -z "$USER_NAME" ]; then
+  if [ "$NON_INTERACTIVE" -eq 1 ]; then
+    existing_user="$(normal_users | head -n1 || true)"
+    [ -n "$existing_user" ] || {
+      printf 'ERROR: --non-interactive mode requires --user or an existing normal user.\n' >&2
+      exit 1
+    }
+    USER_NAME="$existing_user"
+  else
+    if [ -n "$PROFILE_NAME" ]; then
+      USER_NAME="$("$SCRIPT_DIR/cidre-oobe" --profile "$PROFILE_NAME" | awk -F': ' '/^user: / {print $2; exit}')"
+    else
+      USER_NAME="$("$SCRIPT_DIR/cidre-oobe" | awk -F': ' '/^user: / {print $2; exit}')"
+    fi
+  fi
+fi
 
-  ./preinstall --import-seed /path/to/cidre-seed.tar.gz
-  su - <user>
-  ./install --resume
+printf '%s\n' "$USER_NAME" > "$STATE_DIR/selected-user"
+if [ -n "$PROFILE_NAME" ]; then
+  printf '%s\n' "$PROFILE_NAME" > "$STATE_DIR/selected-profile"
+fi
+
+printf '[INFO] lightweight readiness checks\n'
+if command -v pacman >/dev/null 2>&1; then
+  printf '[OK] pacman available\n'
+else
+  printf '[WARN] pacman missing\n'
+fi
+if command -v ip >/dev/null 2>&1 && ip route show default 2>/dev/null | grep -q '^default'; then
+  printf '[OK] default route present\n'
+else
+  printf '[WARN] default route not detected\n'
+fi
+
+oobe_args="--user $USER_NAME"
+if [ -n "$PROFILE_NAME" ]; then
+  oobe_args="$oobe_args --profile $PROFILE_NAME"
+fi
+if [ "$NON_INTERACTIVE" -eq 1 ]; then
+  oobe_args="$oobe_args --non-interactive"
+fi
+# shellcheck disable=SC2086
+"$SCRIPT_DIR/cidre-oobe" $oobe_args
+
+preinstall_args="--prepare --non-interactive --yes --user $USER_NAME"
+if [ -n "$IMPORT_SEED_PATH" ]; then
+  preinstall_args="$preinstall_args --import-seed $IMPORT_SEED_PATH"
+fi
+if [ -n "$PROFILE_NAME" ]; then
+  :
+fi
+
+printf '\n[INFO] delegating to cidre-preinstall\n'
+# shellcheck disable=SC2086
+"$SCRIPT_DIR/cidre-preinstall" $preinstall_args
+
+if [ -n "$PROFILE_NAME" ]; then
+  "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME" --profile "$PROFILE_NAME" >/dev/null
+else
+  "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME" >/dev/null
+fi
+
+"$SCRIPT_DIR/cidre-firstboot-state" mark-completed >/dev/null
+
+cat <<EOF
+Cidre firstboot root setup is complete.
+
+Default root credentials are unsafe.
+Change the root password before using this system as a daily driver.
+
+Recommended:
+
+  passwd root
+
 EOF
+
+"$SCRIPT_DIR/cidre-firstboot-state" show-handoff

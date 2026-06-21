@@ -1,0 +1,96 @@
+#!/bin/sh
+set -eu
+
+USER_NAME=""
+PROFILE_NAME=""
+NON_INTERACTIVE=0
+DRY_RUN=0
+BACKEND="plain"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-oobe [options]
+
+Options:
+  --dry-run
+  --non-interactive
+  --user <name>
+  --profile <name>
+  -h, --help
+EOF
+}
+
+validate_profile() {
+  case "$1" in
+    ""|desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+pick_backend() {
+  if [ "$NON_INTERACTIVE" -eq 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
+    BACKEND="plain"
+  elif command -v dialog >/dev/null 2>&1; then
+    BACKEND="dialog"
+  elif command -v whiptail >/dev/null 2>&1; then
+    BACKEND="whiptail"
+  else
+    BACKEND="plain"
+  fi
+}
+
+prompt_user() {
+  if [ "$NON_INTERACTIVE" -eq 1 ]; then
+    [ -n "$USER_NAME" ] || {
+      printf 'ERROR: --user is required in --non-interactive mode\n' >&2
+      exit 1
+    }
+    return
+  fi
+  if [ -n "$USER_NAME" ]; then
+    return
+  fi
+  printf 'Target user: '
+  read -r USER_NAME
+  [ -n "$USER_NAME" ] || {
+    printf 'ERROR: user is required\n' >&2
+    exit 1
+  }
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --non-interactive) NON_INTERACTIVE=1; shift ;;
+    --user) USER_NAME="$2"; shift 2 ;;
+    --profile) PROFILE_NAME="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
+  esac
+done
+
+validate_profile "$PROFILE_NAME"
+pick_backend
+prompt_user
+
+printf 'Cidre Firstboot OOBE\n\n'
+printf 'backend: %s\n' "$BACKEND"
+printf 'user: %s\n' "$USER_NAME"
+if [ -n "$PROFILE_NAME" ]; then
+  printf 'profile: %s\n' "$PROFILE_NAME"
+else
+  printf 'profile: <unset>\n'
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '\n[DRY-RUN] would show welcome and safety screens\n'
+  printf '[DRY-RUN] would verify seed, network, pacman, user, sudo readiness\n'
+  printf '[DRY-RUN] next action: run cidre-preinstall for root-phase setup\n'
+  exit 0
+fi
+
+printf '\nThis is an early prototype image.\n'
+printf 'This is not a production installer.\n'
+printf '\nNext action:\n'
+printf '  run cidre-preinstall for root-phase setup\n'

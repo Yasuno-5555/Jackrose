@@ -66,6 +66,9 @@ sync_overlay_tree() {
 
   for mapping in \
     "scripts/cidre-firstboot-root:cidre-firstboot-root" \
+    "scripts/cidre-oobe:cidre-oobe" \
+    "scripts/cidre-firstboot-state:cidre-firstboot-state" \
+    "scripts/cidre-firstboot-handoff:cidre-firstboot-handoff" \
     "scripts/cidre-seed:cidre-seed" \
     "scripts/cidre-seed-verify:cidre-seed-verify" \
     "scripts/cidre-seed-import:cidre-seed-import" \
@@ -215,7 +218,12 @@ fi
   --overlay "$(basename "$overlay_artifact")" \
   --image "${IMAGE_NAME}-rootfs.img.zst" \
   --checksum "$(basename "$overlay_artifact").sha256" \
-  --overlay-inspected "$overlay_inspected" >> "$BUILD_LOG"
+  --overlay-inspected "$overlay_inspected" \
+  --firstboot-oobe true \
+  --firstboot-autologin false \
+  --seed-resume true \
+  --public-image false \
+  --boot-tested false >> "$BUILD_LOG"
 
 log "manifest: $manifest_path"
 

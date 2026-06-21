@@ -2,6 +2,26 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.16.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-oobe` as the firstboot OOBE front-end.
+- Added `scripts/cidre-firstboot-state` for firstboot state management.
+- Added `scripts/cidre-firstboot-handoff` for root-to-user phase handoff generation.
+- Expanded `scripts/cidre-firstboot-root` from prototype into firstboot orchestration.
+- Added `cidre-doctor --firstboot`.
+- Added `cidre-recovery firstboot-status`.
+- Added firstboot OOBE documentation and security notes.
+
+### Changed
+- Updated rootfs overlay synchronization to include firstboot OOBE scripts.
+- Updated image inspection to check firstboot OOBE components.
+- Updated image manifest features with firstboot OOBE status.
+- Updated validation matrix and v1.0.0 clean install test plan with firstboot requirements.
+
+### Notes
+- v0.16.0 does not ship a public bootable Cidre image.
+- It implements the firstboot OOBE layer intended for future Cidre-controlled images.
+
 ## [0.15.0] - 2026-06-21
 ### Added
 - Added prototype image build entrypoint `scripts/cidre-image-build`.

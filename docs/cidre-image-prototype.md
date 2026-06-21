@@ -53,6 +53,9 @@ var/lib/cidre/
 The service remains a safe prototype in v0.15.0.
 It does not implement the full firstboot OOBE yet.
 
+The prototype overlay now includes firstboot OOBE scripts.
+The image is still not public or boot-validated.
+
 ## Seed / Resume Tools
 
 The overlay sync flow copies these tools into `/usr/lib/cidre/`:

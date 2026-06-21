@@ -1,0 +1,104 @@
+#!/bin/sh
+set -eu
+
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}"
+
+state_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/firstboot-root\n'
+  else
+    printf '%s/var/lib/cidre/firstboot-root\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+
+STATE_DIR="$(state_dir)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-firstboot-state <command> [options]
+
+Commands:
+  status
+  mark-started
+  mark-completed
+  mark-failed
+  mark-skipped
+  write-handoff <file>
+  show-handoff
+EOF
+}
+
+mkdir -p "$STATE_DIR"
+
+mark_file() {
+  marker="$1"
+  date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/$marker"
+  printf '[OK] marked %s\n' "$marker"
+}
+
+cmd="${1:-}"
+[ -n "$cmd" ] || {
+  usage
+  exit 1
+}
+shift || true
+
+case "$cmd" in
+  status)
+    printf 'Cidre firstboot state\n\n'
+    for marker in started completed failed skipped; do
+      if [ -f "$STATE_DIR/$marker" ]; then
+        printf '%s: yes\n' "$marker"
+      else
+        printf '%s: no\n' "$marker"
+      fi
+    done
+    if [ -f "$STATE_DIR/selected-user" ]; then
+      printf 'selected user: %s\n' "$(cat "$STATE_DIR/selected-user")"
+    fi
+    if [ -f "$STATE_DIR/selected-profile" ]; then
+      printf 'selected profile: %s\n' "$(cat "$STATE_DIR/selected-profile")"
+    fi
+    if [ -f "$STATE_DIR/handoff.txt" ]; then
+      printf 'handoff: present\n'
+    else
+      printf 'handoff: missing\n'
+    fi
+    ;;
+  mark-started)
+    mark_file started
+    ;;
+  mark-completed)
+    mark_file completed
+    ;;
+  mark-failed)
+    mark_file failed
+    ;;
+  mark-skipped)
+    mark_file skipped
+    ;;
+  write-handoff)
+    [ "$#" -eq 1 ] || {
+      printf 'ERROR: write-handoff requires a file path\n' >&2
+      exit 1
+    }
+    cp "$1" "$STATE_DIR/handoff.txt"
+    printf '[OK] wrote %s\n' "$STATE_DIR/handoff.txt"
+    ;;
+  show-handoff)
+    [ -f "$STATE_DIR/handoff.txt" ] || {
+      printf 'ERROR: handoff.txt not found\n' >&2
+      exit 1
+    }
+    cat "$STATE_DIR/handoff.txt"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    printf 'ERROR: unknown command: %s\n' "$cmd" >&2
+    usage
+    exit 1
+    ;;
+esac

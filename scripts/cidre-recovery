@@ -19,6 +19,7 @@ show_help() {
   echo "  resume-status        Show imported resume status"
   echo "  downstream-status    Show downstream foundation prototype status"
   echo "  image-status         Show prototype image artifact status"
+  echo "  firstboot-status     Show firstboot OOBE state"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
   echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
   echo "  reset-niri           Restore default config.kdl to ~/.config/niri/"
@@ -188,6 +189,26 @@ case "$CMD" in
     fi
     echo "  boot tested: no"
     echo "  public image: no"
+    ;;
+  firstboot-status)
+    if [ -z "${CIDRE_SYSTEM_ROOT:-}" ] || [ "${CIDRE_SYSTEM_ROOT}" = "/var/lib/cidre" ]; then
+      FIRSTBOOT_STATE_DIR="/var/lib/cidre/firstboot-root"
+    else
+      FIRSTBOOT_STATE_DIR="${CIDRE_SYSTEM_ROOT}/var/lib/cidre/firstboot-root"
+    fi
+    echo "Cidre firstboot:"
+    for marker in started completed skipped failed; do
+      if [ -f "$FIRSTBOOT_STATE_DIR/$marker" ]; then
+        echo "  $marker: yes"
+      else
+        echo "  $marker: no"
+      fi
+    done
+    if [ -f "$FIRSTBOOT_STATE_DIR/handoff.txt" ]; then
+      echo "  handoff: present"
+    else
+      echo "  handoff: missing"
+    fi
     ;;
   disable-greetd)
     if [ "$EUID" -ne 0 ]; then

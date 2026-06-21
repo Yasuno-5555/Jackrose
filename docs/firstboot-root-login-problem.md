@@ -31,3 +31,7 @@ Cidre cannot help a user who never gets past the login prompt. The solution has 
 ## Security concerns
 
 Prototype autologin is dangerous if left behind. It must never become a normal operating mode.
+
+v0.16.0 introduces a firstboot OOBE layer intended for future Cidre-controlled images.
+
+This does not change existing ALARM images, but it defines and implements the Cidre-side firstboot path.
