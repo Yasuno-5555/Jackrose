@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# cidre-builder-run: Low-level wrapper executing the actual ALARM builder
+set -euo pipefail
+
+builder_dir=""
+output_dir=""
+overlay_path=""
+profile=""
+dry_run=false
+run_build=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-builder-run [options]
+
+Low-level wrapper executing the actual ALARM builder.
+
+Options:
+  --builder <path>  Path to the ALARM builder repository
+  --output <dir>    Path to the output directory
+  --overlay <path>  Path to rootfs overlay tarball
+  --profile <name>  Build profile name
+  --dry-run         Print planned build command but do not execute (default)
+  --run             Execute the build command
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --builder) builder_dir="$2"; shift 2 ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --overlay) overlay_path="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --run) run_build=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$builder_dir" ] || [ ! -d "$builder_dir" ]; then
+  echo "ERROR: --builder path is missing or invalid" >&2
+  exit 1
+fi
+
+entrypoint=""
+if [ -f "$builder_dir/build.sh" ]; then
+  entrypoint="$builder_dir/build.sh"
+elif [ -f "$builder_dir/scripts/build.sh" ]; then
+  entrypoint="$builder_dir/scripts/build.sh"
+else
+  echo "ERROR: no supported builder entrypoint found." >&2
+  echo "Hint: inspect the builder repository and update docs/alarm-builder-notes.md" >&2
+  exit 1
+fi
+
+# Ensure output directory logs path exists
+mkdir -p "$output_dir/logs"
+
+build_cmd=("$entrypoint")
+if [ -n "$profile" ]; then
+  build_cmd+=("--profile" "$profile")
+fi
+if [ -n "$overlay_path" ]; then
+  build_cmd+=("--overlay" "$overlay_path")
+fi
+build_cmd+=("--output" "$output_dir")
+
+echo "Planned builder command: ${build_cmd[*]}"
+
+# Write build command to builder-run.log
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [PLAN] ${build_cmd[*]}" >> "$output_dir/logs/builder-run.log"
+
+if ! $run_build; then
+  echo "Dry-run mode: build skipped. Use --run to execute."
+  exit 0
+fi
+
+echo "Invoking builder..."
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [EXEC] ${build_cmd[*]}" >> "$output_dir/logs/builder-run.log"
+
+set +e
+# Run command capturing output
+"${build_cmd[@]}" 2>&1 | tee -a "$output_dir/logs/builder-run.log"
+exit_code=$?
+set -e
+
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [EXIT] $exit_code" >> "$output_dir/logs/builder-run.log"
+
+if [ $exit_code -ne 0 ]; then
+  echo "ERROR: builder execution failed with exit code $exit_code" >&2
+  echo "Hint: run scripts/cidre-build-failure-report for debugging information" >&2
+  exit $exit_code
+fi
+
+echo "Builder run completed successfully."
+EOF

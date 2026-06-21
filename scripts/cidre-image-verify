@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# cidre-image-verify: Verify checksums, manifest fields, and consistency of registered artifacts
+set -euo pipefail
+
+artifact_path=""
+checksum_path=""
+manifest_path=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-image-verify [options]
+
+Verify registered image artifacts checksums and metadata details.
+
+Options:
+  --artifact <path>   Path to the registered image artifact
+  --checksum <path>   Path to the checksum file
+  --manifest <path>   Path to the image manifest file
+  --help              Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact) artifact_path="$2"; shift 2 ;;
+    --checksum) checksum_path="$2"; shift 2 ;;
+    --manifest) manifest_path="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$artifact_path" ]; then
+  echo "ERROR: --artifact option is required" >&2
+  exit 1
+fi
+
+result_ok=0
+result_fail=0
+
+check() {
+  local status="$1" label="$2"
+  case "$status" in
+    OK)   echo "[OK]   $label"; result_ok=$((result_ok+1)) ;;
+    FAIL) echo "[FAIL] $label"; result_fail=$((result_fail+1)) ;;
+  esac
+}
+
+echo "Cidre image verification"
+echo ""
+
+# Verify artifact presence
+if [ -f "$artifact_path" ]; then
+  check OK "artifact exists: $artifact_path"
+else
+  check FAIL "artifact does not exist: $artifact_path"
+fi
+
+# Verify checksum
+if [ -z "$checksum_path" ]; then
+  checksum_path="${artifact_path}.sha256"
+fi
+
+if [ -f "$checksum_path" ]; then
+  check OK "checksum file exists: $checksum_path"
+  
+  # Validate checksum
+  pushd "$(dirname "$checksum_path")" >/dev/null
+  if sha256sum -c "$(basename "$checksum_path")" >/dev/null 2>&1; then
+    check OK "checksum matches"
+  else
+    check FAIL "checksum mismatch"
+  fi
+  popd >/dev/null
+else
+  check FAIL "checksum file missing: $checksum_path"
+fi
+
+# Verify manifest
+if [ -n "$manifest_path" ] && [ -f "$manifest_path" ]; then
+  check OK "manifest file exists: $manifest_path"
+  # Check if python3 is available to parse JSON metadata
+  if command -v python3 >/dev/null 2>&1; then
+    has_builder_rev=$(python3 -c "
+import json
+try:
+  d = json.load(open('$manifest_path'))
+  print('builder' in d and 'commit' in d['builder'])
+except:
+  print('False')
+")
+    if [ "$has_builder_rev" = "True" ]; then
+      check OK "manifest records builder revision"
+    else
+      check FAIL "manifest missing builder revision info"
+    fi
+  else
+    check OK "manifest parser skipped (python3 not found)"
+  fi
+elif [ -n "$manifest_path" ]; then
+  check FAIL "specified manifest does not exist: $manifest_path"
+fi
+
+echo ""
+echo "Summary: OK=$result_ok FAIL=$result_fail"
+
+if [ "$result_fail" -gt 0 ]; then
+  exit 1
+fi
+

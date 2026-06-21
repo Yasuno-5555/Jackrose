@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# cidre-image-register: Registers built image artifacts into standard layout directories
+set -euo pipefail
+
+scan_dir=""
+artifact_path=""
+output_dir=""
+use_symlink=true
+
+usage() {
+  cat <<EOF
+Usage: cidre-image-register [options]
+
+Register builder output artifacts into the Cidre standard directory layout.
+
+Options:
+  --scan <dir>      Scan directory for candidate image artifacts
+  --artifact <path> Specify explicit artifact path to register
+  --output <dir>    Registered output directory (e.g. .local/state/cidre/image-build)
+  --copy            Copy image artifact instead of creating a symlink
+  --symlink         Create a symlink for the image artifact (default)
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --scan) scan_dir="$2"; shift 2 ;;
+    --artifact) artifact_path="$2"; shift 2 ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --copy) use_symlink=false; shift ;;
+    --symlink) use_symlink=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$output_dir" ]; then
+  echo "ERROR: --output directory is required" >&2
+  exit 1
+fi
+
+reg_dir="$output_dir/registered"
+mkdir -p "$reg_dir"
+mkdir -p "$output_dir/logs"
+
+# Log scan status
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [REGISTER] Starting registration process" >> "$output_dir/logs/image-register.log"
+
+if [ -n "$scan_dir" ] && [ -d "$scan_dir" ]; then
+  echo "Scanning $scan_dir for image files..."
+  # Look for typical image extensions
+  found=$(find "$scan_dir" -type f \( -name "*.img" -o -name "*.img.zst" -o -name "*.tar.gz" -o -name "*.raw" \) | head -n 1)
+  if [ -n "$found" ]; then
+    echo "Found candidate image: $found"
+    artifact_path="$found"
+  else
+    echo "No candidate image file found in $scan_dir"
+  fi
+fi
+
+if [ -z "$artifact_path" ] || [ ! -f "$artifact_path" ]; then
+  echo "ERROR: no valid image artifact to register" >&2
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [REGISTER-FAIL] No valid image artifact" >> "$output_dir/logs/image-register.log"
+  exit 1
+fi
+
+filename=$(basename "$artifact_path")
+target_path="$reg_dir/$filename"
+
+if $use_symlink; then
+  echo "Registering symlink: $target_path -> $artifact_path"
+  ln -sf "$(realpath "$artifact_path")" "$target_path"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [REGISTER-LINK] Linked $target_path to $artifact_path" >> "$output_dir/logs/image-register.log"
+else
+  echo "Copying artifact to standard directory: $target_path"
+  cp "$artifact_path" "$target_path"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [REGISTER-COPY] Copied $artifact_path to $target_path" >> "$output_dir/logs/image-register.log"
+fi
+
+# Generate checksum
+echo "Generating SHA256 checksum..."
+(cd "$reg_dir" && sha256sum "$filename" > "${filename}.sha256")
+
+echo "Artifact registered successfully."
+

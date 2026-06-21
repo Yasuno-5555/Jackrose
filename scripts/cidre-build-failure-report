@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# cidre-build-failure-report: Collect diagnostic details on failed builder runs
+set -euo pipefail
+
+output_file=""
+logs_dir=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-build-failure-report [options]
+
+Collect build failure diagnostic details into a markdown report.
+
+Options:
+  --output <file>   Target markdown file path
+  --logs <dir>      Directory where builder logs are stored
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --logs) logs_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$output_file" ]; then
+  echo "ERROR: --output file path is required" >&2
+  exit 1
+fi
+
+if [ -z "$logs_dir" ] || [ ! -d "$logs_dir" ]; then
+  echo "ERROR: --logs directory path is missing or invalid" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$output_file")"
+
+run_log="$logs_dir/builder-run.log"
+last_log_lines=""
+if [ -f "$run_log" ]; then
+  last_log_lines=$(tail -n 100 "$run_log")
+else
+  last_log_lines="(No build run log found at $run_log)"
+fi
+
+host_os=$(uname -s 2>/dev/null || echo "Unknown")
+host_arch=$(uname -m 2>/dev/null || echo "Unknown")
+
+cat >"$output_file" <<EOF
+# Build Failure Report
+
+Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## Environment Summary
+- **Host OS**: $host_os
+- **Architecture**: $host_arch
+- **Logs Directory**: $logs_dir
+
+## Failed Executions Log
+\`\`\`text
+$last_log_lines
+\`\`\`
+
+## Suggested Next Steps
+1. Verify host environment dependencies using \`scripts/cidre-build-environment\`.
+2. Inspect directory parameters using \`scripts/cidre-builder-config --validate\`.
+3. Check the base package configurations or staging overlays in the builder staging logs.
+EOF
+
+echo "Build failure report created at: $output_file"
+EOF

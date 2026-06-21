@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# cidre-real-image-build: High-level orchestrator for environment checking, builder run, artifact registration
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+builder_dir=""
+profile="developer"
+output_dir="$REPO_ROOT/.local/state/cidre/image-build"
+dry_run=true
+run_build=false
+do_mount=false
+do_inspect=false
+do_boot_readiness=false
+do_clean=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-real-image-build [options]
+
+High-level orchestrator for real image builds.
+
+Options:
+  --builder <path>  Path to ALARM builder directory
+  --profile <name>  Build profile (default: developer)
+  --output <dir>    Output directory
+  --dry-run         Plan build operations without modifying system (default)
+  --run             Execute builder run
+  --mount           Mount output image read-only
+  --inspect         Inspect mounted rootfs contents
+  --boot-readiness  Run boot readiness validation
+  --clean           Clean build workspace
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --builder) builder_dir="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --run) run_build=true; dry_run=false; shift ;;
+    --mount) do_mount=true; shift ;;
+    --inspect) do_inspect=true; shift ;;
+    --boot-readiness) do_boot_readiness=true; shift ;;
+    --clean) do_clean=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$builder_dir" ]; then
+  builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+fi
+
+# 1. Check build environment
+echo "Checking build environment..."
+"$SCRIPT_DIR/cidre-build-environment"
+
+# 2. Check builder config
+echo "Validating builder configuration..."
+if [ -n "$builder_dir" ]; then
+  export CIDRE_ALARM_BUILDER_DIR="$builder_dir"
+fi
+export CIDRE_IMAGE_OUTPUT_DIR="$output_dir"
+export CIDRE_IMAGE_PROFILE="$profile"
+"$SCRIPT_DIR/cidre-builder-config" --validate
+
+# Resolve builder directory from configuration
+if [ -z "$builder_dir" ]; then
+  builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+fi
+
+if [ -z "$builder_dir" ] || [ ! -d "$builder_dir" ]; then
+  echo "ERROR: builder directory is not configured" >&2
+  exit 1
+fi
+
+overlay_tar="$output_dir/cidre-rootfs-overlay.tar.gz"
+
+if $do_clean; then
+  echo "Cleaning up build paths..."
+  if [ -d "$output_dir" ]; then
+    rm -rf "$output_dir/registered" "$output_dir/logs" "$output_dir/mount"
+  fi
+  exit 0
+fi
+
+# 3. Overlay staging
+echo "Running staging tree layout setup..."
+staging_opt=()
+if $dry_run; then
+  staging_opt+=("--dry-run")
+fi
+"$SCRIPT_DIR/cidre-builder-integrate" "${staging_opt[@]}"
+
+if $dry_run; then
+  echo "Dry-run flow complete. Plan build run."
+  "$SCRIPT_DIR/cidre-builder-run" --builder "$builder_dir" --output "$output_dir" --profile "$profile" --overlay "$overlay_tar" --dry-run
+  exit 0
+fi
+
+# 4. Real builder run
+echo "Starting real builder execution..."
+set +e
+"$SCRIPT_DIR/cidre-builder-run" --builder "$builder_dir" --output "$output_dir" --profile "$profile" --overlay "$overlay_tar" --run
+run_exit=$?
+set -e
+
+if [ $run_exit -ne 0 ]; then
+  echo "ERROR: builder failed. Creating failure report..."
+  "$SCRIPT_DIR/cidre-build-failure-report" --output "$output_dir/build-failure-report.md" --logs "$output_dir/logs"
+  exit $run_exit
+fi
+
+# 5. Artifact registration
+echo "Registering build artifacts..."
+# Let's scan output folders
+output_raw_dir="$output_dir/builder-output/raw"
+if [ ! -d "$output_raw_dir" ]; then
+  # Fallback to output_dir if raw is missing
+  output_raw_dir="$output_dir"
+fi
+"$SCRIPT_DIR/cidre-image-register" --scan "$output_raw_dir" --output "$output_dir"
+
+# Extract registered image details
+registered_img=$(find "$output_dir/registered" -type f \( -name "*.img" -o -name "*.img.zst" -o -name "*.tar.gz" -o -name "*.raw" \) | head -n 1 || echo "")
+
+if [ -n "$registered_img" ]; then
+  echo "Verifying registered image artifact..."
+  "$SCRIPT_DIR/cidre-image-verify" --artifact "$registered_img"
+fi
+
+# 6. Update manifest
+echo "Updating build manifest..."
+manifest_opts=("--profile" "$profile")
+if [ -n "$registered_img" ]; then
+  manifest_opts+=("--registered-image" "$registered_img")
+fi
+"$SCRIPT_DIR/cidre-image-manifest" "${manifest_opts[@]}"
+
+# 7. Generate report
+echo "Writing successful build report..."
+"$SCRIPT_DIR/cidre-image-build-report" --output "$output_dir/build-report.md" --logs "$output_dir/logs" --manifest "$output_dir/cidre-image-manifest.json"
+
+# Optional mount, inspect, and boot-readiness
+if $do_mount; then
+  if [ -n "$registered_img" ]; then
+    echo "Mounting image..."
+    "$SCRIPT_DIR/cidre-image-mount" "$registered_img"
+  fi
+fi
+
+if $do_inspect; then
+  mount_point="$output_dir/mount/cidre-prototype-rootfs"
+  if [ -d "$mount_point" ]; then
+    echo "Running rootfs inspector..."
+    "$SCRIPT_DIR/cidre-rootfs-inspect" --rootfs "$mount_point"
+  fi
+fi
+
+if $do_boot_readiness; then
+  mount_point="$output_dir/mount/cidre-prototype-rootfs"
+  if [ -d "$mount_point" ]; then
+    echo "Checking boot readiness..."
+    "$SCRIPT_DIR/cidre-image-boot-readiness" --rootfs "$mount_point"
+  fi
+fi
+
+echo "Real build flow finished."
+EOF

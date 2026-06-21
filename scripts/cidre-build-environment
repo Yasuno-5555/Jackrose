@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# cidre-build-environment: Inspect host environment tools required for image building
+set -euo pipefail
+
+strict_mode=false
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-build-environment [options]
+
+Inspect host environment tools required for image building.
+
+Options:
+  --strict    Fail if any recommended tool is missing
+  --json      Output results in JSON format
+  --help      Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict) strict_mode=true; shift ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+required_tools=(git sh tar zstd)
+recommended_tools=(mount umount losetup findmnt bsdtar python3 sudo sha256sum)
+
+missing_required=()
+missing_recommended=()
+
+check_tool() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+for tool in "${required_tools[@]}"; do
+  if ! check_tool "$tool"; then
+    missing_required+=("$tool")
+  fi
+done
+
+for tool in "${recommended_tools[@]}"; do
+  if ! check_tool "$tool"; then
+    missing_recommended+=("$tool")
+  fi
+done
+
+# Check if sha256sum or shasum is present
+if ! check_tool sha256sum && ! check_tool shasum; then
+  # If both are missing and sha256sum was in recommended list, we consider it missing
+  # But we already checked sha256sum. Let's make sure at least one is available.
+  :
+fi
+
+if $json_output; then
+  cat <<EOF
+{
+  "required_missing": [$(printf '%s\n' "${missing_required[@]}" | jq -R . | paste -sd, - || true)],
+  "recommended_missing": [$(printf '%s\n' "${missing_recommended[@]}" | jq -R . | paste -sd, - || true)],
+  "strict": $strict_mode
+}
+EOF
+else
+  echo "Cidre image build environment"
+  echo ""
+  
+  for tool in "${required_tools[@]}"; do
+    if [[ " ${missing_required[*]} " =~ " ${tool} " ]]; then
+      echo "[FAIL] Required tool: $tool"
+    else
+      echo "[OK] Required tool: $tool"
+    fi
+  done
+  
+  for tool in "${recommended_tools[@]}"; do
+    if [[ " ${missing_recommended[*]} " =~ " ${tool} " ]]; then
+      if [ "$tool" = "losetup" ] || [ "$tool" = "mount" ]; then
+        echo "[WARN] Recommended tool: $tool (may require root/sudo privileges)"
+      else
+        echo "[WARN] Recommended tool: $tool"
+      fi
+    else
+      echo "[OK] Recommended tool: $tool"
+    fi
+  done
+
+  echo ""
+  if [ ${#missing_required[@]} -gt 0 ]; then
+    echo "ERROR: Missing required tools: ${missing_required[*]}"
+    exit 1
+  fi
+
+  if $strict_mode && [ ${#missing_recommended[@]} -gt 0 ]; then
+    echo "ERROR: Strict mode failed due to missing recommended tools: ${missing_recommended[*]}"
+    exit 1
+  fi
+fi

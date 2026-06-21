@@ -77,6 +77,7 @@ while [ "$#" -gt 0 ]; do
     --builder) BUILDER_PATH="$2"; shift 2 ;;
     --overlay) OVERLAY_ARTIFACT="$2"; shift 2 ;;
     --image) IMAGE_ARTIFACT="$2"; shift 2 ;;
+    --registered-image) IMAGE_ARTIFACT="$2"; shift 2 ;;
     --checksum) CHECKSUM_ARTIFACT="$2"; shift 2 ;;
     --overlay-inspected) OVERLAY_INSPECTED="$2"; shift 2 ;;
     --image-boot-tested) IMAGE_BOOT_TESTED="$2"; shift 2 ;;
@@ -118,7 +119,7 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 cat > "$OUTPUT_PATH" <<EOF
 {
   "schema_version": 1,
-  "cidre_version": "0.18.0",
+  "cidre_version": "0.19.0",
   "image_name": "$(json_escape "$IMAGE_NAME")",
   "image_profile": "$(json_escape "$IMAGE_PROFILE")",
   "image_version": "$(json_escape "$IMAGE_VERSION")",
@@ -137,7 +138,8 @@ cat > "$OUTPUT_PATH" <<EOF
   "artifacts": {
     "overlay": "$(json_escape "$OVERLAY_ARTIFACT")",
     "image": "$(json_escape "$IMAGE_ARTIFACT")",
-    "checksum": "$(json_escape "$CHECKSUM_ARTIFACT")"
+    "checksum": "$(json_escape "$CHECKSUM_ARTIFACT")",
+    "registered_image": "$(json_escape "$IMAGE_ARTIFACT")"
   },
   "features": {
     "firstboot_oobe": $FIRSTBOOT_OOBE,

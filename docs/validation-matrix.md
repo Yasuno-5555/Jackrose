@@ -1,4 +1,4 @@
-# Cidre v0.18.0 Validation Matrix
+# Cidre v0.19.0 Validation Matrix
 
 The following matrix documents the verification scopes completed on Cidre before the v1.0.0 release.
 
@@ -13,6 +13,7 @@ The following matrix documents the verification scopes completed on Cidre before
 | **image prototype** | Yes | Yes | N/A | No | No | Image build scripts parse, overlay sync runs, overlay tarball and checksum generate, manifest writes, and overlay inspection passes |
 | **firstboot OOBE** | Yes | Yes | N/A | No | No | firstboot-root dry-run and status work, state transitions and handoff generation work under simulated roots, doctor/recovery report state, and overlay inspection includes OOBE scripts |
 | **builder integration** | Yes | Yes | N/A | No | No | Builder configuration check, staging tree layout, script integration, artifact registration and promotion paths |
+| **real image build** | Yes | Yes | N/A | No | No | Host tool checks, command invocation, artifact registering, metadata validation, report compilation, and logs collection |
 | **bootstrap system** | Yes | Yes | N/A | Partial | No | System commands and pacman dependencies simulated |
 | **user config apply** | Yes | Yes | Yes | Partial | No | Sandboxed user home file deployment fully tested |
 | **diagnostics (doctor)** | Yes | Yes | Yes | Partial | No | Script parsing & maintenance checks verified |
@@ -52,4 +53,17 @@ The following matrix documents the verification scopes completed on Cidre before
 | Image promotion | `scripts/cidre-image-promote` |
 | Doctor builder check | `scripts/cidre-doctor --builder` |
 | Recovery builder check | `scripts/cidre-recovery builder-status` |
+
+## Real Image Build Pack (v0.19.0)
+
+| Check | Command |
+|---|---|
+| Environment checks | `scripts/cidre-build-environment` |
+| Real build dry-run | `scripts/cidre-real-image-build --dry-run` |
+| Builder execution run | `scripts/cidre-real-image-build --run` |
+| Artifact register | `scripts/cidre-image-register` |
+| Verification check | `scripts/cidre-image-verify` |
+| Doctor real build checks | `scripts/cidre-doctor --real-build` |
+| Recovery real build status| `scripts/cidre-recovery real-build-status` |
+
 

@@ -2,6 +2,33 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.19.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-real-image-build` high-level orchestrator for full local prototype image builds.
+- Added `scripts/cidre-builder-run` low-level execution wrapper for builder invocation.
+- Added `scripts/cidre-build-environment` for host build tool validation.
+- Added `scripts/cidre-build-failure-report` to generate error diagnostic summaries.
+- Added `scripts/cidre-image-register` to register builder output files to state trees.
+- Added `scripts/cidre-image-verify` to check checksums and manifest properties.
+- Added `scripts/cidre-image-build-report` to write build summaries.
+- Added documentation for real image builds, builder runbooks, image register/verify guides, and build failure reporting.
+- Added `docs/v0.19.0-real-image-build.md` release plan documentation.
+
+### Changed
+- Updated `scripts/cidre-image-build` to support `--real-build` routing logic.
+- Updated `scripts/cidre-builder-invoke` to support real execute parameters (`--run`, `--capture-log`, `--exit-code-file`).
+- Updated `scripts/cidre-builder-artifacts` to delegate registration flows to `cidre-image-register`.
+- Updated `scripts/cidre-image-manifest` to write schema version `0.19.0` with registered image properties.
+- Updated `scripts/cidre-image-mount` to reject compressed file paths.
+- Updated `scripts/cidre-doctor` to add `--real-build` diagnostics flag and register new files in RC checks.
+- Updated `scripts/cidre-recovery` to add `real-build-status` command case.
+- Updated validation matrix and v1.0.0 clean-install test plan with real image build requirements.
+- Updated known limitations with v0.19.0 constraints.
+
+### Notes
+- v0.19.0 introduces real image building and registration paths.
+- It does not distribute a public bootable image or guarantee boot success on real hardware.
+
 ## [0.18.0] - 2026-06-21
 ### Added
 - Added `scripts/cidre-builder-config` to check and load ALARM image builder workspace options.

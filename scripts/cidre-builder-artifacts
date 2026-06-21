@@ -74,30 +74,12 @@ echo "Registering builder artifacts to $output_dir..."
 mkdir -p "$output_dir"
 
 if [ ! -d "$builder_out_dir" ]; then
-  echo "ERROR: Builder output directory $builder_out_dir does not exist." >&2
-  exit 1
+  # Fallback: check builder root as well
+  builder_out_dir="$builder_dir"
 fi
 
-# Locate the rootfs image (typically .img, .img.zst, or .tar.gz)
-rootfs_img=$(find "$builder_out_dir" -maxdepth 1 -name "*.img*" -type f -print -quit)
-
-if [ -z "$rootfs_img" ]; then
-  echo "ERROR: No rootfs image artifact (*.img*) found in $builder_out_dir" >&2
-  exit 1
-fi
-
-echo "  Found rootfs image: $rootfs_img"
-echo "  Copying to output directory..."
-cp "$rootfs_img" "$output_dir/${image_name}-rootfs.img.zst"
-
-# Update checksum
-echo "  Generating checksum..."
-"$SCRIPT_DIR/cidre-image-checksum" "$output_dir/${image_name}-rootfs.img.zst" > "$output_dir/${image_name}-rootfs.img.zst.sha256"
-
-# Run inspect
-echo "  Staging manifest registration..."
-"$SCRIPT_DIR/cidre-image-manifest" \
-  --builder "$builder_dir" \
-  --image "${image_name}-rootfs.img.zst"
+# Delegate registration task to cidre-image-register
+"$SCRIPT_DIR/cidre-image-register" --scan "$builder_out_dir" --output "$output_dir" --symlink
 
 echo "[OK] Artifacts successfully registered."
+

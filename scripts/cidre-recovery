@@ -20,6 +20,7 @@ show_help() {
   echo "  downstream-status    Show downstream foundation prototype status"
   echo "  image-status         Show prototype image artifact status"
   echo "  builder-status       Show builder configuration and staging status"
+  echo "  real-build-status    Show real image build status"
   echo "  firstboot-status     Show firstboot OOBE state"
   echo "  boot-status          Show image boot validation status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
@@ -205,6 +206,54 @@ case "$CMD" in
       "${SCRIPT_DIR}/cidre-builder-status" || echo "  Failed to retrieve builder status info"
     else
       echo "  Error: cidre-builder-status script missing"
+    fi
+    ;;
+  real-build-status)
+    SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+    IMAGE_OUTPUT_DIR="${REPO_ROOT}/.local/state/cidre/image-build"
+    echo "Cidre real image build status:"
+    
+    # Builder configured
+    if [ -n "${CIDRE_ALARM_BUILDER_DIR:-}" ]; then
+      echo "  builder configured: yes ($CIDRE_ALARM_BUILDER_DIR)"
+    else
+      echo "  builder configured: no"
+    fi
+    
+    # Last build report
+    if [ -f "$IMAGE_OUTPUT_DIR/build-report.md" ]; then
+      echo "  last build status: success (build-report.md found)"
+    elif [ -f "$IMAGE_OUTPUT_DIR/build-failure-report.md" ]; then
+      echo "  last build status: failed (build-failure-report.md found)"
+    else
+      echo "  last build status: missing"
+    fi
+    
+    # Registered artifact
+    registered_img=$(find "$IMAGE_OUTPUT_DIR/registered" -type f \( -name "*.img" -o -name "*.img.zst" -o -name "*.tar.gz" -o -name "*.raw" \) 2>/dev/null | head -n 1 || echo "")
+    if [ -n "$registered_img" ]; then
+      echo "  registered artifact: present ($(basename "$registered_img"))"
+      # Checksum verified
+      if [ -f "${registered_img}.sha256" ]; then
+        echo "  checksum verified: yes"
+      else
+        echo "  checksum verified: no"
+      fi
+    else
+      echo "  registered artifact: missing"
+      echo "  checksum verified: no"
+    fi
+
+    # Rootfs inspected & boot readiness flags
+    if [ -f "$IMAGE_OUTPUT_DIR/cidre-image-manifest.json" ] && command -v python3 >/dev/null 2>&1; then
+      rootfs_inspected=$(python3 -c "import json; d=json.load(open('$IMAGE_OUTPUT_DIR/cidre-image-manifest.json')); print(d.get('validation', {}).get('rootfs_inspected', False))")
+      boot_readiness=$(python3 -c "import json; d=json.load(open('$IMAGE_OUTPUT_DIR/cidre-image-manifest.json')); print(d.get('validation', {}).get('boot_readiness_checked', False))")
+      echo "  rootfs inspected:   $rootfs_inspected"
+      echo "  boot readiness:     $boot_readiness"
+    else
+      echo "  rootfs inspected:   no"
+      echo "  boot readiness:     no"
     fi
     ;;
   firstboot-status)

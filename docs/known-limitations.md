@@ -62,3 +62,12 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
 - Promotion checks verify boot validation metadata, but do not prevent manual promotion of unverified assets if forced.
 - Manifest schemas (v0.18.0) include builder git revisions but do not sign the artifact logs.
 
+## v0.19.0 limitations
+
+- v0.19.0 real image builds are local prototype builds.
+- v0.19.0 does not publish public image artifacts.
+- Builder execution depends on host environment and may require root privileges.
+- Generated images may still fail to boot.
+- Mount/inspect success does not guarantee Apple Silicon boot success.
+
+

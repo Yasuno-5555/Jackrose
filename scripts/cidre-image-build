@@ -121,6 +121,10 @@ while [ "$#" -gt 0 ]; do
     --boot-readiness) BOOT_READINESS=1; shift ;;
     --builder-status) BUILDER_STATUS=1; shift ;;
     --builder-config) BUILDER_CONFIG_INTEGRATE=1; shift ;;
+    --real-build)
+      # Delegate immediately to cidre-real-image-build with all remaining arguments
+      exec "$SCRIPT_DIR/cidre-real-image-build" "$@"
+      ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
   esac

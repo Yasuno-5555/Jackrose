@@ -57,6 +57,12 @@ if [ ! -f "$image_path" ]; then
   exit 1
 fi
 
+if [[ "$image_path" == *.zst ]] || [[ "$image_path" == *.gz ]]; then
+  echo "ERROR: compressed image cannot be mounted directly" >&2
+  echo "Hint: decompress the image first before mounting" >&2
+  exit 1
+fi
+
 if "$write_mode" && ! "$confirm_write"; then
   echo "ERROR: write mount requires both --write and --yes" >&2
   exit 1
