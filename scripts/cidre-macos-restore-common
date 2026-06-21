@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+cidre_macos_restore_timestamp() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+cidre_macos_restore_state_root() {
+  printf '%s\n' "${CIDRE_MACOS_RESTORE_STATE_ROOT:-$PWD/.local/state/cidre/macos-restore}"
+}
+
+cidre_macos_restore_current_dir() {
+  printf '%s/current\n' "$(cidre_macos_restore_state_root)"
+}
+
+cidre_macos_restore_history_dir() {
+  printf '%s/history\n' "$(cidre_macos_restore_state_root)"
+}
+
+cidre_macos_restore_prepare_dirs() {
+  mkdir -p "$(cidre_macos_restore_current_dir)" "$(cidre_macos_restore_history_dir)"
+}
+
+cidre_macos_restore_bootstrap_dir() {
+  printf '%s\n' "${CIDRE_MACOS_BOOTSTRAP_STATE_ROOT:-$PWD/.local/state/cidre/macos-bootstrap}"
+}
+
+cidre_macos_restore_json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+cidre_macos_restore_require_macos() {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    printf 'ERROR: this command requires macOS.\n' >&2
+    exit 1
+  fi
+}
+
+cidre_macos_restore_path() {
+  printf '%s/%s\n' "$(cidre_macos_restore_current_dir)" "$1"
+}
+
+cidre_macos_restore_bool() {
+  if [ "$1" = "true" ]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}

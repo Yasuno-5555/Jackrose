@@ -8,6 +8,19 @@ DRY_RUN=0
 NO_SEED=0
 CHECK_ONLY=0
 PRINT_HANDOFF=0
+RESTORE_HELP=0
+RESTORE_CHECK=0
+PARTITION_AUDIT=0
+STARTUP_DISK_CHECK=0
+UNINSTALL_GUIDE=0
+RESTORE_REPORT=0
+RESCUE_HELP=0
+RESCUE_CHECK=0
+RESCUE_DISK_AUDIT=0
+RESCUE_PLAN=0
+RESCUE_GUIDE=0
+RESCUE_REPORT=0
+RESCUE_CREATE_DRY_RUN=0
 
 usage() {
   cat <<'EOF'
@@ -20,6 +33,19 @@ Options:
   --profile <name>     Select profile: desktop, developer, minimal, recovery
   --no-seed            Skip manifest generation
   --print-handoff      Print handoff instructions only
+  --restore-help       Print uninstall/restore guidance only
+  --restore-check      Run macOS restore readiness checks
+  --partition-audit    Collect a read-only macOS partition audit
+  --startup-disk-check Generate startup disk guidance
+  --uninstall-guide    Generate a macOS uninstall guide
+  --restore-report     Generate a macOS restore report
+  --rescue-help        Print Rescue Slot guidance
+  --rescue-check       Run macOS-side Rescue Slot readiness checks
+  --rescue-disk-audit  Collect a read-only macOS rescue disk audit
+  --rescue-plan        Generate a macOS rescue planning document
+  --rescue-guide       Generate a macOS rescue guide
+  --rescue-report      Generate a macOS rescue report
+  --rescue-create-dry-run Print rescue creation dry-run guidance
   -h, --help           Show this help
 EOF
 }
@@ -33,7 +59,7 @@ validate_profile() {
 
 require_macos() {
   if [ "$(uname -s)" != "Darwin" ]; then
-    printf 'ERROR: ./install-macos must be run on macOS.\n' >&2
+    printf 'ERROR: rescue macOS commands require macOS.\nNo disk operation was performed.\n' >&2
     exit 1
   fi
 }
@@ -89,6 +115,58 @@ while [ "$#" -gt 0 ]; do
       PRINT_HANDOFF=1
       shift
       ;;
+    --restore-help)
+      RESTORE_HELP=1
+      shift
+      ;;
+    --restore-check)
+      RESTORE_CHECK=1
+      shift
+      ;;
+    --partition-audit)
+      PARTITION_AUDIT=1
+      shift
+      ;;
+    --startup-disk-check)
+      STARTUP_DISK_CHECK=1
+      shift
+      ;;
+    --uninstall-guide)
+      UNINSTALL_GUIDE=1
+      shift
+      ;;
+    --restore-report)
+      RESTORE_REPORT=1
+      shift
+      ;;
+    --rescue-help)
+      RESCUE_HELP=1
+      shift
+      ;;
+    --rescue-check)
+      RESCUE_CHECK=1
+      shift
+      ;;
+    --rescue-disk-audit)
+      RESCUE_DISK_AUDIT=1
+      shift
+      ;;
+    --rescue-plan)
+      RESCUE_PLAN=1
+      shift
+      ;;
+    --rescue-guide)
+      RESCUE_GUIDE=1
+      shift
+      ;;
+    --rescue-report)
+      RESCUE_REPORT=1
+      shift
+      ;;
+    --rescue-create-dry-run)
+      RESCUE_CREATE_DRY_RUN=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -104,6 +182,112 @@ done
 if [ "$CHECK_ONLY" -eq 1 ]; then
   require_macos
   exec "$SCRIPT_DIR/cidre-macos-check"
+fi
+
+if [ "$RESTORE_CHECK" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-restore-check"
+fi
+
+if [ "$PARTITION_AUDIT" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-partition-audit"
+fi
+
+if [ "$STARTUP_DISK_CHECK" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-startup-disk-check"
+fi
+
+if [ "$UNINSTALL_GUIDE" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-uninstall-guide"
+fi
+
+if [ "$RESTORE_REPORT" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-restore-report"
+fi
+
+if [ "$RESCUE_CHECK" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-rescue-check"
+fi
+
+if [ "$RESCUE_DISK_AUDIT" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-rescue-disk-audit"
+fi
+
+if [ "$RESCUE_PLAN" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-rescue-plan"
+fi
+
+if [ "$RESCUE_GUIDE" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-rescue-guide"
+fi
+
+if [ "$RESCUE_REPORT" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-rescue-report"
+fi
+
+if [ "$RESCUE_CREATE_DRY_RUN" -eq 1 ]; then
+  require_macos
+  cat <<'EOF'
+Cidre macOS rescue create dry-run
+
+- This release only generates read-only planning output.
+- No partition will be created.
+- No boot entry will be modified.
+- Generate rescue plan, guide, and report first.
+EOF
+  exit 0
+fi
+
+if [ "$RESTORE_HELP" -eq 1 ]; then
+  cat <<'EOF'
+Cidre restore and removal guidance
+
+- v0.24.0 adds macOS-side restore check, partition audit, startup disk guidance, uninstall guide, and restore report generation.
+- v0.24.0 does not delete partitions, resize APFS containers, or change the default startup disk automatically.
+- Review Linux-side artifacts first:
+  - scripts/cidre-uninstall-check
+  - scripts/cidre-state-export --include-logs --include-reports
+  - scripts/cidre-partition-audit
+  - scripts/cidre-macos-restore-guide
+- Then, from macOS:
+  - ./install-macos --restore-check
+  - ./install-macos --partition-audit
+  - ./install-macos --startup-disk-check
+  - ./install-macos --uninstall-guide
+  - ./install-macos --restore-report
+
+Destructive operations remain unavailable in this release.
+EOF
+  exit 0
+fi
+
+if [ "$RESCUE_HELP" -eq 1 ]; then
+  cat <<'EOF'
+Cidre Rescue Slot guidance
+
+- v0.27.0 introduces Rescue Boot Integration planning for cases where main Cidre no longer boots.
+- Recommended size: 6-12 GiB, with 8 GiB as a reasonable starting point.
+- Rescue is a minimal ALARM-based environment, not a daily desktop.
+- v0.27.0 does not create partitions or modify boot entries automatically.
+- Use Rescue for mount/export/kernel inspection.
+- macOS-side planning commands:
+  - ./install-macos --rescue-check
+  - ./install-macos --rescue-disk-audit
+  - ./install-macos --rescue-plan
+  - ./install-macos --rescue-guide
+  - ./install-macos --rescue-report
+- Use macOS Restore Assistant if Rescue cannot recover main Cidre.
+EOF
+  exit 0
 fi
 
 choose_profile

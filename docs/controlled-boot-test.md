@@ -41,3 +41,20 @@ The primary goal of controlled boot validation is to observe the system initiali
    ```bash
    scripts/cidre-controlled-boot-test --report --status success
    ```
+
+## Failure Recovery (v0.21.0)
+
+If a boot test fails or stalls, run the diagnosis and reporting scripts to categorize the failure and log state metrics:
+```bash
+scripts/cidre-firstboot-diagnose --root /path/to/rootfs
+scripts/cidre-firstboot-report --root /path/to/rootfs --output report.md
+```
+Or via recovery subcommands:
+```bash
+cidre-recovery firstboot-diagnose
+cidre-recovery firstboot-report
+```
+
+Controlled boot tests should verify not only firstboot OOBE, but also user phase handoff readiness (using `scripts/cidre-user-handoff --verify` and `scripts/cidre-user-phase-verify`).
+
+Rescue Slot readiness is tracked separately and should remain a warning until dedicated rescue boot integration exists.

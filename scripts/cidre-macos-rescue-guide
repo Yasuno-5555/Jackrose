@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+output_file="$PWD/.local/state/cidre/macos-rescue/current/macos-rescue-guide.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-rescue-guide [options]
+
+Options:
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<'EOF'
+# Cidre macOS Rescue Guide
+
+- What Rescue Slot is: a separate minimal repair-oriented Linux environment
+- When to use it: when main Cidre no longer boots far enough to show Recovery Screen
+- Required size: 6-12 GiB, with 8 GiB recommended
+- Why this release is read-only: disk layout and boot pairing need explicit planning first
+- Future guided creation: planned for later releases
+- Relation to macOS Restore Assistant: use Restore Assistant if Rescue planning is insufficient or you want to exit Cidre entirely
+EOF
+printf '%s\n' "$output_file"

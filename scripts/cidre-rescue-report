@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+CURRENT_DIR="$STATE_ROOT/current"
+ARTIFACTS_DIR="$STATE_ROOT/artifacts"
+output_file="$CURRENT_DIR/rescue-report.md"
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-report [options]
+
+Options:
+  --output <file>
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")" "$ARTIFACTS_DIR"
+manifest_status="missing"
+overlay_status="missing"
+kernel_status="missing"
+[ -f "$ARTIFACTS_DIR/cidre-rescue-manifest.json" ] && manifest_status="present"
+[ -d "$REPO_ROOT/rescue/overlay/usr/lib/cidre" ] && overlay_status="present"
+[ -f "$CURRENT_DIR/kernel-check-report.md" ] && kernel_status="present"
+
+cat > "$output_file" <<EOF
+# Cidre Rescue Report
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- rescue environment status: foundation only
+- rescue manifest: \`$manifest_status\`
+- rescue overlay: \`$overlay_status\`
+- main Cidre candidate summary: advisory scan only
+- mount status: read-only default
+- export status: manual / explicit
+- kernel check status: \`$kernel_status\`
+- risk summary: avoid destructive repair in v0.26.0
+
+## Next Steps
+
+1. Run \`cidre-rescue-check\`.
+2. Run \`cidre-rescue-mount --scan --dry-run\`.
+3. Mount the main root read-only if needed.
+4. Export state before any repair.
+5. Use macOS Restore Assistant if Rescue is not enough.
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "manifest": "$manifest_status",
+  "overlay": "$overlay_status",
+  "kernel_check": "$kernel_status"
+}
+EOF
+else
+  printf '%s\n' "$output_file"
+fi

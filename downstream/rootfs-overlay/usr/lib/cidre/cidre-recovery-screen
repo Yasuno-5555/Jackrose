@@ -1,0 +1,85 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+reason="unknown"
+non_interactive=false
+list_actions=false
+selected_action=""
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-recovery-screen [options]
+
+Options:
+  --reason <reason>
+  --non-interactive
+  --list-actions
+  --action <action>
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reason) reason="$2"; shift 2 ;;
+    --non-interactive) non_interactive=true; shift ;;
+    --list-actions) list_actions=true; shift ;;
+    --action) selected_action="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$list_actions" = "true" ]; then
+  "$SCRIPT_DIR/cidre-recovery-actions" --list
+  exit 0
+fi
+
+cat <<EOF
+============================================================
+                         CIDRE
+                   Recovery Screen
+============================================================
+
+Cidre could not start the normal desktop session.
+
+Reason:
+  $reason
+
+Available actions:
+EOF
+"$SCRIPT_DIR/cidre-recovery-actions" --list | awk '{ printf "  [%d] %s\n", NR, $0 }'
+cat <<'EOF'
+
+If this system no longer boots, start Cidre Rescue Slot.
+From Rescue Slot, run:
+  cidre-rescue --check
+  cidre-rescue --boot-plan
+  cidre-rescue --boot-checklist
+On macOS:
+  ./install-macos --rescue-check
+  ./install-macos --rescue-disk-audit
+============================================================
+EOF
+
+if [ -n "$selected_action" ]; then
+  if [ "$dry_run" = "true" ]; then
+    "$SCRIPT_DIR/cidre-recovery-actions" --run "$selected_action" --dry-run
+  else
+    "$SCRIPT_DIR/cidre-recovery-actions" --run "$selected_action"
+  fi
+  exit 0
+fi
+
+if [ "$non_interactive" = "true" ] || [ "$dry_run" = "true" ]; then
+  echo "TTY guidance:"
+  echo "  cidre-safe-shell --reason $reason"
+  echo "  cidre-doctor --daily"
+  echo "  cidre-recovery status"
+  exit 0
+fi

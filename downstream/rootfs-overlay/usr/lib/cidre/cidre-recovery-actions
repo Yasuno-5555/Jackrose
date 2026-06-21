@@ -1,0 +1,95 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-recovery-common"
+
+mode="list"
+run_action=""
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-recovery-actions [options]
+
+Options:
+  --list
+  --run <action>
+  --dry-run
+  --help
+EOF
+}
+
+actions_list() {
+  cat <<'EOF'
+doctor
+doctor-daily
+doctor-uninstall
+recovery-status
+firstboot-report
+user-phase-report
+state-export
+exit-plan
+macos-restore-guide
+show-rescue-guide
+rescue-plan
+goodbye
+clear-safe-mode
+reboot
+poweroff
+EOF
+}
+
+run_or_echo() {
+  if [ "$dry_run" = "true" ]; then
+    printf '[DRY-RUN] %s\n' "$*"
+  else
+    # shellcheck disable=SC2086
+    sh -c "$*"
+  fi
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) mode="list"; shift ;;
+    --run) mode="run"; run_action="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$mode" = "list" ]; then
+  actions_list
+  exit 0
+fi
+
+case "$run_action" in
+  doctor) run_or_echo "\"$SCRIPT_DIR/cidre-doctor\"" ;;
+  doctor-daily) run_or_echo "\"$SCRIPT_DIR/cidre-doctor\" --daily" ;;
+  doctor-uninstall) run_or_echo "\"$SCRIPT_DIR/cidre-doctor\" --uninstall" ;;
+  recovery-status) run_or_echo "\"$SCRIPT_DIR/cidre-recovery\" status" ;;
+  firstboot-report) run_or_echo "\"$SCRIPT_DIR/cidre-firstboot-report\"" ;;
+  user-phase-report) run_or_echo "\"$SCRIPT_DIR/cidre-user-phase-report\"" ;;
+  state-export) run_or_echo "\"$SCRIPT_DIR/cidre-state-export\" --include-logs --include-reports" ;;
+  exit-plan) run_or_echo "\"$SCRIPT_DIR/cidre-exit-plan\" --include-partition-audit --include-macos-guide" ;;
+  macos-restore-guide) run_or_echo "\"$SCRIPT_DIR/cidre-macos-restore-guide\"" ;;
+  show-rescue-guide) run_or_echo "printf 'If main Cidre no longer boots, use Cidre Rescue Slot and run: cidre-rescue --check\n'" ;;
+  rescue-plan) run_or_echo "\"$SCRIPT_DIR/cidre-rescue-plan\"" ;;
+  goodbye) run_or_echo "\"$SCRIPT_DIR/cidre-goodbye\"" ;;
+  clear-safe-mode)
+    if [ "$dry_run" = "true" ]; then
+      printf '[DRY-RUN] clear safe mode markers\n'
+    else
+      rm -f "$(cidre_recovery_current_path "safe-mode-requested")" \
+        "$(cidre_recovery_system_path "safe-mode-requested")"
+      printf 'safe mode markers cleared\n'
+    fi
+    ;;
+  reboot) run_or_echo "printf 'Reboot requested from recovery mode.\n'" ;;
+  poweroff) run_or_echo "printf 'Power off requested from recovery mode.\n'" ;;
+  *)
+    printf 'ERROR: unknown action: %s\n' "$run_action" >&2
+    exit 1
+    ;;
+esac

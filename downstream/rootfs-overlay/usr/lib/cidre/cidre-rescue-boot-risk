@@ -1,0 +1,67 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+json_output=false
+output_file="$CURRENT_DIR/rescue-boot-risk.json"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-risk [options]
+
+Options:
+  --json
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) json_output=true; shift ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+artifact_exists=false
+metadata_exists=false
+disk_exists=false
+guide_exists=false
+[ -f "$REPO_ROOT/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ] && artifact_exists=true
+[ -f "$CURRENT_DIR/rescue-slot-metadata.json" ] && metadata_exists=true
+[ -f "$CURRENT_DIR/rescue-disk-check.json" ] && disk_exists=true
+[ -f "$CURRENT_DIR/rescue-boot-guide.md" ] && guide_exists=true
+
+risk="medium"
+reasons=""
+if [ "$artifact_exists" = "true" ] && [ "$metadata_exists" = "true" ] && [ "$disk_exists" = "true" ] && [ "$guide_exists" = "true" ]; then
+  risk="low"
+  reasons='artifact exists; metadata exists; disk audit exists; guide generated; no destructive operation'
+elif [ "$disk_exists" != "true" ]; then
+  risk="medium"
+  reasons='macOS-side or Linux-side disk audit pending'
+else
+  reasons='artifact or metadata or guide still pending; boot integration not validated'
+fi
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+{
+  "schema_version": 1,
+  "risk": "$risk",
+  "reasons": "$reasons",
+  "boot_integration": "planned",
+  "destructive_operations": false
+}
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat "$output_file"
+else
+  printf '%s\n' "$output_file"
+fi

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# cidre-firstboot-console: Print short status messages optimized for first boot screen consoles
+set -euo pipefail
+
+root_dir="/"
+show_status=false
+show_handoff=false
+show_recovery=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-firstboot-console [options]
+
+Print short status messages optimized for screen consoles.
+
+Options:
+  --root <path>     Directory root to inspect (default: /)
+  --status          Print stage status details
+  --handoff         Print target handoff commands
+  --recovery        Print recovery screen guidance
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) root_dir="$2"; shift 2 ;;
+    --status) show_status=true; shift ;;
+    --handoff) show_handoff=true; shift ;;
+    --recovery) show_recovery=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+state_dir="${root_dir%/}/var/lib/cidre/firstboot-root"
+
+if $show_status; then
+  echo "Cidre Firstboot Status"
+  echo ""
+  if [ -f "$state_dir/completed" ]; then
+    echo "Status: completed"
+  elif [ -f "$state_dir/failed" ]; then
+    echo "Status: failed"
+  else
+    echo "Status: started"
+  fi
+  if [ -f "$state_dir/last-stage" ]; then
+    echo "Stage:  $(cat "$state_dir/last-stage")"
+  fi
+  exit 0
+fi
+
+if $show_handoff; then
+  if [ -f "$state_dir/handoff.txt" ]; then
+    cat "$state_dir/handoff.txt"
+  else
+    echo "No handoff available."
+  fi
+  exit 0
+fi
+
+if $show_recovery; then
+  echo "Cidre Recovery Options"
+  echo ""
+  echo "  scripts/cidre-recovery-screen --reason firstboot-failed --non-interactive"
+  echo "  scripts/cidre-state-export --include-logs --include-reports"
+  echo "  scripts/cidre-exit-plan --include-partition-audit --include-macos-guide"
+  echo "  scripts/cidre-macos-restore-guide"
+  exit 0
+fi
+
+usage
+exit 1

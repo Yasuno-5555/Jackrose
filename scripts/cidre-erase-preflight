@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+audit_path=""
+dry_run=false
+json=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-erase-preflight [options]
+
+Options:
+  --audit <path>
+  --dry-run
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --audit) audit_path="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+[ -n "$audit_path" ] || audit_path="$(cidre_exit_current_path "partition-audit.json")"
+
+state_export_path="$(cidre_exit_current_path "cidre-state-export.tar.gz")"
+state_export_alt="$(cidre_exit_current_path "cidre-state-export.tar.zst")"
+restore_guide_path="$(cidre_exit_current_path "macos-restore-guide.md")"
+output_file="$(cidre_exit_current_path "erase-preflight.json")"
+
+state_export_exists=false
+audit_exists=false
+guide_exists=false
+[ -f "$state_export_path" ] || [ -f "$state_export_alt" ] && state_export_exists=true
+[ -f "$audit_path" ] && audit_exists=true
+[ -f "$restore_guide_path" ] && guide_exists=true
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_exit_timestamp)"
+  printf '  "state_export_exists": %s,\n' "$(cidre_exit_bool "$state_export_exists")"
+  printf '  "partition_audit_exists": %s,\n' "$(cidre_exit_bool "$audit_exists")"
+  printf '  "macos_restore_guide_exists": %s,\n' "$(cidre_exit_bool "$guide_exists")"
+  printf '  "destructive_mode_available": false,\n'
+  printf '  "status": "blocked"\n'
+  printf '}\n'
+} > "$output_file"
+
+cidre_exit_try_copy_to_system "$output_file" "erase-preflight.json"
+
+if [ "$json" = "true" ]; then
+  cat "$output_file"
+else
+  echo "Cidre erase preflight"
+  echo
+  [ "$state_export_exists" = "true" ] && echo "[OK] state export exists" || echo "[WARN] state export missing"
+  [ "$audit_exists" = "true" ] && echo "[OK] partition audit exists" || echo "[WARN] partition audit missing"
+  [ "$guide_exists" = "true" ] && echo "[OK] macOS restore guide exists" || echo "[WARN] macOS restore guide missing"
+  echo "[BLOCKED] destructive erase is not implemented in v0.23.0"
+  [ "$dry_run" = "true" ] && echo
+  [ "$dry_run" = "true" ] && echo "Dry-run only. No destructive command is available."
+fi
+
+exit 1

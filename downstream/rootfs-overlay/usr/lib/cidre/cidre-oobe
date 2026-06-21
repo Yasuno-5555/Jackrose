@@ -90,7 +90,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-printf '\nThis is an early prototype image.\n'
-printf 'This is not a production installer.\n'
-printf '\nNext action:\n'
-printf '  run cidre-preinstall for root-phase setup\n'
+# Visual styling for early OOBE terminal screen
+cat <<EOF
+
+==================================================
+        Cidre OOBE Phase Setup Complete
+==================================================
+  Target Account: $USER_NAME
+  Profile Tag:    ${PROFILE_NAME:-"minimal"}
+  Status Flags:   Verified and recorded.
+==================================================
+
+This is an early prototype developer setup.
+Please proceed with root phase installations.
+EOF

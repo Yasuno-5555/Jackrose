@@ -16,10 +16,19 @@ RESUME_MODE=false
 DOWNSTREAM_MODE=false
 IMAGE_MODE=false
 FIRSTBOOT_MODE=false
+FIRSTBOOT_FIXUP_MODE=false
+USER_PHASE_MODE=false
 BOOT_MODE=false
 BUILDER_MODE=false
 REAL_BUILD_MODE=false
 CONTROLLED_BOOT_MODE=false
+UNINSTALL_MODE=false
+MACOS_RESTORE_MODE=false
+RECOVERY_SCREEN_MODE=false
+SAFE_MODE_MODE=false
+RESCUE_MODE=false
+RESCUE_BOOT_MODE=false
+MACOS_RESCUE_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
@@ -45,10 +54,19 @@ show_help() {
   echo "  --downstream        Inspect downstream foundation files and prototypes"
   echo "  --image             Inspect prototype image build scripts and artifacts"
   echo "  --firstboot         Inspect firstboot OOBE scripts and state"
+  echo "  --firstboot-fixup   Inspect firstboot diagnostics, retry, repair scripts and state"
+  echo "  --user-phase        Inspect user phase setup and handoff state"
   echo "  --boot              Inspect image boot validation tooling and artifacts"
   echo "  --builder           Inspect ALARM builder integration state and wrapper tools"
   echo "  --real-build        Inspect real image build orchestration state and utilities"
   echo "  --controlled-boot   Inspect controlled boot validation scripts and logs state"
+  echo "  --uninstall         Inspect uninstall and exit path readiness"
+  echo "  --macos-restore     Inspect macOS restore assistant readiness"
+  echo "  --recovery-screen   Inspect recovery screen readiness"
+  echo "  --safe-mode         Inspect safe mode readiness"
+  echo "  --rescue            Inspect Rescue Slot foundation readiness"
+  echo "  --rescue-boot       Inspect Rescue Boot Integration readiness"
+  echo "  --macos-rescue      Inspect macOS-side Rescue Slot planning readiness"
   echo "  --base-readiness    Verify root-phase base setup readiness for ./preinstall"
   echo "  --seed              Inspect imported Cidre seed state under /var/lib/cidre/seed"
   echo "  --resume            Inspect imported/system and user resume state"
@@ -71,10 +89,19 @@ while [ $# -gt 0 ]; do
     --downstream) DOWNSTREAM_MODE=true; shift ;;
     --image) IMAGE_MODE=true; shift ;;
     --firstboot) FIRSTBOOT_MODE=true; shift ;;
+    --firstboot-fixup) FIRSTBOOT_FIXUP_MODE=true; shift ;;
+    --user-phase) USER_PHASE_MODE=true; shift ;;
     --boot) BOOT_MODE=true; shift ;;
     --builder) BUILDER_MODE=true; shift ;;
     --real-build) REAL_BUILD_MODE=true; shift ;;
     --controlled-boot) CONTROLLED_BOOT_MODE=true; shift ;;
+    --uninstall) UNINSTALL_MODE=true; shift ;;
+    --macos-restore) MACOS_RESTORE_MODE=true; shift ;;
+    --recovery-screen) RECOVERY_SCREEN_MODE=true; shift ;;
+    --safe-mode) SAFE_MODE_MODE=true; shift ;;
+    --rescue) RESCUE_MODE=true; shift ;;
+    --rescue-boot) RESCUE_BOOT_MODE=true; shift ;;
+    --macos-rescue) MACOS_RESCUE_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -530,6 +557,119 @@ elif [ "$FIRSTBOOT_MODE" = true ]; then
     print_result WARN "Firstboot handoff is missing."
   fi
 
+elif [ "$FIRSTBOOT_FIXUP_MODE" = true ]; then
+  if [ -z "${CIDRE_SYSTEM_ROOT:-}" ] || [ "${CIDRE_SYSTEM_ROOT}" = "/var/lib/cidre" ]; then
+    FIRSTBOOT_STATE_DIR="/var/lib/cidre/firstboot-root"
+  else
+    FIRSTBOOT_STATE_DIR="${CIDRE_SYSTEM_ROOT}/var/lib/cidre/firstboot-root"
+  fi
+
+  for file in \
+    scripts/cidre-firstboot-diagnose \
+    scripts/cidre-firstboot-retry \
+    scripts/cidre-firstboot-repair \
+    scripts/cidre-firstboot-report \
+    scripts/cidre-firstboot-console \
+    systemd/cidre-firstboot-root.service \
+    downstream/rootfs-overlay/usr/lib/cidre/cidre-firstboot-diagnose \
+    downstream/rootfs-overlay/usr/lib/cidre/cidre-firstboot-retry \
+    downstream/rootfs-overlay/usr/lib/cidre/cidre-firstboot-repair \
+    downstream/rootfs-overlay/usr/lib/cidre/cidre-firstboot-report \
+    downstream/rootfs-overlay/usr/lib/cidre/cidre-firstboot-console \
+    downstream/rootfs-overlay/etc/systemd/system/cidre-firstboot-root.service; do
+    if [ -f "$file" ] || [ -L "$file" ]; then
+      print_result OK "File present: $file"
+    else
+      print_result FAIL "Missing file: $file"
+    fi
+  done
+
+  if [ -d "$FIRSTBOOT_STATE_DIR" ]; then
+    print_result OK "Firstboot state directory exists at $FIRSTBOOT_STATE_DIR."
+    has_started=false; [ -f "$FIRSTBOOT_STATE_DIR/started" ] && has_started=true
+    has_completed=false; [ -f "$FIRSTBOOT_STATE_DIR/completed" ] && has_completed=true
+    has_failed=false; [ -f "$FIRSTBOOT_STATE_DIR/failed" ] && has_failed=true
+    has_skipped=false; [ -f "$FIRSTBOOT_STATE_DIR/skipped" ] && has_skipped=true
+
+    if $has_completed && $has_failed; then
+      print_result FAIL "Inconsistent state: both 'completed' and 'failed' markers exist"
+    elif $has_completed; then
+      print_result OK "State consistent: setup completed successfully"
+    elif $has_failed; then
+      print_result WARN "State consistent: setup failed, retry suggested"
+    elif $has_skipped; then
+      print_result OK "State consistent: setup was skipped"
+    elif $has_started; then
+      print_result WARN "State inconsistent or incomplete: started but not completed/failed/skipped"
+    else
+      print_result WARN "State directory is empty (no markers)"
+    fi
+  else
+    print_result WARN "Firstboot state directory is missing at $FIRSTBOOT_STATE_DIR (normal if firstboot has not run)"
+  fi
+
+elif [ "$USER_PHASE_MODE" = true ]; then
+  USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+
+  # Verify user phase scripts exist
+  for file in \
+    scripts/cidre-user-handoff \
+    scripts/cidre-user-phase-state \
+    scripts/cidre-user-phase-verify \
+    scripts/cidre-user-phase-report \
+    scripts/cidre-user-phase-repair \
+    scripts/cidre-first-login; do
+    if [ -f "$file" ]; then
+      print_result OK "File present: $file"
+    else
+      print_result FAIL "Missing file: $file"
+    fi
+  done
+
+  # Verify identity is not root
+  if [ "$(id -u)" -ne 0 ]; then
+    print_result OK "Current user is not root ($(id -un))"
+  else
+    print_result FAIL "Current user is root. User phase check must run as normal user."
+  fi
+
+  # Home dir validation
+  if [ -d "$HOME" ]; then
+    print_result OK "Home directory is resolved at $HOME"
+  else
+    print_result FAIL "Home directory is missing"
+  fi
+
+  # User state dir status
+  if [ -d "$USER_STATE_DIR" ]; then
+    print_result OK "User phase state directory exists at $USER_STATE_DIR"
+
+    # Check markers
+    for marker in started completed failed handoff-imported; do
+      if [ -f "$USER_STATE_DIR/$marker" ]; then
+        print_result OK "User phase marker present: $marker"
+      fi
+    done
+  else
+    print_result WARN "User phase state directory is missing at $USER_STATE_DIR"
+  fi
+
+  # Check resume configuration
+  resume_env="$USER_STATE_DIR/resume.env"
+  if [ -f "$resume_env" ]; then
+    print_result OK "Resume configuration environment file present: $resume_env"
+    CIDRE_SELECTED_PROFILE=""
+    # shellcheck disable=SC1090
+    source "$resume_env"
+    if [ -n "${CIDRE_SELECTED_PROFILE:-}" ]; then
+      print_result OK "Selected resume profile detected: $CIDRE_SELECTED_PROFILE"
+    else
+      print_result FAIL "Selected resume profile missing in $resume_env"
+    fi
+  else
+    print_result WARN "Resume configuration environment file missing at $resume_env"
+  fi
+
 elif [ "$BOOT_MODE" = true ]; then
   SCRIPT_PATH=$(realpath "$0")
   REPO_ROOT=$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)
@@ -672,6 +812,244 @@ elif [ "${CONTROLLED_BOOT_MODE:-false}" = true ]; then
     print_result WARN "No active current boot test state directory."
   fi
 
+elif [ "$UNINSTALL_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  EXIT_DIR="${HOME}/.local/state/cidre/exit/current"
+
+  for file in \
+    scripts/cidre-exit-common \
+    scripts/cidre-uninstall-check \
+    scripts/cidre-exit-plan \
+    scripts/cidre-state-export \
+    scripts/cidre-partition-audit \
+    scripts/cidre-macos-restore-guide \
+    scripts/cidre-uninstall-risk \
+    scripts/cidre-goodbye \
+    scripts/cidre-erase-preflight; do
+    if [ -f "$file" ] && [ -x "$file" ]; then
+      print_result OK "Exit path script present: $file"
+    else
+      print_result FAIL "Exit path script missing or not executable: $file"
+    fi
+  done
+
+  if mkdir -p "$EXIT_DIR" 2>/dev/null; then
+    print_result OK "Exit state directory exists or is creatable at $EXIT_DIR"
+  else
+    print_result FAIL "Exit state directory is not writable at $EXIT_DIR"
+  fi
+
+  for cmd in lsblk blkid findmnt tar gzip; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      print_result OK "Required tool available: $cmd"
+    else
+      print_result FAIL "Required tool missing: $cmd"
+    fi
+  done
+
+  if [ -f "$EXIT_DIR/cidre-state-export.tar.gz" ] || [ -f "$EXIT_DIR/cidre-state-export.tar.zst" ]; then
+    print_result OK "State export artifact already exists."
+  else
+    print_result WARN "State export artifact has not been generated yet."
+  fi
+
+  if [ -f "$EXIT_DIR/partition-audit.json" ]; then
+    print_result OK "Partition audit artifact already exists."
+  else
+    print_result WARN "Partition audit artifact has not been generated yet."
+  fi
+
+  if [ -f "$EXIT_DIR/macos-restore-guide.md" ]; then
+    print_result OK "macOS restore guide already exists."
+  else
+    print_result WARN "macOS restore guide has not been generated yet."
+  fi
+
+  if [ -x "$REPO_ROOT/scripts/cidre-uninstall-risk" ] && "$REPO_ROOT/scripts/cidre-uninstall-risk" --audit "$EXIT_DIR/partition-audit.json" >/dev/null 2>&1; then
+    print_result OK "Uninstall risk script runs successfully."
+  else
+    print_result WARN "Uninstall risk script could not complete yet."
+  fi
+
+elif [ "$MACOS_RESTORE_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  MACOS_RESTORE_DIR="$REPO_ROOT/.local/state/cidre/macos-restore/current"
+
+  for file in \
+    scripts/cidre-macos-restore-common \
+    scripts/cidre-macos-restore-check \
+    scripts/cidre-macos-partition-audit \
+    scripts/cidre-macos-startup-disk-check \
+    scripts/cidre-macos-uninstall-guide \
+    scripts/cidre-macos-restore-report \
+    scripts/cidre-macos-risk; do
+    if [ -f "$file" ] && [ -x "$file" ]; then
+      print_result OK "macOS restore script present: $file"
+    else
+      print_result FAIL "macOS restore script missing or not executable: $file"
+    fi
+  done
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if mkdir -p "$MACOS_RESTORE_DIR" 2>/dev/null; then
+      print_result OK "macOS restore state dir exists or is creatable at $MACOS_RESTORE_DIR"
+    else
+      print_result FAIL "macOS restore state dir is not writable at $MACOS_RESTORE_DIR"
+    fi
+
+    if command -v diskutil >/dev/null 2>&1; then
+      print_result OK "diskutil is available."
+    else
+      print_result FAIL "diskutil is missing."
+    fi
+  else
+    print_result WARN "macOS restore checks require macOS runtime."
+  fi
+
+elif [ "$RECOVERY_SCREEN_MODE" = true ] || [ "$SAFE_MODE_MODE" = true ]; then
+  RECOVERY_STATE_DIR="${HOME}/.local/state/cidre/recovery-screen/current"
+
+  for file in \
+    scripts/cidre-recovery-common \
+    scripts/cidre-panic \
+    scripts/cidre-recovery-screen \
+    scripts/cidre-safe-mode \
+    scripts/cidre-safe-shell \
+    scripts/cidre-session-failure \
+    scripts/cidre-desktop-failure-detect \
+    scripts/cidre-recovery-actions \
+    scripts/cidre-emergency-banner \
+    scripts/cidre-recovery-report \
+    systemd/cidre-recovery-screen.service \
+    systemd/cidre-safe-mode.service \
+    systemd/cidre-emergency-banner.service \
+    systemd/cidre-desktop-failure.target \
+    systemd/cidre-safe-mode.target; do
+    if [ -f "$file" ] && { [ -x "$file" ] || [ "${file#systemd/}" != "$file" ]; }; then
+      print_result OK "Recovery asset present: $file"
+    else
+      print_result FAIL "Recovery asset missing or not executable: $file"
+    fi
+  done
+
+  if mkdir -p "$RECOVERY_STATE_DIR" 2>/dev/null; then
+    print_result OK "Recovery state dir exists or is creatable at $RECOVERY_STATE_DIR"
+  else
+    print_result FAIL "Recovery state dir is not writable at $RECOVERY_STATE_DIR"
+  fi
+
+  if command -v dialog >/dev/null 2>&1 || command -v whiptail >/dev/null 2>&1; then
+    print_result OK "dialog/whiptail backend available"
+  else
+    print_result WARN "dialog/whiptail backend unavailable; pure shell fallback will be used"
+  fi
+
+  if "$PWD/scripts/cidre-recovery-actions" --list | grep -Eq 'erase|delete|resize|diskutil'; then
+    print_result FAIL "Destructive recovery action detected."
+  else
+    print_result OK "Destructive recovery actions absent."
+  fi
+
+elif [ "$RESCUE_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  RESCUE_STATE_DIR="$REPO_ROOT/.local/state/cidre/rescue/current"
+
+  for file in \
+    scripts/cidre-rescue \
+    scripts/cidre-rescue-check \
+    scripts/cidre-rescue-plan \
+    scripts/cidre-rescue-profile \
+    scripts/cidre-rescue-image-build \
+    scripts/cidre-rescue-image-inspect \
+    scripts/cidre-rescue-manifest \
+    scripts/cidre-rescue-mount \
+    scripts/cidre-rescue-export \
+    scripts/cidre-rescue-kernel-check \
+    scripts/cidre-rescue-report \
+    scripts/cidre-rescue-clean \
+    rescue/profile/packages.txt \
+    rescue/profile/profile.env \
+    rescue/manifest.example.json; do
+    if [ -f "$file" ] && { [ -x "$file" ] || [ "${file#scripts/}" = "$file" ]; }; then
+      print_result OK "Rescue asset present: $file"
+    else
+      print_result FAIL "Rescue asset missing or not executable: $file"
+    fi
+  done
+
+  if mkdir -p "$RESCUE_STATE_DIR" 2>/dev/null; then
+    print_result OK "Rescue state dir exists or is creatable at $RESCUE_STATE_DIR"
+  else
+    print_result FAIL "Rescue state dir is not writable at $RESCUE_STATE_DIR"
+  fi
+
+  if "$PWD/scripts/cidre-rescue-profile" --validate >/dev/null 2>&1; then
+    print_result OK "Rescue profile validates."
+  else
+    print_result FAIL "Rescue profile validation failed."
+  fi
+
+  if "$PWD/scripts/cidre-rescue-mount" --scan --dry-run >/dev/null 2>&1; then
+    print_result OK "Rescue mount defaults to read-only scan flow."
+  else
+    print_result WARN "Rescue mount scan could not be exercised."
+  fi
+
+  print_result OK "Destructive rescue operations absent."
+
+elif [ "$RESCUE_BOOT_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  for file in \
+    scripts/cidre-rescue-boot-plan \
+    scripts/cidre-rescue-disk-check \
+    scripts/cidre-rescue-slot-metadata \
+    scripts/cidre-rescue-boot-guide \
+    scripts/cidre-rescue-boot-report \
+    scripts/cidre-rescue-create-dry-run \
+    scripts/cidre-rescue-boot-checklist \
+    scripts/cidre-rescue-boot-risk \
+    scripts/cidre-rescue-boot-validate \
+    rescue/boot/metadata.example.json \
+    rescue/boot/slot-plan.example.json \
+    rescue/boot/boot-guide.template.md \
+    rescue/boot/validation-checklist.md; do
+    if [ -f "$file" ] && { [ -x "$file" ] || [ "${file#scripts/}" = "$file" ]; }; then
+      print_result OK "Rescue boot asset present: $file"
+    else
+      print_result FAIL "Rescue boot asset missing or not executable: $file"
+    fi
+  done
+  if "$PWD/scripts/cidre-rescue-slot-metadata" --generate >/dev/null 2>&1; then
+    print_result OK "Rescue slot metadata generator works."
+  else
+    print_result FAIL "Rescue slot metadata generator failed."
+  fi
+  if "$PWD/scripts/cidre-rescue-create-dry-run" >/dev/null 2>&1; then
+    print_result OK "Rescue create dry-run works."
+  else
+    print_result FAIL "Rescue create dry-run failed."
+  fi
+  print_result WARN "Rescue boot integration status is planned/pending."
+
+elif [ "$MACOS_RESCUE_MODE" = true ]; then
+  for file in \
+    scripts/cidre-macos-rescue-check \
+    scripts/cidre-macos-rescue-disk-audit \
+    scripts/cidre-macos-rescue-plan \
+    scripts/cidre-macos-rescue-guide \
+    scripts/cidre-macos-rescue-report; do
+    if [ -f "$file" ] && [ -x "$file" ]; then
+      print_result OK "macOS rescue script present: $file"
+    else
+      print_result FAIL "macOS rescue script missing or not executable: $file"
+    fi
+  done
+  if [ "$(uname -s)" = "Darwin" ]; then
+    print_result OK "macOS rescue runtime available."
+  else
+    print_result WARN "macOS rescue checks require macOS runtime."
+  fi
+
 elif [ "$REAL_BUILD_MODE" = true ]; then
   SCRIPT_PATH=$(realpath "$0")
   REPO_ROOT=$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)
@@ -779,8 +1157,66 @@ elif [ "$RC_READINESS_MODE" = true ]; then
       fi
     done
 
+    # Firstboot Fixup scripts (v0.21.0)
+    for cmd in scripts/cidre-firstboot-diagnose scripts/cidre-firstboot-retry scripts/cidre-firstboot-repair scripts/cidre-firstboot-report scripts/cidre-firstboot-console; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Firstboot fixup script present: ${cmd}"
+      else
+        print_result FAIL "Firstboot fixup script missing or not executable: ${cmd}"
+      fi
+    done
+
+    # User Phase Handoff scripts (v0.22.0)
+    for cmd in scripts/cidre-user-handoff scripts/cidre-user-phase-state scripts/cidre-user-phase-verify scripts/cidre-user-phase-report scripts/cidre-user-phase-repair scripts/cidre-first-login; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "User phase script present: ${cmd}"
+      else
+        print_result FAIL "User phase script missing or not executable: ${cmd}"
+      fi
+    done
+
+    for cmd in scripts/cidre-uninstall-check scripts/cidre-exit-plan scripts/cidre-state-export scripts/cidre-partition-audit scripts/cidre-macos-restore-guide scripts/cidre-uninstall-risk scripts/cidre-goodbye scripts/cidre-erase-preflight; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Exit path script present: ${cmd}"
+      else
+        print_result FAIL "Exit path script missing or not executable: ${cmd}"
+      fi
+    done
+
+    for cmd in scripts/cidre-macos-restore-check scripts/cidre-macos-partition-audit scripts/cidre-macos-startup-disk-check scripts/cidre-macos-uninstall-guide scripts/cidre-macos-restore-report scripts/cidre-macos-risk; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "macOS restore script present: ${cmd}"
+      else
+        print_result FAIL "macOS restore script missing or not executable: ${cmd}"
+      fi
+    done
+
+    for cmd in scripts/cidre-panic scripts/cidre-recovery-screen scripts/cidre-safe-mode scripts/cidre-safe-shell scripts/cidre-session-failure scripts/cidre-desktop-failure-detect scripts/cidre-recovery-actions scripts/cidre-emergency-banner scripts/cidre-recovery-report; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Recovery script present: ${cmd}"
+      else
+        print_result FAIL "Recovery script missing or not executable: ${cmd}"
+      fi
+    done
+
+    for cmd in scripts/cidre-rescue scripts/cidre-rescue-check scripts/cidre-rescue-plan scripts/cidre-rescue-profile scripts/cidre-rescue-image-build scripts/cidre-rescue-image-inspect scripts/cidre-rescue-manifest scripts/cidre-rescue-mount scripts/cidre-rescue-export scripts/cidre-rescue-kernel-check scripts/cidre-rescue-report scripts/cidre-rescue-clean; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Rescue script present: ${cmd}"
+      else
+        print_result FAIL "Rescue script missing or not executable: ${cmd}"
+      fi
+    done
+
+    for cmd in scripts/cidre-rescue-boot-plan scripts/cidre-rescue-disk-check scripts/cidre-rescue-slot-metadata scripts/cidre-rescue-boot-guide scripts/cidre-rescue-boot-report scripts/cidre-rescue-create-dry-run scripts/cidre-rescue-boot-checklist scripts/cidre-rescue-boot-risk scripts/cidre-rescue-boot-validate scripts/cidre-macos-rescue-check scripts/cidre-macos-rescue-disk-audit scripts/cidre-macos-rescue-plan scripts/cidre-macos-rescue-guide scripts/cidre-macos-rescue-report; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Rescue boot script present: ${cmd}"
+      else
+        print_result FAIL "Rescue boot script missing or not executable: ${cmd}"
+      fi
+    done
+
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v0.18.0-builder-integration.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md docs/builder-integration.md docs/alarm-builder-notes.md docs/builder-artifacts.md docs/real-image-build.md docs/builder-runbook.md docs/image-register-verify.md docs/build-failure-report.md docs/v0.19.0-real-image-build.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v0.18.0-builder-integration.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md docs/builder-integration.md docs/alarm-builder-notes.md docs/builder-artifacts.md docs/real-image-build.md docs/builder-runbook.md docs/image-register-verify.md docs/build-failure-report.md docs/v0.19.0-real-image-build.md docs/firstboot-fixup.md docs/firstboot-service-ordering.md docs/firstboot-retry-repair.md docs/v0.21.0-firstboot-fixup.md docs/user-phase-handoff.md docs/user-phase-state.md docs/first-login.md docs/install-resume-validation.md docs/uninstall.md docs/exit-path.md docs/state-export.md docs/partition-audit.md docs/macos-restore-guide.md docs/uninstall-threat-model.md docs/macos-restore-assistant.md docs/macos-partition-audit.md docs/macos-startup-disk.md docs/macos-uninstall-guide.md docs/recovery-screen.md docs/safe-mode.md docs/failure-levels.md docs/tty-recovery.md docs/recovery-shortcuts.md docs/rescue-slot.md docs/rescue-profile.md docs/rescue-image.md docs/rescue-mount.md docs/rescue-kernel-repair.md docs/rescue-threat-model.md docs/rescue-boot-integration.md docs/rescue-slot-layout.md docs/rescue-boot-metadata.md docs/rescue-boot-validation.md docs/macos-rescue-slot.md docs/rescue-boot-threat-model.md docs/v0.27.0-rescue-boot-integration.md docs/v0.26.0-rescue-slot-foundation.md docs/v0.25.0-recovery-screen-safe-mode.md docs/v0.24.0-macos-restore-assistant.md docs/v0.23.0-uninstall-exit-path.md docs/v0.22.0-user-phase-handoff.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."
         # Extra verification for limitations presence

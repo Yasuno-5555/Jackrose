@@ -6,6 +6,7 @@ SCRIPT_VERSION="0.17.0"
 SCRIPT_NAME="cidre-rootfs-inspect"
 
 rootfs_path=""
+rescue_rootfs_path=""
 strict=false
 json_output=false
 
@@ -16,7 +17,8 @@ Usage: $SCRIPT_NAME --rootfs <path> [options]
 Inspect a mounted rootfs for required Cidre components.
 
 Options:
-  --rootfs <path>   Path to mounted rootfs (required)
+  --rootfs <path>   Path to mounted main rootfs
+  --rescue-rootfs <path> Path to mounted rescue rootfs
   --strict          Enable strict checks (executable bits, symlink targets)
   --json            Output as JSON (reserved)
   --help            Show this help
@@ -26,6 +28,7 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --rootfs) rootfs_path="$2"; shift 2 ;;
+    --rescue-rootfs) rescue_rootfs_path="$2"; shift 2 ;;
     --strict) strict=true; shift ;;
     --json) json_output=true; shift ;;
     --help) usage; exit 0 ;;
@@ -33,8 +36,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -n "$rescue_rootfs_path" ]; then
+  rootfs_path="$rescue_rootfs_path"
+fi
+
 if [ -z "$rootfs_path" ]; then
-  echo "ERROR: --rootfs <path> is required" >&2
+  echo "ERROR: --rootfs <path> or --rescue-rootfs <path> is required" >&2
   usage >&2
   exit 1
 fi
@@ -47,6 +54,11 @@ fi
 echo "Cidre rootfs inspection"
 echo "rootfs: $rootfs_path"
 echo ""
+
+if [ -n "$rescue_rootfs_path" ]; then
+  echo "Mode: rescue-rootfs"
+  echo ""
+fi
 
 result_ok=0
 result_warn=0
@@ -90,10 +102,45 @@ check_file "usr/lib/cidre/cidre-seed"
 check_file "usr/lib/cidre/cidre-resume"
 check_file "usr/lib/cidre/cidre-preinstall"
 check_file "usr/lib/cidre/cidre-installer"
+check_file "usr/lib/cidre/cidre-panic"
+check_file "usr/lib/cidre/cidre-recovery-screen"
+check_file "usr/lib/cidre/cidre-safe-mode"
+check_file "usr/lib/cidre/cidre-safe-shell"
+check_file "usr/lib/cidre/cidre-session-failure"
+check_file "usr/lib/cidre/cidre-desktop-failure-detect"
+check_file "usr/lib/cidre/cidre-recovery-actions"
+check_file "usr/lib/cidre/cidre-emergency-banner"
+check_file "usr/lib/cidre/cidre-recovery-report"
+check_file "usr/lib/cidre/cidre-rescue"
+check_file "usr/lib/cidre/cidre-rescue-check"
+check_file "usr/lib/cidre/cidre-rescue-plan"
+check_file "usr/lib/cidre/cidre-rescue-profile"
+check_file "usr/lib/cidre/cidre-rescue-image-build"
+check_file "usr/lib/cidre/cidre-rescue-image-inspect"
+check_file "usr/lib/cidre/cidre-rescue-manifest"
+check_file "usr/lib/cidre/cidre-rescue-mount"
+check_file "usr/lib/cidre/cidre-rescue-export"
+check_file "usr/lib/cidre/cidre-rescue-kernel-check"
+check_file "usr/lib/cidre/cidre-rescue-report"
+check_file "usr/lib/cidre/cidre-rescue-clean"
+check_file "usr/lib/cidre/cidre-rescue-boot-plan"
+check_file "usr/lib/cidre/cidre-rescue-disk-check"
+check_file "usr/lib/cidre/cidre-rescue-slot-metadata"
+check_file "usr/lib/cidre/cidre-rescue-boot-guide"
+check_file "usr/lib/cidre/cidre-rescue-boot-report"
+check_file "usr/lib/cidre/cidre-rescue-create-dry-run"
+check_file "usr/lib/cidre/cidre-rescue-boot-checklist"
+check_file "usr/lib/cidre/cidre-rescue-boot-risk"
+check_file "usr/lib/cidre/cidre-rescue-boot-validate"
 
 echo ""
 echo "Systemd:"
 check_file "etc/systemd/system/cidre-firstboot-root.service"
+check_file "etc/systemd/system/cidre-recovery-screen.service"
+check_file "etc/systemd/system/cidre-safe-mode.service"
+check_file "etc/systemd/system/cidre-emergency-banner.service"
+check_file "etc/systemd/system/cidre-desktop-failure.target"
+check_file "etc/systemd/system/cidre-safe-mode.target"
 check_file "etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service"
 
 echo ""
@@ -102,6 +149,8 @@ check_dir "var/lib/cidre"
 check_dir "var/lib/cidre/seed"
 check_dir "var/lib/cidre/resume"
 check_dir "var/lib/cidre/firstboot-root"
+check_dir "var/lib/cidre/recovery-screen"
+check_dir "var/lib/cidre/rescue"
 
 echo ""
 echo "Firstboot state (must be clean):"

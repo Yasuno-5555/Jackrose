@@ -8,12 +8,13 @@ USER_RESUME="${HOME}/.local/state/cidre/resume"
 usage() {
   cat <<'EOF'
 Usage:
-  cidre-resume <command>
+  cidre-resume <command> [args]
 
 Commands:
   status
   show
   profile
+  validate [--profile <name>]
 EOF
 }
 
@@ -23,6 +24,9 @@ load_resume() {
     exit 1
   }
 
+  CIDRE_SEED_SCHEMA_VERSION=""
+  CIDRE_PROFILE=""
+  CIDRE_INSTALL_MODE=""
   # shellcheck disable=SC1090
   . "$SYSTEM_RESUME"
 }
@@ -46,17 +50,35 @@ case "$cmd" in
   show)
     load_resume
     printf 'Cidre resume state\n\n'
-    printf 'profile: %s\n' "${CIDRE_RESUME_PROFILE:-unknown}"
-    printf 'install mode: %s\n' "${CIDRE_RESUME_INSTALL_MODE:-unknown}"
-    printf 'source commit: %s\n' "${CIDRE_RESUME_SOURCE_COMMIT:-unknown}"
-    printf 'source branch: %s\n' "${CIDRE_RESUME_SOURCE_BRANCH:-unknown}"
+    printf 'profile: %s\n' "${CIDRE_PROFILE:-unknown}"
+    printf 'install mode: %s\n' "${CIDRE_INSTALL_MODE:-unknown}"
     if [ -f "$USER_RESUME/applied-profile" ]; then
       printf 'user applied profile: %s\n' "$(cat "$USER_RESUME/applied-profile")"
     fi
     ;;
   profile)
     load_resume
-    printf '%s\n' "${CIDRE_RESUME_PROFILE:-}"
+    printf '%s\n' "${CIDRE_PROFILE:-}"
+    ;;
+  validate)
+    load_resume
+    if [ "${CIDRE_SEED_SCHEMA_VERSION:-0}" -lt 1 ]; then
+      printf 'ERROR: Seed schema version legacy or invalid: %s (expected >= 1)\n' "${CIDRE_SEED_SCHEMA_VERSION:-0}" >&2
+      exit 1
+    fi
+    expected_profile=""
+    while [ "$#" -gt 1 ]; do
+      case "$2" in
+        --profile) expected_profile="$3"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [ -n "$expected_profile" ] && [ -n "${CIDRE_PROFILE:-}" ]; then
+      if [ "$expected_profile" != "$CIDRE_PROFILE" ]; then
+        printf 'WARN: Requested profile (%s) does not match seed profile (%s)\n' "$expected_profile" "$CIDRE_PROFILE" >&2
+      fi
+    fi
+    printf '[OK] resume state validation successful\n'
     ;;
   -h|--help|help)
     usage

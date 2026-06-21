@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+output_file="$CURRENT_DIR/rescue-boot-guide.md"
+plan_file="$CURRENT_DIR/rescue-boot-plan.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-guide [options]
+
+Options:
+  --output <file>
+  --from-plan <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --from-plan) plan_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+# Cidre Rescue Boot Guide
+
+- Rescue Slot concept: a separate minimal rescue environment
+- Required artifact: \`cidre-rescue-rootfs.tar.gz\`
+- Size recommendation: 8 GiB recommended, 6 GiB minimum planning floor
+- macOS-side preparation:
+  - \`./install-macos --rescue-check\`
+  - \`./install-macos --rescue-disk-audit\`
+  - \`./install-macos --rescue-plan\`
+- Boot picker guidance: document intended future pairing before any write
+- What not to modify in v0.27.0:
+  - APFS containers
+  - boot entries
+  - m1n1/U-Boot files
+  - Rescue partition layout
+- Validation checklist: generate and keep a record before real hardware work
+- Future creation flow: dry-run planning now, guided creation later
+
+Plan source: \`$plan_file\`
+EOF
+printf '%s\n' "$output_file"

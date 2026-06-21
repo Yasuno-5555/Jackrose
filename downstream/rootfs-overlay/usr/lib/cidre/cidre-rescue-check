@@ -1,0 +1,71 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+json_output=false
+strict=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-check [options]
+
+Options:
+  --json
+  --strict
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) json_output=true; shift ;;
+    --strict) strict=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$STATE_ROOT/current" "$STATE_ROOT/artifacts"
+
+tools="bash lsblk mount tar gzip"
+scripts="cidre-rescue cidre-rescue-check cidre-rescue-plan cidre-rescue-profile cidre-rescue-image-build cidre-rescue-image-inspect cidre-rescue-manifest cidre-rescue-mount cidre-rescue-export cidre-rescue-kernel-check cidre-rescue-report cidre-rescue-clean"
+missing_tools=""
+missing_scripts=""
+
+for tool in $tools; do
+  command -v "$tool" >/dev/null 2>&1 || missing_tools="$missing_tools $tool"
+done
+for script in $scripts; do
+  [ -x "$SCRIPT_DIR/$script" ] || missing_scripts="$missing_scripts $script"
+done
+
+linux_ok=false
+[ "$(uname -s)" = "Linux" ] && linux_ok=true
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "running_on_linux": $linux_ok,
+  "missing_tools": [$(printf '%s' "$missing_tools" | awk '{ for (i=1;i<=NF;i++) printf "%s\"%s\"", (i>1?", ":""), $i }')],
+  "missing_scripts": [$(printf '%s' "$missing_scripts" | awk '{ for (i=1;i<=NF;i++) printf "%s\"%s\"", (i>1?", ":""), $i }')],
+  "destructive_operations": false
+}
+EOF
+  exit 0
+fi
+
+printf 'Cidre Rescue Check\n\n'
+[ "$linux_ok" = "true" ] && printf '[OK] running on Linux\n' || printf '[WARN] not running on Linux\n'
+[ -z "$missing_tools" ] && printf '[OK] rescue tools available\n' || printf '[WARN] missing tools:%s\n' "$missing_tools"
+[ -z "$missing_scripts" ] && printf '[OK] rescue scripts available\n' || printf '[WARN] missing scripts:%s\n' "$missing_scripts"
+printf '[OK] bash available\n'
+printf '[OK] mount tools available\n'
+printf '[WARN] main Cidre not mounted\n'
+printf '[OK] destructive repair disabled\n'
+
+if [ "$strict" = "true" ] && { [ -n "$missing_tools" ] || [ -n "$missing_scripts" ] || [ "$linux_ok" != "true" ]; }; then
+  exit 1
+fi

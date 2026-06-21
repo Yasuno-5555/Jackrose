@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-recovery-common"
+
+output_file="$(cidre_recovery_current_path "recovery-report.md")"
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-recovery-report [options]
+
+Options:
+  --output <file>
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_recovery_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+reason="$(cidre_recovery_read_state reason || true)"
+stage="$(cidre_recovery_read_state last-stage || true)"
+last_error="$(cidre_recovery_read_state last-error || true)"
+[ -n "$reason" ] || reason="unknown"
+[ -n "$stage" ] || stage="unknown"
+[ -n "$last_error" ] || last_error="none"
+
+available_actions="$("$SCRIPT_DIR/cidre-recovery-actions" --list | paste -sd ', ' -)"
+state_export_status="missing"
+exit_plan_status="missing"
+[ -f "$HOME/.local/state/cidre/exit/current/cidre-state-export.tar.gz" ] && state_export_status="present"
+[ -f "$HOME/.local/state/cidre/exit/current/exit-plan.md" ] && exit_plan_status="present"
+
+cat > "$output_file" <<EOF
+# Cidre Recovery Report
+
+Generated: $(cidre_recovery_timestamp)
+
+- reason: \`$reason\`
+- stage: \`$stage\`
+- last error: \`$last_error\`
+- available actions: $available_actions
+- state export: \`$state_export_status\`
+- exit plan: \`$exit_plan_status\`
+
+## Next Steps
+
+1. Open a safe shell if the desktop is unavailable.
+2. Run doctor or recovery status checks.
+3. Export state before attempting large changes.
+4. Generate an exit plan if local recovery does not help.
+5. Use macOS restore guidance if you need to leave Cidre.
+EOF
+
+if [ "$json_output" = "true" ]; then
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_recovery_timestamp)"
+  printf '  "reason": "%s",\n' "$(cidre_recovery_json_escape "$reason")"
+  printf '  "stage": "%s",\n' "$(cidre_recovery_json_escape "$stage")"
+  printf '  "last_error": "%s"\n' "$(cidre_recovery_json_escape "$last_error")"
+  printf '}\n'
+else
+  printf '%s\n' "$output_file"
+fi

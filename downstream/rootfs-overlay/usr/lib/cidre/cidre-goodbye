@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+output_file="$(cidre_exit_current_path "goodbye.md")"
+
+usage() {
+  cat <<EOF
+Usage: cidre-goodbye [options]
+
+Options:
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+REPO_ROOT="$(cidre_exit_repo_root "$SCRIPT_DIR")"
+profile="$(cidre_exit_install_profile)"
+revision="$(cidre_exit_git_revision "$REPO_ROOT")"
+
+cat > "$output_file" <<EOF
+# Goodbye Cidre
+
+Generated: $(cidre_exit_timestamp)
+
+This file summarizes the last known Cidre state before cleanup.
+
+- Cidre revision: \`$revision\`
+- Install profile: \`$profile\`
+- State export: \`$(cidre_exit_current_path "cidre-state-export.tar.gz")\`
+- Partition audit: \`$(cidre_exit_current_path "partition-audit.json")\`
+- macOS restore guide: \`$(cidre_exit_current_path "macos-restore-guide.md")\`
+- Reinstall entrypoint: \`./install-macos --check\`
+- Known limitations: \`docs/known-limitations.md\`
+
+## Notes
+
+- v0.23.0 does not delete partitions automatically.
+- Keep the export archive if you may reinstall or file a bug report later.
+- Review the macOS restore guide before any disk cleanup.
+EOF
+
+printf '%s\n' "$output_file"

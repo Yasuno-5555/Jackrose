@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-recovery-common"
+
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-desktop-failure-detect [options]
+
+Options:
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+failure_count=0
+count_file="$(cidre_recovery_current_path "failure-count")"
+if [ -f "$count_file" ]; then
+  failure_count="$(cat "$count_file" 2>/dev/null || echo 0)"
+fi
+next_count=$((failure_count + 1))
+
+echo "Cidre desktop failure detection"
+if command -v niri >/dev/null 2>&1; then
+  echo "[OK] niri executable exists"
+else
+  echo "[WARN] niri executable missing"
+fi
+if command -v ghostty >/dev/null 2>&1 || command -v bash >/dev/null 2>&1; then
+  echo "[OK] terminal fallback exists"
+else
+  echo "[WARN] terminal fallback missing"
+fi
+if [ -f "$HOME/.config/niri/config.kdl" ]; then
+  echo "[OK] niri config path exists"
+else
+  echo "[WARN] niri config path missing"
+fi
+echo "[INFO] previous failure count: $failure_count"
+if [ "$next_count" -ge 3 ]; then
+  echo "[INFO] repeated failure policy: default to safe mode until marker cleared"
+elif [ "$next_count" -eq 2 ]; then
+  echo "[INFO] repeated failure policy: suggest safe mode"
+else
+  echo "[INFO] repeated failure policy: show recovery screen"
+fi
+
+if [ "$dry_run" = "false" ]; then
+  cidre_recovery_prepare_dirs
+  printf '%s\n' "$next_count" > "$count_file"
+fi

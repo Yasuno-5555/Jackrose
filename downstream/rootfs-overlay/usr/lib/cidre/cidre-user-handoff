@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# cidre-user-handoff: Verify, import, and show root-to-user handoff states
+set -euo pipefail
+
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}"
+ROOT_HANDOFF_DIR="${CIDRE_SYSTEM_ROOT%/}/var/lib/cidre/handoff"
+USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+
+do_import=false
+do_verify=false
+do_show=false
+from_path=""
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-user-handoff [options]
+
+Verify, import, and show handoff states from root phase setup.
+
+Options:
+  --import       Import the handoff env configuration to user state
+  --verify       Verify handoff assumptions (user match, profile, repo, seed)
+  --show         Display current root-side handoff parameters
+  --from <path>  Override source handoff directory root path
+  --dry-run      Print planned operations without applying changes
+  --help         Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --import) do_import=true; shift ;;
+    --verify) do_verify=true; shift ;;
+    --show) do_show=true; shift ;;
+    --from) from_path="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$from_path" ]; then
+  ROOT_HANDOFF_DIR="$from_path"
+fi
+
+load_handoff_env() {
+  local env_file="$ROOT_HANDOFF_DIR/user-phase.env"
+  if [ ! -f "$env_file" ]; then
+    echo "ERROR: handoff environment file missing at $env_file" >&2
+    exit 1
+  fi
+  # Read variables safely
+  CIDRE_SELECTED_USER=""
+  CIDRE_SELECTED_PROFILE=""
+  CIDRE_REPO_PATH=""
+  CIDRE_RESUME_STATE_PATH=""
+  CIDRE_HANDOFF_CREATED_AT=""
+  
+  # Source the variables
+  # shellcheck disable=SC1090
+  source "$env_file"
+}
+
+if $do_show; then
+  echo "=== Root-Side Handoff Configuration ==="
+  echo "Handoff Directory: $ROOT_HANDOFF_DIR"
+  if [ -f "$ROOT_HANDOFF_DIR/handoff.txt" ]; then
+    cat "$ROOT_HANDOFF_DIR/handoff.txt"
+  else
+    load_handoff_env
+    echo "Selected User:    $CIDRE_SELECTED_USER"
+    echo "Selected Profile: $CIDRE_SELECTED_PROFILE"
+    echo "Repo Path:        $CIDRE_REPO_PATH"
+    echo "Resume State:     $CIDRE_RESUME_STATE_PATH"
+    echo "Created At:       $CIDRE_HANDOFF_CREATED_AT"
+  fi
+  exit 0
+fi
+
+if $do_verify; then
+  load_handoff_env
+  echo "Verifying user phase handoff conditions..."
+  failures=0
+
+  # Check current user matches selected-user
+  curr_user=$(id -un)
+  if [ "$curr_user" = "$CIDRE_SELECTED_USER" ]; then
+    echo "  [OK] Current user matches handoff user ($curr_user)"
+  else
+    echo "  [FAIL] Current user ($curr_user) does not match handoff user ($CIDRE_SELECTED_USER)" >&2
+    failures=$((failures + 1))
+  fi
+
+  # Check selected-profile is known
+  case "$CIDRE_SELECTED_PROFILE" in
+    desktop|developer|minimal|recovery)
+      echo "  [OK] Profile is valid ($CIDRE_SELECTED_PROFILE)"
+      ;;
+    *)
+      echo "  [FAIL] Unknown profile: $CIDRE_SELECTED_PROFILE" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+
+  # Check resume state exists
+  if [ -f "$CIDRE_RESUME_STATE_PATH" ]; then
+    echo "  [OK] Resume state file exists at $CIDRE_RESUME_STATE_PATH"
+  else
+    # Resolve via CIDRE_SYSTEM_ROOT prefix if needed
+    alt_path="${CIDRE_SYSTEM_ROOT%/}${CIDRE_RESUME_STATE_PATH}"
+    if [ -f "$alt_path" ]; then
+      echo "  [OK] Resume state file exists at $alt_path (prefixed)"
+    else
+      echo "  [FAIL] Resume state file missing at $CIDRE_RESUME_STATE_PATH" >&2
+      failures=$((failures + 1))
+    fi
+  fi
+
+  # Check repo path exists and contains install wrapper
+  if [ -d "$CIDRE_REPO_PATH" ]; then
+    echo "  [OK] Repository path exists ($CIDRE_REPO_PATH)"
+    if [ -x "$CIDRE_REPO_PATH/install" ]; then
+      echo "  [OK] install wrapper is present and executable"
+    else
+      echo "  [FAIL] install wrapper at $CIDRE_REPO_PATH/install is missing or not executable" >&2
+      failures=$((failures + 1))
+    fi
+  else
+    echo "  [FAIL] Repository directory missing: $CIDRE_REPO_PATH" >&2
+    failures=$((failures + 1))
+  fi
+
+  # Check user state dir writable
+  mkdir -p "$USER_STATE_DIR"
+  if [ -w "$USER_STATE_DIR" ]; then
+    echo "  [OK] User state directory is writable ($USER_STATE_DIR)"
+  else
+    echo "  [FAIL] User state directory is not writable ($USER_STATE_DIR)" >&2
+    failures=$((failures + 1))
+  fi
+
+  if [ $failures -gt 0 ]; then
+    echo "Handoff verification failed with $failures errors." >&2
+    exit 1
+  fi
+  echo "Handoff verification successful."
+  exit 0
+fi
+
+if $do_import; then
+  load_handoff_env
+  if $dry_run; then
+    echo "[DRY-RUN] Would create directory $USER_STATE_DIR"
+    echo "[DRY-RUN] Would copy handoff environment to $USER_STATE_DIR/resume.env"
+    echo "[DRY-RUN] Would create marker $USER_STATE_DIR/handoff-imported"
+  else
+    mkdir -p "$USER_STATE_DIR"
+    cp "$ROOT_HANDOFF_DIR/user-phase.env" "$USER_STATE_DIR/resume.env"
+    date -u '+%Y-%m-%dT%H:%M:%SZ' > "$USER_STATE_DIR/handoff-imported"
+    echo "Handoff imported successfully into $USER_STATE_DIR."
+  fi
+  exit 0
+fi
+
+usage
+exit 1

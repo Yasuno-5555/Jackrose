@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+CURRENT_DIR="$STATE_ROOT/current"
+main_root=""
+output_path="/mnt/cidre-export/cidre-rescue-export.tar.gz"
+include_logs=false
+include_state=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-export [options]
+
+Options:
+  --main-root <path>
+  --output <path>
+  --include-logs
+  --include-state
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --main-root) main_root="$2"; shift 2 ;;
+    --output) output_path="$2"; shift 2 ;;
+    --include-logs) include_logs=true; shift ;;
+    --include-state) include_state=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+[ -n "$main_root" ] || { printf 'ERROR: --main-root is required\n' >&2; exit 1; }
+
+if [ "$dry_run" = "true" ]; then
+  printf 'Cidre rescue export (dry-run)\n\n'
+  printf 'main root: %s\n' "$main_root"
+  printf 'output: %s\n' "$output_path"
+  printf 'targets:\n'
+  printf '  %s/var/lib/cidre/\n' "$main_root"
+  printf '  %s/home/*/.local/state/cidre/\n' "$main_root"
+  printf '  %s/var/log/pacman.log\n' "$main_root"
+  printf 'exclusions:\n'
+  printf '  large disk images\n'
+  printf '  package caches\n'
+  printf '  browser profiles\n'
+  printf '  secrets / tokens / private keys\n'
+  exit 0
+fi
+
+mkdir -p "$(dirname "$output_path")" "$CURRENT_DIR"
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT INT TERM
+
+[ "$include_state" = "true" ] && [ -d "$main_root/var/lib/cidre" ] && mkdir -p "$tmpdir/var/lib" && cp -r "$main_root/var/lib/cidre" "$tmpdir/var/lib/" 2>/dev/null || true
+[ "$include_logs" = "true" ] && [ -f "$main_root/var/log/pacman.log" ] && mkdir -p "$tmpdir/var/log" && cp "$main_root/var/log/pacman.log" "$tmpdir/var/log/" 2>/dev/null || true
+
+tar -C "$tmpdir" -czf "$output_path" .
+printf '%s\n' "$output_path"

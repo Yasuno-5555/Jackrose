@@ -1,0 +1,140 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+audit_path=""
+json_stdout=false
+output_file="$(cidre_exit_current_path "uninstall-risk.json")"
+
+usage() {
+  cat <<EOF
+Usage: cidre-uninstall-risk [options]
+
+Options:
+  --audit <path>
+  --json
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --audit) audit_path="$2"; shift 2 ;;
+    --json) json_stdout=true; shift ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+[ -n "$audit_path" ] || audit_path="$(cidre_exit_current_path "partition-audit.json")"
+state_export_path="$(cidre_exit_current_path "cidre-state-export.tar.gz")"
+state_export_alt="$(cidre_exit_current_path "cidre-state-export.tar.zst")"
+restore_guide_path="$(cidre_exit_current_path "macos-restore-guide.md")"
+macos_restore_root="${PWD}/.local/state/cidre/macos-restore/current"
+macos_restore_check_status="pending"
+macos_partition_audit_status="pending"
+macos_uninstall_guide_status="pending"
+
+risk="low"
+reasons=""
+next_steps=""
+
+append_line() {
+  var_name="$1"
+  value="$2"
+  eval "$var_name=\${$var_name}\"$value
+\""
+}
+
+if [ ! -f "$audit_path" ]; then
+  risk="blocked"
+  append_line reasons "partition audit missing"
+  append_line next_steps "run scripts/cidre-partition-audit"
+fi
+
+if [ "$(uname -s)" != "Linux" ]; then
+  risk="blocked"
+  append_line reasons "current boot state is not Linux/Cidre side"
+  append_line next_steps "run this tool from the Linux-side environment"
+fi
+
+if [ ! -f "$restore_guide_path" ]; then
+  if [ "$risk" = "low" ]; then
+    risk="medium"
+  fi
+  append_line reasons "macOS restore guide missing"
+  append_line next_steps "run scripts/cidre-macos-restore-guide"
+fi
+
+if [ ! -f "$state_export_path" ] && [ ! -f "$state_export_alt" ]; then
+  case "$risk" in
+    low) risk="medium" ;;
+    medium|high|blocked) ;;
+  esac
+  append_line reasons "state export missing"
+  append_line next_steps "run scripts/cidre-state-export --include-logs --include-reports"
+fi
+
+if [ -f "$audit_path" ] && ! grep -q '"device_count"' "$audit_path"; then
+  case "$risk" in
+    low|medium) risk="high" ;;
+    high|blocked) ;;
+  esac
+  append_line reasons "partition layout could not be summarized clearly"
+  append_line next_steps "review the audit text output manually"
+fi
+
+append_line reasons "macOS default startup disk not confirmed from Linux-side tooling"
+append_line next_steps "boot into macOS and confirm Startup Disk manually"
+
+[ -f "$macos_restore_root/restore-check.log" ] && macos_restore_check_status="completed"
+[ -f "$macos_restore_root/partition-audit.json" ] && macos_partition_audit_status="completed"
+[ -f "$macos_restore_root/uninstall-guide.md" ] && macos_uninstall_guide_status="completed"
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_exit_timestamp)"
+  printf '  "risk": "%s",\n' "$(cidre_exit_json_escape "$risk")"
+  printf '  "reasons": [\n'
+  first=true
+  printf '%s' "$reasons" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$first" = "true" ]; then
+      first=false
+      printf '    "%s"' "$(cidre_exit_json_escape "$line")"
+    else
+      printf ',\n    "%s"' "$(cidre_exit_json_escape "$line")"
+    fi
+  done
+  printf '\n  ],\n'
+  printf '  "next_steps": [\n'
+  first=true
+  printf '%s' "$next_steps" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$first" = "true" ]; then
+      first=false
+      printf '    "%s"' "$(cidre_exit_json_escape "$line")"
+    else
+      printf ',\n    "%s"' "$(cidre_exit_json_escape "$line")"
+    fi
+  done
+  printf '\n  ],\n'
+  printf '  "macos_restore_check": "%s",\n' "$(cidre_exit_json_escape "$macos_restore_check_status")"
+  printf '  "macos_partition_audit": "%s",\n' "$(cidre_exit_json_escape "$macos_partition_audit_status")"
+  printf '  "macos_uninstall_guide": "%s"\n' "$(cidre_exit_json_escape "$macos_uninstall_guide_status")"
+  printf '}\n'
+} > "$output_file"
+
+if [ "$json_stdout" = "true" ]; then
+  cat "$output_file"
+else
+  printf '%s\n' "$output_file"
+fi

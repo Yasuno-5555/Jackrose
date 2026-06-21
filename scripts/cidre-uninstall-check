@@ -1,0 +1,173 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+strict=false
+json=false
+output_dir="$(cidre_exit_current_dir)"
+
+usage() {
+  cat <<EOF
+Usage: cidre-uninstall-check [options]
+
+Options:
+  --strict
+  --json
+  --output <dir>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict) strict=true; shift ;;
+    --json) json=true; shift ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$output_dir"
+
+REPO_ROOT="$(cidre_exit_repo_root "$SCRIPT_DIR")"
+USER_STATE_ROOT="$(cidre_exit_user_state_root)"
+SYSTEM_STATE_ROOT="$(cidre_exit_system_state_root)"
+LOG_FILE="$output_dir/uninstall-check.log"
+
+ok_count=0
+warn_count=0
+fail_count=0
+status=0
+messages=""
+
+add_result() {
+  level="$1"
+  message="$2"
+  case "$level" in
+    OK) ok_count=$((ok_count + 1)) ;;
+    WARN) warn_count=$((warn_count + 1)); [ "$strict" = "true" ] && status=1 ;;
+    FAIL) fail_count=$((fail_count + 1)); status=1 ;;
+  esac
+  messages="${messages}${level}|${message}
+"
+}
+
+check_command() {
+  name="$1"
+  if command -v "$name" >/dev/null 2>&1; then
+    add_result OK "tool available: $name"
+  else
+    add_result FAIL "tool missing: $name"
+  fi
+}
+
+if [ "$(uname -s)" = "Linux" ]; then
+  add_result OK "running on Linux/Cidre side"
+else
+  add_result FAIL "current system is not Linux"
+fi
+
+if [ -d "$REPO_ROOT/.git" ] || git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
+  add_result OK "Cidre repo detected"
+else
+  add_result WARN "Cidre repo not detected from current script tree"
+fi
+
+cidre_rev="$(cidre_exit_git_revision "$REPO_ROOT")"
+if [ "$cidre_rev" != "unknown" ]; then
+  add_result OK "git revision available: $cidre_rev"
+else
+  add_result WARN "git revision unavailable"
+fi
+
+profile="$(cidre_exit_install_profile)"
+if [ "$profile" != "unknown" ]; then
+  add_result OK "install profile known: $profile"
+else
+  add_result WARN "install profile unknown"
+fi
+
+if [ -d "$USER_STATE_ROOT/user-phase" ]; then
+  add_result OK "user phase state detected"
+else
+  add_result WARN "user phase state missing"
+fi
+
+if [ -d "$SYSTEM_STATE_ROOT/firstboot-root" ]; then
+  add_result OK "firstboot state detected"
+else
+  add_result WARN "firstboot state missing"
+fi
+
+if [ -d "$REPO_ROOT/.local/state/cidre/image-build" ] || [ -d "$USER_STATE_ROOT/image-build" ]; then
+  add_result OK "image build state detected"
+else
+  add_result WARN "image build state missing"
+fi
+
+if [ -f "$REPO_ROOT/.local/state/cidre/boot-test/current/report.md" ] || [ -f "$USER_STATE_ROOT/boot-test/current/report.md" ]; then
+  add_result OK "boot test report detected"
+else
+  add_result WARN "boot test report missing"
+fi
+
+for cmd in lsblk blkid findmnt tar gzip; do
+  check_command "$cmd"
+done
+
+if command -v zstd >/dev/null 2>&1; then
+  add_result OK "optional tool available: zstd"
+else
+  add_result WARN "optional tool missing: zstd"
+fi
+
+for file in \
+  "$REPO_ROOT/scripts/cidre-state-export" \
+  "$REPO_ROOT/scripts/cidre-partition-audit" \
+  "$REPO_ROOT/scripts/cidre-macos-restore-guide" \
+  "$REPO_ROOT/scripts/cidre-exit-plan" \
+  "$REPO_ROOT/scripts/cidre-uninstall-risk" \
+  "$REPO_ROOT/scripts/cidre-goodbye" \
+  "$REPO_ROOT/scripts/cidre-erase-preflight"; do
+  if [ -x "$file" ]; then
+    add_result OK "script ready: ${file#$REPO_ROOT/}"
+  else
+    add_result FAIL "script missing or not executable: ${file#$REPO_ROOT/}"
+  fi
+done
+
+{
+  echo "Cidre uninstall readiness"
+  echo
+  printf '%s' "$messages" | while IFS='|' read -r level message; do
+    [ -n "$level" ] || continue
+    printf '[%s] %s\n' "$level" "$message"
+  done
+  echo
+  echo "No destructive action will be performed."
+} > "$LOG_FILE"
+
+cidre_exit_try_copy_to_system "$LOG_FILE" "uninstall-check.log"
+
+if [ "$json" = "true" ]; then
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_exit_timestamp)"
+  printf '  "repo_root": "%s",\n' "$(cidre_exit_json_escape "$REPO_ROOT")"
+  printf '  "cidre_revision": "%s",\n' "$(cidre_exit_json_escape "$cidre_rev")"
+  printf '  "install_profile": "%s",\n' "$(cidre_exit_json_escape "$profile")"
+  printf '  "strict": %s,\n' "$(cidre_exit_bool "$strict")"
+  printf '  "ok_count": %s,\n' "$ok_count"
+  printf '  "warn_count": %s,\n' "$warn_count"
+  printf '  "fail_count": %s,\n' "$fail_count"
+  printf '  "log_path": "%s"\n' "$(cidre_exit_json_escape "$LOG_FILE")"
+  printf '}\n'
+else
+  cat "$LOG_FILE"
+fi
+
+exit "$status"

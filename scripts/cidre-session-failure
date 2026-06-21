@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-recovery-common"
+
+component="unknown"
+exit_code="unknown"
+log_path=""
+reason="unknown"
+
+usage() {
+  cat <<EOF
+Usage: cidre-session-failure [options]
+
+Options:
+  --component <name>
+  --exit-code <code>
+  --log <path>
+  --reason <reason>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --component) component="$2"; shift 2 ;;
+    --exit-code) exit_code="$2"; shift 2 ;;
+    --log) log_path="$2"; shift 2 ;;
+    --reason) reason="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_recovery_write_state reason "$reason"
+cidre_recovery_write_state last-stage "$component"
+cidre_recovery_write_state last-error "component=$component exit_code=$exit_code log=${log_path:-none}"
+cidre_recovery_append_log panic.log "session failure component=$component exit_code=$exit_code reason=$reason log=$log_path"
+"$SCRIPT_DIR/cidre-recovery-report" >/dev/null
+exec "$SCRIPT_DIR/cidre-panic" --reason "$reason" --stage "$component" --message "exit code $exit_code" --report --dry-run

@@ -117,6 +117,42 @@ if [ -n "$rootfs_path" ]; then
     else
       check FAIL "firstboot-root service unit missing from rootfs"
     fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-recovery-screen" ]; then
+      check OK "recovery screen available"
+    else
+      check FAIL "recovery screen missing"
+    fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-safe-mode" ]; then
+      check OK "safe mode available"
+    else
+      check FAIL "safe mode missing"
+    fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-emergency-banner" ]; then
+      check OK "emergency banner available"
+    else
+      check FAIL "emergency banner missing"
+    fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-rescue" ]; then
+      check OK "rescue tools available"
+    else
+      check FAIL "rescue tools missing"
+    fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-rescue-check" ]; then
+      check OK "rescue check available"
+    else
+      check FAIL "rescue check missing"
+    fi
+
+    if [ -f "$rootfs_path/usr/lib/cidre/cidre-rescue-boot-plan" ]; then
+      check OK "rescue boot planning tools available"
+    else
+      check FAIL "rescue boot planning tools missing"
+    fi
   else
     check FAIL "rootfs path not found: $rootfs_path"
   fi
@@ -126,6 +162,33 @@ echo ""
 echo "Boot validation status:"
 check WARN "real Apple Silicon boot not yet validated"
 check WARN "ALARM installer metadata not integrated"
+if [ -f "$SCRIPT_DIR/../rescue/profile/profile.env" ] || [ -f "$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/rescue/profile/profile.env" ]; then
+  check OK "rescue profile exists"
+else
+  check FAIL "rescue profile missing"
+fi
+if [ -f "$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ]; then
+  check OK "rescue artifact exists"
+else
+  check WARN "rescue artifact not built yet"
+fi
+if [ -f "$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/.local/state/cidre/rescue-boot/current/rescue-boot-plan.md" ]; then
+  check OK "rescue boot plan exists"
+else
+  check WARN "rescue boot plan missing"
+fi
+if [ -f "$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/.local/state/cidre/rescue-boot/current/rescue-slot-metadata.json" ]; then
+  check OK "rescue slot metadata exists"
+else
+  check WARN "rescue slot metadata missing"
+fi
+if [ -f "$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/.local/state/cidre/rescue-boot/current/rescue-boot-guide.md" ]; then
+  check OK "rescue boot guide exists"
+else
+  check WARN "rescue boot guide missing"
+fi
+check WARN "rescue boot integration pending"
+check WARN "real Apple Silicon Rescue Slot boot not yet validated"
 
 echo ""
 echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
@@ -137,9 +200,9 @@ if [ "$result_fail" -gt 0 ]; then
 else
   echo ""
   echo "Result: ready for controlled boot validation"
-    if [ -f "$manifest_path" ] && command -v python3 >/dev/null 2>&1; then
-      # Update boot readiness checked flag in manifest
-      python3 -c "
+  if [ -f "$manifest_path" ] && command -v python3 >/dev/null 2>&1; then
+    # Update boot readiness checked flag in manifest
+    python3 -c "
 import json
 try:
   d = json.load(open('$manifest_path'))
@@ -149,8 +212,7 @@ try:
 except Exception as e:
   pass
 " 2>/dev/null || true
-    fi
-
-    exit 0
   fi
+
+  exit 0
 fi

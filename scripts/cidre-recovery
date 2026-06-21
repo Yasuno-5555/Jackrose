@@ -23,6 +23,37 @@ show_help() {
   echo "  real-build-status    Show real image build status"
   echo "  boot-test-status     Show controlled boot test status"
   echo "  firstboot-status     Show firstboot OOBE state"
+  echo "  firstboot-diagnose   Run diagnostics check suite on firstboot state"
+  echo "  firstboot-retry      Retry firstboot state setup"
+  echo "  firstboot-repair     Repair missing or failed firstboot parameters"
+  echo "  firstboot-report     Compile markdown firstboot validation report"
+  echo "  user-phase-status    Show status of normal user phase setup"
+  echo "  user-phase-report    Compile markdown user phase report"
+  echo "  user-phase-repair    Repair common user phase markers or configs"
+  echo "  user-handoff         Show, verify, or import root-side handoffs"
+  echo "  uninstall-status     Show uninstall readiness status"
+  echo "  exit-plan            Generate a human-readable exit plan"
+  echo "  state-export         Export Cidre state before cleanup"
+  echo "  partition-audit      Record a read-only partition audit"
+  echo "  macos-restore-guide  Generate a macOS restore checklist"
+  echo "  goodbye              Generate final uninstall summary"
+  echo "  macos-restore-status Show macOS restore assistant status or guidance"
+  echo "  macos-restore-report Show macOS restore report path or guidance"
+  echo "  screen               Show the Cidre Recovery Screen"
+  echo "  panic                Trigger the Cidre panic entrypoint"
+  echo "  actions              List or run recovery actions"
+  echo "  recovery-report      Generate a recovery report"
+  echo "  clear-safe-mode      Clear safe-mode markers"
+  echo "  rescue-status        Run Rescue Slot readiness checks"
+  echo "  rescue-plan          Generate a Rescue Slot plan"
+  echo "  rescue-report        Generate a Rescue Slot report"
+  echo "  rescue-build         Build Rescue Slot overlay artifact"
+  echo "  rescue-inspect       Inspect Rescue Slot overlay"
+  echo "  rescue-boot-status   Show rescue boot integration status"
+  echo "  rescue-boot-plan     Generate rescue boot plan"
+  echo "  rescue-boot-report   Generate rescue boot report"
+  echo "  rescue-boot-checklist Generate rescue boot checklist"
+  echo "  rescue-create-dry-run Generate rescue creation dry-run"
   echo "  boot-status          Show image boot validation status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
   echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
@@ -214,14 +245,14 @@ case "$CMD" in
     REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
     IMAGE_OUTPUT_DIR="${REPO_ROOT}/.local/state/cidre/image-build"
     echo "Cidre real image build status:"
-    
+
     # Builder configured
     if [ -n "${CIDRE_ALARM_BUILDER_DIR:-}" ]; then
       echo "  builder configured: yes ($CIDRE_ALARM_BUILDER_DIR)"
     else
       echo "  builder configured: no"
     fi
-    
+
     # Last build report
     if [ -f "$IMAGE_OUTPUT_DIR/build-report.md" ]; then
       echo "  last build status: success (build-report.md found)"
@@ -230,7 +261,7 @@ case "$CMD" in
     else
       echo "  last build status: missing"
     fi
-    
+
     # Registered artifact
     registered_img=$(find "$IMAGE_OUTPUT_DIR/registered" -type f \( -name "*.img" -o -name "*.img.zst" -o -name "*.tar.gz" -o -name "*.raw" \) 2>/dev/null | head -n 1 || echo "")
     if [ -n "$registered_img" ]; then
@@ -262,7 +293,7 @@ case "$CMD" in
     REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
     BOOT_TEST_DIR="${REPO_ROOT}/.local/state/cidre/boot-test/current"
     echo "Cidre controlled boot test status:"
-    
+
     if [ -d "$BOOT_TEST_DIR" ]; then
       echo "  current test: present"
       if [ -f "$BOOT_TEST_DIR/preflight.log" ]; then
@@ -270,7 +301,7 @@ case "$CMD" in
       else
         echo "  preflight:    missing"
       fi
-      
+
       if [ -f "$BOOT_TEST_DIR/result.json" ] && command -v python3 >/dev/null 2>&1; then
         res_status=$(python3 -c "import json; d=json.load(open('$BOOT_TEST_DIR/result.json')); print(d.get('status', 'unknown'))")
         echo "  boot result:  $res_status"
@@ -316,6 +347,113 @@ case "$CMD" in
     else
       echo "  handoff: missing"
     fi
+    ;;
+  firstboot-diagnose)
+    exec "$(dirname "$0")/cidre-firstboot-diagnose" "$@"
+    ;;
+  firstboot-retry)
+    exec "$(dirname "$0")/cidre-firstboot-retry" "$@"
+    ;;
+  firstboot-repair)
+    exec "$(dirname "$0")/cidre-firstboot-repair" "$@"
+    ;;
+  firstboot-report)
+    exec "$(dirname "$0")/cidre-firstboot-report" "$@"
+    ;;
+  user-phase-status)
+    exec "$(dirname "$0")/cidre-user-phase-state" status "$@"
+    ;;
+  user-phase-report)
+    exec "$(dirname "$0")/cidre-user-phase-report" "$@"
+    ;;
+  user-phase-repair)
+    exec "$(dirname "$0")/cidre-user-phase-repair" "$@"
+    ;;
+  user-handoff)
+    exec "$(dirname "$0")/cidre-user-handoff" "$@"
+    ;;
+  uninstall-status)
+    exec "$(dirname "$0")/cidre-uninstall-check" "$@"
+    ;;
+  exit-plan)
+    exec "$(dirname "$0")/cidre-exit-plan" "$@"
+    ;;
+  state-export)
+    exec "$(dirname "$0")/cidre-state-export" "$@"
+    ;;
+  partition-audit)
+    exec "$(dirname "$0")/cidre-partition-audit" "$@"
+    ;;
+  macos-restore-guide)
+    exec "$(dirname "$0")/cidre-macos-restore-guide" "$@"
+    ;;
+  goodbye)
+    exec "$(dirname "$0")/cidre-goodbye" "$@"
+    ;;
+  macos-restore-status)
+    if [ "$(uname -s)" = "Darwin" ]; then
+      exec "$(dirname "$0")/cidre-macos-restore-check" "$@"
+    fi
+    echo "macOS restore assistant requires macOS runtime."
+    echo "From macOS, run:"
+    echo "  ./install-macos --restore-check"
+    echo "  ./install-macos --partition-audit"
+    ;;
+  macos-restore-report)
+    if [ "$(uname -s)" = "Darwin" ]; then
+      exec "$(dirname "$0")/cidre-macos-restore-report" "$@"
+    fi
+    echo "macOS restore report requires macOS runtime."
+    echo "From macOS, run:"
+    echo "  ./install-macos --restore-report"
+    ;;
+  screen)
+    exec "$(dirname "$0")/cidre-recovery-screen" "$@"
+    ;;
+  panic)
+    exec "$(dirname "$0")/cidre-panic" "$@"
+    ;;
+  actions)
+    exec "$(dirname "$0")/cidre-recovery-actions" "$@"
+    ;;
+  recovery-report)
+    exec "$(dirname "$0")/cidre-recovery-report" "$@"
+    ;;
+  rescue-status)
+    exec "$(dirname "$0")/cidre-rescue-check" "$@"
+    ;;
+  rescue-plan)
+    exec "$(dirname "$0")/cidre-rescue-plan" "$@"
+    ;;
+  rescue-report)
+    exec "$(dirname "$0")/cidre-rescue-report" "$@"
+    ;;
+  rescue-build)
+    exec "$(dirname "$0")/cidre-rescue-image-build" "$@"
+    ;;
+  rescue-inspect)
+    if [ $# -eq 0 ]; then
+      exec "$(dirname "$0")/cidre-rescue-image-inspect" --overlay "$(dirname "$0")/../rescue/overlay"
+    fi
+    exec "$(dirname "$0")/cidre-rescue-image-inspect" "$@"
+    ;;
+  rescue-boot-status)
+    exec "$(dirname "$0")/cidre-rescue-boot-risk" "$@"
+    ;;
+  rescue-boot-plan)
+    exec "$(dirname "$0")/cidre-rescue-boot-plan" "$@"
+    ;;
+  rescue-boot-report)
+    exec "$(dirname "$0")/cidre-rescue-boot-report" "$@"
+    ;;
+  rescue-boot-checklist)
+    exec "$(dirname "$0")/cidre-rescue-boot-checklist" "$@"
+    ;;
+  rescue-create-dry-run)
+    exec "$(dirname "$0")/cidre-rescue-create-dry-run" "$@"
+    ;;
+  clear-safe-mode)
+    exec "$(dirname "$0")/cidre-recovery-actions" --run clear-safe-mode "$@"
     ;;
   boot-status)
     SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -503,38 +641,7 @@ except:
     echo "Logs collected at $REPORT_FILE"
     ;;
   safe-mode)
-    echo "Activating Safe-Mode..."
-    if [ "$EUID" -eq 0 ]; then
-      systemctl disable greetd
-      systemctl stop greetd || true
-    else
-      echo "Warning: Not root, cannot disable greetd automatically."
-      echo "Please run: sudo cidre-recovery disable-greetd"
-    fi
-    
-    # Save a safety snapshot first
-    if command -v cidre-snapshot >/dev/null 2>&1; then
-      cidre-snapshot create --label "pre-safemode"
-    elif [ -f "./cidre-snapshot" ]; then
-      ./cidre-snapshot create --label "pre-safemode"
-    elif [ -f "/usr/bin/cidre-snapshot" ]; then
-      /usr/bin/cidre-snapshot create --label "pre-safemode"
-    elif [ -f "$(dirname "$0")/cidre-snapshot" ]; then
-      "$(dirname "$0")/cidre-snapshot" create --label "pre-safemode"
-    fi
-    
-    NIRI_CONF="$HOME/.config/niri/config.kdl"
-    if [ -f "$NIRI_CONF" ]; then
-      echo "Backing up niri config..."
-      mv "$NIRI_CONF" "${NIRI_CONF}.bak.$(date +%Y%m%d-%H%M%S)"
-    fi
-    
-    mkdir -p "$HOME/.config/niri"
-    if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
-      cp /usr/share/cidre/defaults/niri/config.kdl "$NIRI_CONF"
-      echo "Restored default safe-profile KDL config."
-    fi
-    echo "Safe-Mode configuration complete."
+    exec "$(dirname "$0")/cidre-safe-mode" "$@"
     ;;
   *)
     show_help

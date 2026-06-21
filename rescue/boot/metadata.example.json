@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "cidre_version": "0.27.0",
+  "slot_type": "rescue",
+  "profile": "minimal-rescue",
+  "boot_integration": "planned",
+  "boot_validation": "not-tested",
+  "partition_created": false,
+  "boot_entry_created": false,
+  "destructive_operations": false
+}

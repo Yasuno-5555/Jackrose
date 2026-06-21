@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+size_gib="8"
+artifact_path="$REPO_ROOT/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz"
+json_output=false
+output_file="$CURRENT_DIR/rescue-create-dry-run.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-create-dry-run [options]
+
+Options:
+  --size <GiB>
+  --artifact <path>
+  --json
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size) size_gib="$2"; shift 2 ;;
+    --artifact) artifact_path="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+Would create a Cidre Rescue Slot:
+
+  size: ${size_gib} GiB
+  profile: minimal-rescue
+  artifact: $(basename "$artifact_path")
+
+Expected steps:
+  1. Confirm rescue artifact exists
+  2. Confirm macOS rescue disk audit exists
+  3. Confirm exact target layout and size
+  4. Confirm metadata and boot guide
+  5. Stop before any disk write in this release
+
+No partitions will be created in this release.
+No boot entries will be modified in this release.
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "size_gib": $size_gib,
+  "profile": "minimal-rescue",
+  "artifact": "$artifact_path",
+  "partition_created": false,
+  "boot_entry_modified": false
+}
+EOF
+else
+  cat "$output_file"
+fi

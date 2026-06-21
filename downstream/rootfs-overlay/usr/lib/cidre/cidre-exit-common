@@ -1,0 +1,95 @@
+#!/bin/sh
+set -eu
+
+cidre_exit_script_dir() {
+  CDPATH= cd -- "$(dirname -- "$1")" && pwd
+}
+
+cidre_exit_repo_root() {
+  script_dir="$1"
+  if [ -f "$script_dir/../install" ]; then
+    CDPATH= cd -- "$script_dir/.." && pwd
+  else
+    pwd
+  fi
+}
+
+cidre_exit_timestamp() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+cidre_exit_user_state_root() {
+  printf '%s\n' "${CIDRE_USER_STATE_ROOT:-$HOME/.local/state/cidre}"
+}
+
+cidre_exit_system_state_root() {
+  printf '%s\n' "${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+}
+
+cidre_exit_current_dir() {
+  printf '%s/exit/current\n' "$(cidre_exit_user_state_root)"
+}
+
+cidre_exit_history_dir() {
+  printf '%s/exit/history\n' "$(cidre_exit_user_state_root)"
+}
+
+cidre_exit_prepare_dirs() {
+  mkdir -p "$(cidre_exit_current_dir)" "$(cidre_exit_history_dir)"
+}
+
+cidre_exit_json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+cidre_exit_bool() {
+  if [ "$1" = "true" ]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+cidre_exit_git_revision() {
+  repo_root="$1"
+  if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --short HEAD >/dev/null 2>&1; then
+    git -C "$repo_root" rev-parse --short HEAD
+  else
+    printf 'unknown\n'
+  fi
+}
+
+cidre_exit_install_profile() {
+  user_state_root="$(cidre_exit_user_state_root)"
+  system_state_root="$(cidre_exit_system_state_root)"
+
+  if [ -f "$user_state_root/user-phase/resume.env" ]; then
+    awk -F= '/^CIDRE_SELECTED_PROFILE=/{print $2; exit}' "$user_state_root/user-phase/resume.env"
+    return 0
+  fi
+
+  if [ -f "$system_state_root/resume/resume.env" ]; then
+    awk -F= '/^CIDRE_RESUME_PROFILE=/{print $2; exit}' "$system_state_root/resume/resume.env"
+    return 0
+  fi
+
+  if [ -f "$system_state_root/seed/seed.env" ]; then
+    awk -F= '/^CIDRE_SEED_PROFILE=/{print $2; exit}' "$system_state_root/seed/seed.env"
+    return 0
+  fi
+
+  printf 'unknown\n'
+}
+
+cidre_exit_current_path() {
+  printf '%s/%s\n' "$(cidre_exit_current_dir)" "$1"
+}
+
+cidre_exit_try_copy_to_system() {
+  src="$1"
+  dest_name="$2"
+  system_dir="$(cidre_exit_system_state_root)/exit"
+  if [ -d "$(cidre_exit_system_state_root)" ] || mkdir -p "$system_dir" 2>/dev/null; then
+    cp "$src" "$system_dir/$dest_name" 2>/dev/null || true
+  fi
+}

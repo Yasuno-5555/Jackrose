@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# cidre-first-login: Print post-login instructions and next steps guidance
+set -euo pipefail
+
+USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}"
+ROOT_HANDOFF_DIR="${CIDRE_SYSTEM_ROOT%/}/var/lib/cidre/handoff"
+
+do_status=false
+do_next=false
+failure_reason=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-first-login [options]
+
+Show guided options and commands for the first login of a normal user.
+
+Options:
+  --status    Display detected root phase handoff status parameters
+  --next      Display recommended next installation commands
+  --failure <reason>  Record a first-login failure and show recovery guidance
+  --help      Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --status) do_status=true; shift ;;
+    --next) do_next=true; shift ;;
+    --failure) failure_reason="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$failure_reason" ]; then
+  exec "$(dirname "$0")/cidre-session-failure" --component first-login --exit-code 1 --reason "$failure_reason"
+fi
+
+# Try loading handoff
+profile="minimal"
+repo_path="~/Projects/Cidre"
+
+if [ -f "$USER_STATE_DIR/resume.env" ]; then
+  CIDRE_SELECTED_PROFILE=""
+  CIDRE_REPO_PATH=""
+  # shellcheck disable=SC1090
+  source "$USER_STATE_DIR/resume.env"
+  profile="${CIDRE_SELECTED_PROFILE:-minimal}"
+  repo_path="${CIDRE_REPO_PATH:-~/Projects/Cidre}"
+elif [ -f "$ROOT_HANDOFF_DIR/user-phase.env" ]; then
+  CIDRE_SELECTED_USER=""
+  CIDRE_SELECTED_PROFILE=""
+  CIDRE_REPO_PATH=""
+  # shellcheck disable=SC1090
+  source "$ROOT_HANDOFF_DIR/user-phase.env"
+  profile="${CIDRE_SELECTED_PROFILE:-minimal}"
+  repo_path="${CIDRE_REPO_PATH:-~/Projects/Cidre}"
+fi
+
+if $do_status; then
+  echo "Cidre First Login Status"
+  echo "========================"
+  echo "Detected handoff profile: $profile"
+  echo "Detected repository path: $repo_path"
+  if [ -f "$USER_STATE_DIR/handoff-imported" ]; then
+    echo "Handoff import state:     imported"
+  else
+    echo "Handoff import state:     pending"
+  fi
+  exit 0
+fi
+
+if $do_next; then
+  echo "Next Steps:"
+  echo "  cd $repo_path"
+  echo "  ./install --resume"
+  exit 0
+fi
+
+# Default: print full guide
+cat <<EOF
+==================================================
+                 Cidre First Login
+==================================================
+Detected handoff:
+  profile: $profile
+
+Next:
+  cd $repo_path
+  ./install --resume
+
+Diagnostics:
+  scripts/cidre-user-phase-verify
+  scripts/cidre-doctor --user-phase
+Recovery:
+  scripts/cidre-recovery-screen --reason first-login-failed --non-interactive
+==================================================
+EOF

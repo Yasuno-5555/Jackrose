@@ -46,33 +46,69 @@ done
   exit 1
 }
 
-mkdir -p "$STATE_DIR"
+handoff_dir() {
+  if [ -z "$CIDRE_SYSTEM_ROOT" ] || [ "$CIDRE_SYSTEM_ROOT" = "/var/lib/cidre" ]; then
+    printf '/var/lib/cidre/handoff\n'
+  else
+    printf '%s/var/lib/cidre/handoff\n' "$CIDRE_SYSTEM_ROOT"
+  fi
+}
+HANDOFF_DIR="$(handoff_dir)"
+
+mkdir -p "$STATE_DIR" "$HANDOFF_DIR"
+
+# Write user-phase.env
+created_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+{
+  printf 'CIDRE_SELECTED_USER=%s\n' "$USER_NAME"
+  printf 'CIDRE_SELECTED_PROFILE=%s\n' "${PROFILE_NAME:-developer}"
+  printf 'CIDRE_REPO_PATH=%s\n' "$REPO_PATH"
+  printf 'CIDRE_RESUME_STATE_PATH=/var/lib/cidre/resume/resume.env\n'
+  printf 'CIDRE_HANDOFF_CREATED_AT=%s\n' "$created_time"
+} > "$HANDOFF_DIR/user-phase.env"
+
+# Write user-phase.json
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "selected_user": "%s",\n' "$USER_NAME"
+  printf '  "selected_profile": "%s",\n' "${PROFILE_NAME:-developer}"
+  printf '  "repo_path": "%s",\n' "$REPO_PATH"
+  printf '  "resume_state_path": "/var/lib/cidre/resume/resume.env",\n'
+  printf '  "handoff_created_at": "%s",\n' "$created_time"
+  printf '  "root_phase_completed": true,\n'
+  printf '  "user_phase_started": false,\n'
+  printf '  "user_phase_completed": false\n'
+  printf '}\n'
+} > "$HANDOFF_DIR/user-phase.json"
 
 {
-  printf 'Cidre firstboot root setup is complete.\n\n'
-  printf 'Next:\n\n'
+  printf '%s\n' "$USER_NAME" > "$HANDOFF_DIR/selected-user"
+  printf '%s\n' "${PROFILE_NAME:-developer}" > "$HANDOFF_DIR/selected-profile"
+  printf '%s\n' "$REPO_PATH" > "$HANDOFF_DIR/repo-path"
+  printf '/var/lib/cidre/resume/resume.env\n' > "$HANDOFF_DIR/resume-state-path"
+  printf '%s\n' "$created_time" > "$HANDOFF_DIR/created-at"
+}
+
+{
+  printf 'Cidre root phase is complete.\n\n'
+  printf 'Next as normal user:\n\n'
   printf '  su - %s\n' "$USER_NAME"
   printf '  cd %s\n' "$REPO_PATH"
-  if [ -n "$PROFILE_NAME" ]; then
-    printf '  ./install --resume\n'
-  else
-    printf '  ./install\n'
-  fi
-  printf '\n'
-  if [ -n "$PROFILE_NAME" ]; then
-    printf 'Detected profile:\n'
-    printf '  %s\n\n' "$PROFILE_NAME"
-    printf 'profile: %s\n' "$PROFILE_NAME"
-    printf 'Resume command:\n'
-    printf '  ./install --resume\n\n'
-  fi
-  printf 'If resume state is missing, run:\n\n'
-  printf '  ./install\n\n'
+  printf '  ./install --resume\n\n'
+  printf 'Before installing, verify handoff:\n\n'
+  printf '  scripts/cidre-user-handoff --verify\n'
+  printf '  scripts/cidre-user-phase-verify\n\n'
+  printf 'If something fails:\n\n'
+  printf '  scripts/cidre-user-phase-report\n'
+  printf '  scripts/cidre-recovery user-phase-status\n\n'
   printf 'Default root credentials are unsafe.\n'
   printf 'Change the root password before using this system as a daily driver.\n\n'
   printf 'Recommended:\n\n'
   printf '  passwd root\n'
 } > "$STATE_DIR/handoff.txt"
+
+cp "$STATE_DIR/handoff.txt" "$HANDOFF_DIR/handoff.txt"
 
 printf '%s\n' "$USER_NAME" > "$STATE_DIR/selected-user"
 if [ -n "$PROFILE_NAME" ]; then

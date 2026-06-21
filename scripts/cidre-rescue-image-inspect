@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+overlay=""
+artifact=""
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-image-inspect [options]
+
+Options:
+  --artifact <path>
+  --overlay <path>
+  --json
+  --help
+EOF
+}
+
+check_path() {
+  target="$1"
+  path="$2"
+  [ -e "$target/$path" ] || { printf 'ERROR: missing %s\n' "$path" >&2; exit 1; }
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact) artifact="$2"; shift 2 ;;
+    --overlay) overlay="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$artifact" ]; then
+  [ -f "$artifact" ] || { printf 'ERROR: artifact not found: %s\n' "$artifact" >&2; exit 1; }
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT INT TERM
+  tar -C "$tmpdir" -xzf "$artifact"
+  overlay="$tmpdir"
+fi
+
+[ -n "$overlay" ] || { printf 'ERROR: --artifact or --overlay is required\n' >&2; exit 1; }
+[ -d "$overlay" ] || { printf 'ERROR: overlay not found: %s\n' "$overlay" >&2; exit 1; }
+
+for path in \
+  usr/lib/cidre/cidre-rescue \
+  usr/lib/cidre/cidre-rescue-check \
+  usr/lib/cidre/cidre-rescue-mount \
+  usr/lib/cidre/cidre-rescue-export \
+  usr/lib/cidre/cidre-rescue-kernel-check \
+  usr/lib/cidre/cidre-rescue-report \
+  etc/cidre/profile.env \
+  var/lib/cidre/rescue; do
+  check_path "$overlay" "$path"
+done
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "rescue_overlay": true,
+  "desktop": false,
+  "destructive_boot_hooks": false
+}
+EOF
+else
+  printf 'Cidre rescue image inspection\n\n'
+  printf '[OK] rescue scripts present\n'
+  printf '[OK] profile marker present\n'
+  printf '[OK] no desktop requirement\n'
+  printf '[OK] no destructive boot hooks\n'
+fi

@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+reason="unknown"
+
+usage() {
+  cat <<EOF
+Usage: cidre-emergency-banner [options]
+
+Options:
+  --reason <reason>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reason) reason="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cat <<EOF
+Cidre Emergency Help
+
+Reason: $reason
+
+If the normal desktop does not start:
+
+  cidre-safe-mode --menu
+  cidre-doctor --daily
+  cidre-recovery status
+  cidre-state-export
+  cidre-exit-plan
+
+If this system no longer boots:
+  Boot Cidre Rescue Slot.
+  Rescue is for kernel/initramfs/rootfs/boot failures.
+  Typical rescue commands:
+    cidre-rescue --check
+    cidre-rescue --plan
+    cidre-rescue --boot-plan
+    cidre-rescue --boot-checklist
+    cidre-rescue-mount --scan --dry-run
+    cidre-rescue-report
+  On macOS:
+    ./install-macos --rescue-check
+    ./install-macos --rescue-disk-audit
+EOF

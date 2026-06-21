@@ -1,0 +1,83 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+state_dir="$(cidre_macos_restore_current_dir)"
+output_file="$(cidre_macos_restore_path "restore-report.md")"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-restore-report [options]
+
+Options:
+  --state <dir>
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --state) state_dir="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+cidre_macos_restore_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+restore_check_path="$state_dir/restore-check.log"
+startup_path="$state_dir/startup-disk-check.txt"
+audit_path="$state_dir/partition-audit.json"
+risk_path="$state_dir/macos-risk.json"
+guide_path="$state_dir/uninstall-guide.md"
+macos_version="$(sw_vers 2>/dev/null | tr '\n' '; ')"
+hardware_summary="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Model Name|Chip/ {print $2}' | paste -sd ', ' -)"
+risk_level="unknown"
+rescue_plan_status="pending"
+rescue_disk_audit_status="pending"
+rescue_boot_validation="not-tested"
+
+if [ -f "$risk_path" ]; then
+  risk_level="$(awk -F'"' '/"risk"/ {print $4; exit}' "$risk_path")"
+fi
+
+[ -f "$PWD/.local/state/cidre/macos-rescue/current/macos-rescue-plan.md" ] && rescue_plan_status="generated"
+[ -f "$PWD/.local/state/cidre/macos-rescue/current/macos-rescue-disk-audit.json" ] && rescue_disk_audit_status="generated"
+[ -f "$PWD/.local/state/cidre/rescue-boot/current/validation-status.txt" ] && rescue_boot_validation="$(cat "$PWD/.local/state/cidre/rescue-boot/current/validation-status.txt")"
+
+cat > "$output_file" <<EOF
+# Cidre macOS Restore Report
+
+Generated: $(cidre_macos_restore_timestamp)
+
+- macOS version: $macos_version
+- hardware summary: ${hardware_summary:-unknown}
+- restore check log: \`$restore_check_path\`
+- startup disk check: \`$startup_path\`
+- partition audit: \`$audit_path\`
+- risk level: \`$risk_level\`
+- uninstall guide: \`$guide_path\`
+- destructive operation status: unavailable
+
+## Rescue Slot
+
+- plan: \`$rescue_plan_status\`
+- disk audit: \`$rescue_disk_audit_status\`
+- boot validation: \`$rescue_boot_validation\`
+
+## Next Safe Steps
+
+1. Confirm macOS boots and your data is accessible.
+2. Review startup disk guidance manually.
+3. Review advisory partition candidates.
+4. Keep Linux-side state export if available.
+5. Wait for a future guided uninstaller before expecting destructive automation.
+EOF
+
+printf '%s\n' "$output_file"

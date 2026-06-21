@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+ARTIFACTS_DIR="$STATE_ROOT/artifacts"
+dry_run=false
+clean_artifacts=false
+clean_mounts=false
+yes=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-clean [options]
+
+Options:
+  --dry-run
+  --artifacts
+  --mounts
+  --yes
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=true; shift ;;
+    --artifacts) clean_artifacts=true; shift ;;
+    --mounts) clean_mounts=true; shift ;;
+    --yes) yes=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$dry_run" = "true" ]; then
+  printf 'Cidre rescue clean (dry-run)\n'
+  [ "$clean_artifacts" = "true" ] && printf '[DRY-RUN] would clean artifacts in %s\n' "$ARTIFACTS_DIR"
+  [ "$clean_mounts" = "true" ] && printf '[DRY-RUN] would inspect /mnt/cidre-main* and /mnt/cidre-export\n'
+  exit 0
+fi
+
+[ "$yes" = "true" ] || { printf 'ERROR: --yes is required for non-dry-run cleanup\n' >&2; exit 1; }
+
+if [ "$clean_artifacts" = "true" ] && [ -d "$ARTIFACTS_DIR" ]; then
+  find "$ARTIFACTS_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  printf 'Cleaned artifacts: %s\n' "$ARTIFACTS_DIR"
+fi
+
+if [ "$clean_mounts" = "true" ]; then
+  for path in /mnt/cidre-main /mnt/cidre-main-boot /mnt/cidre-main-efi /mnt/cidre-export; do
+    if mountpoint -q "$path" 2>/dev/null; then
+      printf 'Refusing to clean busy mountpoint: %s\n' "$path" >&2
+      exit 1
+    fi
+  done
+  printf 'Mountpoints are not busy.\n'
+fi

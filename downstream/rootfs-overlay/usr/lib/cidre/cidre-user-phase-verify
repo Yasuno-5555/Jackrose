@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# cidre-user-phase-verify: Verify normal user phase installation pre-conditions
+set -euo pipefail
+
+USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+resume_file="$USER_STATE_DIR/resume.env"
+custom_profile=""
+strict_mode=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-user-phase-verify [options]
+
+Options:
+  --strict          Treat warnings as hard failures
+  --profile <name>  Override profile validation target
+  --resume <path>   Override resume state environment file path
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict) strict_mode=true; shift ;;
+    --profile) custom_profile="$2"; shift 2 ;;
+    --resume) resume_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+failures=0
+warnings=0
+
+log_ok() {
+  echo "  [OK] $*"
+}
+
+log_fail() {
+  echo "  [FAIL] $*" >&2
+  failures=$((failures + 1))
+}
+
+log_warn() {
+  echo "  [WARN] $*" >&2
+  if $strict_mode; then
+    failures=$((failures + 1))
+  else
+    warnings=$((warnings + 1))
+  fi
+}
+
+echo "=== Cidre User Phase Verification ==="
+
+# 1. Identity checks
+echo "Verifying identity..."
+if [ "$(id -u)" -ne 0 ]; then
+  log_ok "Current user is not root"
+else
+  log_fail "Current user is root. User phase must be executed as a normal user."
+fi
+
+curr_user=$(id -un)
+if [ -n "$curr_user" ]; then
+  log_ok "Current user name resolved: $curr_user"
+else
+  log_fail "Current user name could not be resolved"
+fi
+
+if [ -d "$HOME" ]; then
+  log_ok "Home directory exists ($HOME)"
+else
+  log_fail "Home directory missing or not resolved"
+fi
+
+mkdir -p "$USER_STATE_DIR"
+if [ -w "$USER_STATE_DIR" ]; then
+  log_ok "User state directory is writable ($USER_STATE_DIR)"
+else
+  log_fail "User state directory is not writable ($USER_STATE_DIR)"
+fi
+
+# 2. Resume env checks
+echo "Verifying resume configuration..."
+if [ -f "$resume_file" ]; then
+  log_ok "Resume configuration file exists: $resume_file"
+  
+  # Load env variables safely
+  CIDRE_SELECTED_PROFILE=""
+  CIDRE_REPO_PATH=""
+  CIDRE_RESUME_STATE_PATH=""
+  # Source resume file
+  # shellcheck disable=SC1090
+  source "$resume_file"
+  
+  profile="${custom_profile:-${CIDRE_SELECTED_PROFILE:-}}"
+  if [ -n "$profile" ]; then
+    case "$profile" in
+      desktop|developer|minimal|recovery)
+        log_ok "Profile parameter is valid ($profile)"
+        ;;
+      *)
+        log_fail "Unknown profile target: $profile"
+        ;;
+    esac
+  else
+    log_fail "Profile target not defined in resume environment"
+  fi
+
+  # Check seed status if path exists
+  resume_state="${CIDRE_RESUME_STATE_PATH:-}"
+  if [ -f "$resume_state" ]; then
+    log_ok "System resume state is present ($resume_state)"
+    # Read variables from resume state
+    CIDRE_SEED_SCHEMA_VERSION=""
+    # Source resume state env
+    # shellcheck disable=SC1090
+    source "$resume_state"
+    if [ "${CIDRE_SEED_SCHEMA_VERSION:-0}" -ge 1 ]; then
+      log_ok "Resume seed schema version is valid (${CIDRE_SEED_SCHEMA_VERSION})"
+    else
+      log_fail "Invalid or legacy resume seed schema version: ${CIDRE_SEED_SCHEMA_VERSION:-none}"
+    fi
+  else
+    log_warn "System resume state missing at $resume_state"
+  fi
+else
+  log_fail "Resume configuration file is missing at $resume_file (run import-handoff first)"
+fi
+
+# 3. Repo checks
+echo "Verifying repository..."
+repo_dir=""
+if [ -f "$resume_file" ]; then
+  # Source again in case variables were modified
+  # shellcheck disable=SC1090
+  source "$resume_file"
+  repo_dir="${CIDRE_REPO_PATH:-}"
+fi
+if [ -z "$repo_dir" ]; then
+  repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+fi
+
+if [ -d "$repo_dir" ]; then
+  log_ok "Cidre repository directory present at $repo_dir"
+  if [ -x "$repo_dir/install" ]; then
+    log_ok "install wrapper script is present and executable"
+  else
+    log_fail "install wrapper script is missing or not executable at $repo_dir/install"
+  fi
+  if [ -f "$repo_dir/scripts/cidre-installer" ]; then
+    log_ok "Cidre installer core script is present"
+  else
+    log_fail "Cidre installer core script is missing at $repo_dir/scripts/cidre-installer"
+  fi
+else
+  log_fail "Cidre repository directory missing at $repo_dir"
+fi
+
+# 4. Environment checks
+echo "Verifying execution environment..."
+if [ -n "$SHELL" ] && command -v "$SHELL" >/dev/null 2>&1; then
+  log_ok "Active shell is available: $SHELL"
+else
+  log_warn "SHELL variable is not defined or not executable"
+fi
+
+if command -v sudo >/dev/null 2>&1; then
+  log_ok "sudo command is available in PATH"
+else
+  log_fail "sudo command is not found in PATH"
+fi
+
+if systemctl --user show-environment >/dev/null 2>&1; then
+  log_ok "systemd user service manager is active and queryable"
+else
+  log_warn "systemd user manager not running (typical if logged in via raw su without pam session)"
+fi
+
+echo "----------------------------------------"
+if [ $failures -gt 0 ]; then
+  echo "Verification finished with $failures failures and $warnings warnings." >&2
+  exit 1
+fi
+echo "Verification complete: all checks passed with $warnings warnings."
+exit 0

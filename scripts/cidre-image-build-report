@@ -71,7 +71,11 @@ Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
   scripts/cidre-controlled-boot-test --prepare --artifact "$registered_img"
   ```
 - Run \`scripts/cidre-image-mount\` to check system layouts.
+
+## Exit Path
+- Before removing a test install, export state with \`scripts/cidre-state-export --include-logs --include-reports\`.
+- Generate a Linux-side restore plan with \`scripts/cidre-macos-restore-guide\`.
+- Review uninstall readiness with \`scripts/cidre-uninstall-check\`.
 EOF
 
 echo "Image build report written to: $output_file"
-

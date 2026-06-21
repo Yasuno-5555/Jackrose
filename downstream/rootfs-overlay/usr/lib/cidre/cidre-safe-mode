@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+reason="unknown"
+shell_mode=false
+menu_mode=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-safe-mode [options]
+
+Options:
+  --reason <reason>
+  --shell
+  --menu
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reason) reason="$2"; shift 2 ;;
+    --shell) shell_mode=true; shift ;;
+    --menu) menu_mode=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$dry_run" = "true" ]; then
+  echo "Cidre Safe Mode"
+  echo "Normal desktop startup will be skipped."
+  echo "Safe shell and recovery screen remain available."
+  exit 0
+fi
+
+if [ "$shell_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-safe-shell" --reason "$reason"
+fi
+
+if [ "$menu_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-recovery-screen" --reason "$reason"
+fi
+
+echo "Cidre Safe Mode"
+echo "Desktop startup has been skipped."
+echo "Use 'cidre-safe-shell --reason $reason' or 'cidre-recovery-screen --reason $reason'."

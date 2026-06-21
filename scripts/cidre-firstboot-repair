@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# cidre-firstboot-repair: Clear failed marker files and regenerate handoffs
+set -euo pipefail
+
+root_dir="/"
+do_handoff=false
+do_clear=false
+do_ensure=false
+dry_run=false
+confirm=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-firstboot-repair [options]
+
+Repair firstboot directories, markers, or state files.
+
+Options:
+  --root <path>           Rootfs path to repair
+  --regenerate-handoff    Regenerate handoff configuration
+  --clear-failed          Remove failed markers
+  --ensure-state-dir      Create state directory if missing
+  --dry-run               Print planned actions
+  --yes                   Skip prompts
+  --help                  Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) root_dir="$2"; shift 2 ;;
+    --regenerate-handoff) do_handoff=true; shift ;;
+    --clear-failed) do_clear=true; shift ;;
+    --ensure-state-dir) do_ensure=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --yes) confirm=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+state_dir="${root_dir%/}/var/lib/cidre/firstboot-root"
+script_dir="${root_dir%/}/usr/lib/cidre"
+
+if $do_ensure; then
+  if $dry_run; then
+    echo "[DRY-RUN] Would ensure state directory exists: $state_dir"
+  else
+    mkdir -p "$state_dir"
+    echo "State directory ensured."
+  fi
+fi
+
+if [ ! -d "$state_dir" ] && ! $dry_run; then
+  echo "ERROR: state directory missing. Use --ensure-state-dir" >&2
+  exit 1
+fi
+
+if $do_clear; then
+  if $dry_run; then
+    echo "[DRY-RUN] Would remove failed marker from $state_dir"
+  else
+    rm -f "$state_dir/failed"
+    echo "Cleared failed markers."
+  fi
+fi
+
+if $do_handoff; then
+  if $dry_run; then
+    echo "[DRY-RUN] Would regenerate handoff.txt"
+  else
+    user_name="root"
+    if [ -f "$state_dir/selected-user" ]; then
+      user_name=$(cat "$state_dir/selected-user")
+    fi
+    profile_name=""
+    if [ -f "$state_dir/selected-profile" ]; then
+      profile_name=$(cat "$state_dir/selected-profile")
+    fi
+    
+    # Try calling handoff script in the tree first
+    local_handoff="$script_dir/cidre-firstboot-handoff"
+    if [ -f "$local_handoff" ]; then
+      CIDRE_SYSTEM_ROOT="$root_dir" "$local_handoff" --user "$user_name" ${profile_name:+--profile "$profile_name"}
+    else
+      # Fallback to local execution
+      CIDRE_SYSTEM_ROOT="$root_dir" "$(dirname "$0")/cidre-firstboot-handoff" --user "$user_name" ${profile_name:+--profile "$profile_name"}
+    fi
+  fi
+fi

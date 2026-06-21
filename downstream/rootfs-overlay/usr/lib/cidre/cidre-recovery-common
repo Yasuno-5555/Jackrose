@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+cidre_recovery_timestamp() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+cidre_recovery_user_root() {
+  printf '%s\n' "${CIDRE_RECOVERY_USER_STATE_ROOT:-$HOME/.local/state/cidre/recovery-screen}"
+}
+
+cidre_recovery_user_current_dir() {
+  printf '%s/current\n' "$(cidre_recovery_user_root)"
+}
+
+cidre_recovery_user_history_dir() {
+  printf '%s/history\n' "$(cidre_recovery_user_root)"
+}
+
+cidre_recovery_system_root() {
+  printf '%s\n' "${CIDRE_RECOVERY_SYSTEM_ROOT:-/var/lib/cidre/recovery-screen}"
+}
+
+cidre_recovery_prepare_dirs() {
+  mkdir -p "$(cidre_recovery_user_current_dir)" "$(cidre_recovery_user_history_dir)"
+  mkdir -p "$(cidre_recovery_system_root)" 2>/dev/null || true
+}
+
+cidre_recovery_current_path() {
+  printf '%s/%s\n' "$(cidre_recovery_user_current_dir)" "$1"
+}
+
+cidre_recovery_system_path() {
+  printf '%s/%s\n' "$(cidre_recovery_system_root)" "$1"
+}
+
+cidre_recovery_write_state() {
+  name="$1"
+  value="$2"
+  system_root="$(cidre_recovery_system_root)"
+  cidre_recovery_prepare_dirs
+  printf '%s\n' "$value" > "$(cidre_recovery_current_path "$name")"
+  if [ -d "$system_root" ] && [ -w "$system_root" ]; then
+    printf '%s\n' "$value" > "$system_root/$name"
+  fi
+}
+
+cidre_recovery_read_state() {
+  name="$1"
+  if [ -f "$(cidre_recovery_current_path "$name")" ]; then
+    cat "$(cidre_recovery_current_path "$name")"
+  elif [ -f "$(cidre_recovery_system_path "$name")" ]; then
+    cat "$(cidre_recovery_system_path "$name")"
+  fi
+}
+
+cidre_recovery_append_log() {
+  file_name="$1"
+  shift
+  cidre_recovery_prepare_dirs
+  printf '[%s] %s\n' "$(cidre_recovery_timestamp)" "$*" >> "$(cidre_recovery_current_path "$file_name")"
+}
+
+cidre_recovery_json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}

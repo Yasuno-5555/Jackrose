@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+output_file="$CURRENT_DIR/validation-checklist.md"
+model="apple-silicon"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-checklist [options]
+
+Options:
+  --output <file>
+  --model <apple-silicon-model>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --model) model="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+# Cidre Rescue Boot Validation Checklist
+
+Model: $model
+
+## Pre-flight
+
+- [ ] macOS backup exists
+- [ ] main Cidre state exported
+- [ ] rescue artifact built
+- [ ] rescue metadata generated
+- [ ] disk audit generated
+
+## Boot planning
+
+- [ ] rescue slot size chosen
+- [ ] boot integration method documented
+- [ ] main and rescue separation confirmed
+
+## Validation
+
+- [ ] rescue boots
+- [ ] bash available
+- [ ] cidre-rescue-check passes
+- [ ] main Cidre can be scanned
+- [ ] main Cidre can be mounted read-only
+- [ ] logs and state can be exported
+- [ ] kernel-check works
+
+## Exit
+
+- [ ] macOS Restore Assistant available
+- [ ] uninstall guide available
+EOF
+printf '%s\n' "$output_file"

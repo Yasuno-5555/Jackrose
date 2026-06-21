@@ -57,6 +57,39 @@ case "$stage" in
   handoff|user-phase) category="handoff" ;;
 esac
 
+# Fine-grained firstboot failure classification
+if [ -n "$logs_dir" ] && [ -d "$logs_dir" ]; then
+  diagnose_file="$logs_dir/firstboot-diagnose.txt"
+  journal_file="$logs_dir/firstboot-service-journal.txt"
+  unit_file="$logs_dir/firstboot-service-unit.txt"
+
+  if [ ! -f "$unit_file" ] || ! grep -q "Description=" "$unit_file" 2>/dev/null; then
+    category="firstboot-service-missing"
+  elif [ -f "$diagnose_file" ]; then
+    if grep -q "Marker 'started': absent" "$diagnose_file"; then
+      category="firstboot-service-not-started"
+    elif grep -q "Marker 'failed': present" "$diagnose_file"; then
+      category="firstboot-service-failed"
+    elif grep -q "Marker 'completed': absent" "$diagnose_file" && grep -q "Marker 'failed': absent" "$diagnose_file"; then
+      category="firstboot-state-incomplete"
+    elif grep -q "Marker 'completed': present" "$diagnose_file"; then
+      if [ ! -f "$logs_dir/firstboot-report.md" ] || grep -q "No handoff" "$logs_dir/firstboot-report.md"; then
+        category="handoff-missing"
+      else
+        # Completed but failed boot run indicates repeated firstboot run
+        category="firstboot-repeated"
+      fi
+    fi
+  fi
+
+  if [ -f "$diagnose_file" ] && (grep -qi "resume" "$diagnose_file" || grep -qi "seed" "$diagnose_file"); then
+    # Double check if resume/seed missing is the root cause
+    if grep -qi "missing" "$diagnose_file" || grep -qi "failed" "$diagnose_file"; then
+      category="resume-state-missing"
+    fi
+  fi
+fi
+
 cat > "$output_file" <<EOF
 # Boot Failure Classification
 
@@ -74,4 +107,3 @@ Suggested next checks:
 EOF
 
 echo "Failure classification report generated at: $output_file"
-EOF

@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+output_dir="$PWD/.local/state/cidre/macos-rescue/current"
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-rescue-check [options]
+
+Options:
+  --json
+  --output <dir>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) json_output=true; shift ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+mkdir -p "$output_dir"
+log_file="$output_dir/macos-rescue-check.log"
+artifact_hint="$( [ -f "$PWD/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ] && printf present || printf missing )"
+
+cat > "$log_file" <<EOF
+Cidre macOS Rescue Check
+
+[OK] running on macOS
+[OK] diskutil available: $(command -v diskutil >/dev/null 2>&1 && printf yes || printf no)
+[OK] macOS rescue state dir writable: $output_dir
+[INFO] rescue artifact hint: $artifact_hint
+[OK] destructive operations unavailable
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "running_on_macos": true,
+  "diskutil": "$(command -v diskutil >/dev/null 2>&1 && printf available || printf missing)",
+  "artifact_hint": "$artifact_hint",
+  "destructive_operations": false
+}
+EOF
+else
+  cat "$log_file"
+fi

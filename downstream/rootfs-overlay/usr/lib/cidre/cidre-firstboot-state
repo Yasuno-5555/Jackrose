@@ -24,6 +24,11 @@ Commands:
   mark-completed
   mark-failed
   mark-skipped
+  mark-retry-requested
+  clear-retry-requested
+  clear-failed
+  set-stage <stage>
+  set-error <message>
   write-handoff <file>
   show-handoff
 EOF
@@ -37,6 +42,12 @@ mark_file() {
   printf '[OK] marked %s\n' "$marker"
 }
 
+clear_file() {
+  marker="$1"
+  rm -f "$STATE_DIR/$marker"
+  printf '[OK] cleared %s\n' "$marker"
+}
+
 cmd="${1:-}"
 [ -n "$cmd" ] || {
   usage
@@ -47,7 +58,7 @@ shift || true
 case "$cmd" in
   status)
     printf 'Cidre firstboot state\n\n'
-    for marker in started completed failed skipped; do
+    for marker in started completed failed skipped retry-requested repair-attempted; do
       if [ -f "$STATE_DIR/$marker" ]; then
         printf '%s: yes\n' "$marker"
       else
@@ -77,6 +88,31 @@ case "$cmd" in
     ;;
   mark-skipped)
     mark_file skipped
+    ;;
+  mark-retry-requested)
+    mark_file retry-requested
+    ;;
+  clear-retry-requested)
+    clear_file retry-requested
+    ;;
+  clear-failed)
+    clear_file failed
+    ;;
+  set-stage)
+    [ "$#" -eq 1 ] || {
+      printf 'ERROR: set-stage requires a stage name\n' >&2
+      exit 1
+    }
+    printf '%s\n' "$1" > "$STATE_DIR/last-stage"
+    printf '[OK] set stage to %s\n' "$1"
+    ;;
+  set-error)
+    [ "$#" -eq 1 ] || {
+      printf 'ERROR: set-error requires a message\n' >&2
+      exit 1
+    }
+    printf '%s\n' "$1" > "$STATE_DIR/last-error"
+    printf '[OK] set error message\n'
     ;;
   write-handoff)
     [ "$#" -eq 1 ] || {

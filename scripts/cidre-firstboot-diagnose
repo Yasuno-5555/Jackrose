@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# cidre-firstboot-diagnose: Collect diagnostic info on current firstboot state
+set -euo pipefail
+
+root_dir="/"
+output_file=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-firstboot-diagnose [options]
+
+Verify firstboot state directory structure, markers, and error logs.
+
+Options:
+  --root <path>     Directory root to inspect (default: /)
+  --output <file>   Write output log to file
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) root_dir="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+state_dir="${root_dir%/}/var/lib/cidre/firstboot-root"
+diagnose_log=""
+
+log() {
+  if [ -n "$output_file" ]; then
+    echo "$*" >> "$output_file"
+  else
+    echo "$*"
+  fi
+}
+
+if [ -n "$output_file" ]; then
+  mkdir -p "$(dirname "$output_file")"
+  : > "$output_file"
+fi
+
+log "Cidre Firstboot Diagnostics Summary"
+log "==================================="
+log "State Directory: $state_dir"
+log ""
+
+if [ ! -d "$state_dir" ]; then
+  log "[FAIL] Firstboot state directory does not exist."
+  exit 1
+fi
+
+log "[OK] State directory present."
+
+# Check markers
+for marker in started completed failed skipped retry-requested repair-attempted; do
+  if [ -f "$state_dir/$marker" ]; then
+    log "  Marker '$marker': present ($(cat "$state_dir/$marker" 2>/dev/null || echo "empty"))"
+  else
+    log "  Marker '$marker': absent"
+  fi
+done
+
+log ""
+# Check stage & error files
+if [ -f "$state_dir/last-stage" ]; then
+  log "Last Stage: $(cat "$state_dir/last-stage")"
+else
+  log "Last Stage: unknown"
+fi
+
+if [ -f "$state_dir/last-error" ]; then
+  log "Last Error: $(cat "$state_dir/last-error")"
+else
+  log "Last Error: none"
+fi
+
+log ""
+# Handoff check
+if [ -f "$state_dir/handoff.txt" ]; then
+  log "[OK] Handoff file is present."
+else
+  log "[WARN] Handoff file is missing."
+fi
+
+# Write diagnose target
+if [ -z "$output_file" ]; then
+  # Sane auto-write
+  diagnose_target="$state_dir/diagnose.txt"
+  echo "Auto-saving diagnostics run..."
+  "$0" --root "$root_dir" --output "$diagnose_target"
+  echo "Saved to: $diagnose_target"
+fi

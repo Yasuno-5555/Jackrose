@@ -1,0 +1,71 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-recovery-common"
+
+reason="unknown"
+stage="unknown"
+message=""
+safe_mode=false
+report=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-panic [options]
+
+Options:
+  --reason <reason>
+  --stage <stage>
+  --message <message>
+  --safe-mode
+  --report
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reason) reason="$2"; shift 2 ;;
+    --stage) stage="$2"; shift 2 ;;
+    --message) message="$2"; shift 2 ;;
+    --safe-mode) safe_mode=true; shift ;;
+    --report) report=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_recovery_write_state reason "$reason"
+cidre_recovery_write_state last-stage "$stage"
+[ -n "$message" ] && cidre_recovery_write_state last-error "$message"
+cidre_recovery_append_log panic.log "reason=$reason stage=$stage message=$message safe_mode=$safe_mode"
+
+if [ "$report" = "true" ] || [ "$dry_run" = "false" ]; then
+  "$SCRIPT_DIR/cidre-recovery-report" >/dev/null
+fi
+
+if [ "$dry_run" = "true" ]; then
+  echo "Cidre panic (dry-run)"
+  echo "reason: $reason"
+  echo "stage: $stage"
+  echo "message: ${message:-none}"
+  echo "available actions:"
+  "$SCRIPT_DIR/cidre-recovery-actions" --list
+  echo ""
+  echo "If main Cidre no longer boots:"
+  echo "  Boot Cidre Rescue Slot."
+  echo "  Run: cidre-rescue --check"
+  echo "  For boot planning: cidre-rescue --boot-plan"
+  echo "  On macOS: ./install-macos --rescue-check"
+  exit 0
+fi
+
+if [ "$safe_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-safe-mode" --reason "$reason" --menu
+fi
+
+exec "$SCRIPT_DIR/cidre-recovery-screen" --reason "$reason" --non-interactive

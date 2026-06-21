@@ -3,6 +3,7 @@ set -eu
 
 mode=""
 target=""
+rescue_mode=false
 
 usage() {
   cat <<'EOF'
@@ -11,8 +12,10 @@ Usage:
 
 Options:
   --overlay <dir>   Inspect rootfs overlay directory
+  --rescue-overlay <dir> Inspect rescue overlay directory
   --tar <file>      Inspect overlay tarball listing
   --rootfs <dir>    Inspect mounted rootfs directory
+  --rescue          Inspect default rescue overlay
   -h, --help        Show help
 EOF
 }
@@ -44,7 +47,7 @@ check_path() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --overlay|--tar|--rootfs)
+    --overlay|--tar|--rootfs|--rescue-overlay)
       [ "$#" -ge 2 ] || {
         printf 'ERROR: %s requires a path\n' "$1" >&2
         exit 1
@@ -52,6 +55,12 @@ while [ "$#" -gt 0 ]; do
       mode="$1"
       target="$2"
       shift 2
+      ;;
+    --rescue)
+      mode="--rescue-overlay"
+      target="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/rescue/overlay"
+      rescue_mode=true
+      shift
       ;;
     -h|--help)
       usage
@@ -71,7 +80,7 @@ done
 }
 
 case "$mode" in
-  --overlay|--rootfs)
+  --overlay|--rootfs|--rescue-overlay)
     [ -d "$target" ] || {
       printf 'ERROR: directory not found: %s\n' "$target" >&2
       exit 1
@@ -95,6 +104,11 @@ if [ "$mode" = "--rootfs" ]; then
   fi
 fi
 
+if [ "$mode" = "--rescue-overlay" ] || [ "$rescue_mode" = "true" ]; then
+  SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+  exec "$SCRIPT_DIR/cidre-rescue-image-inspect" --overlay "$target"
+fi
+
 check_path usr/lib/cidre/cidre-firstboot-root
 check_path usr/lib/cidre/cidre-oobe
 check_path usr/lib/cidre/cidre-firstboot-state
@@ -105,10 +119,46 @@ check_path usr/lib/cidre/cidre-seed-import
 check_path usr/lib/cidre/cidre-resume
 check_path usr/lib/cidre/cidre-doctor
 check_path usr/lib/cidre/cidre-recovery
+check_path usr/lib/cidre/cidre-panic
+check_path usr/lib/cidre/cidre-recovery-screen
+check_path usr/lib/cidre/cidre-safe-mode
+check_path usr/lib/cidre/cidre-safe-shell
+check_path usr/lib/cidre/cidre-session-failure
+check_path usr/lib/cidre/cidre-desktop-failure-detect
+check_path usr/lib/cidre/cidre-recovery-actions
+check_path usr/lib/cidre/cidre-emergency-banner
+check_path usr/lib/cidre/cidre-recovery-report
+check_path usr/lib/cidre/cidre-rescue
+check_path usr/lib/cidre/cidre-rescue-check
+check_path usr/lib/cidre/cidre-rescue-plan
+check_path usr/lib/cidre/cidre-rescue-profile
+check_path usr/lib/cidre/cidre-rescue-image-build
+check_path usr/lib/cidre/cidre-rescue-image-inspect
+check_path usr/lib/cidre/cidre-rescue-manifest
+check_path usr/lib/cidre/cidre-rescue-mount
+check_path usr/lib/cidre/cidre-rescue-export
+check_path usr/lib/cidre/cidre-rescue-kernel-check
+check_path usr/lib/cidre/cidre-rescue-report
+check_path usr/lib/cidre/cidre-rescue-clean
+check_path usr/lib/cidre/cidre-rescue-boot-plan
+check_path usr/lib/cidre/cidre-rescue-disk-check
+check_path usr/lib/cidre/cidre-rescue-slot-metadata
+check_path usr/lib/cidre/cidre-rescue-boot-guide
+check_path usr/lib/cidre/cidre-rescue-boot-report
+check_path usr/lib/cidre/cidre-rescue-create-dry-run
+check_path usr/lib/cidre/cidre-rescue-boot-checklist
+check_path usr/lib/cidre/cidre-rescue-boot-risk
+check_path usr/lib/cidre/cidre-rescue-boot-validate
 check_path usr/lib/cidre/cidre-preinstall
 check_path usr/lib/cidre/cidre-installer
 check_path etc/systemd/system/cidre-firstboot-root.service
+check_path etc/systemd/system/cidre-recovery-screen.service
+check_path etc/systemd/system/cidre-safe-mode.service
+check_path etc/systemd/system/cidre-emergency-banner.service
+check_path etc/systemd/system/cidre-desktop-failure.target
+check_path etc/systemd/system/cidre-safe-mode.target
 check_path etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service
 check_path var/lib/cidre/seed
 check_path var/lib/cidre/resume
 check_path var/lib/cidre/firstboot-root
+check_path var/lib/cidre/rescue

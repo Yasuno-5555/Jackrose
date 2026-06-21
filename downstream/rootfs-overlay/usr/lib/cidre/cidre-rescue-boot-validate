@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+record=""
+model="unknown"
+notes=""
+output_file="$CURRENT_DIR/validation-checklist.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-validate [options]
+
+Options:
+  --record <result>
+  --model <model>
+  --notes <text>
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --record) record="$2"; shift 2 ;;
+    --model) model="$2"; shift 2 ;;
+    --notes) notes="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+[ -n "$record" ] || { printf 'ERROR: --record is required\n' >&2; exit 1; }
+mkdir -p "$(dirname "$output_file")"
+[ -f "$output_file" ] || "$SCRIPT_DIR/cidre-rescue-boot-checklist" --output "$output_file" --model "$model" >/dev/null
+printf '\n## Recorded Result\n\n- model: %s\n- result: %s\n- notes: %s\n' "$model" "$record" "${notes:-none}" >> "$output_file"
+printf '%s\n' "$record" > "$CURRENT_DIR/validation-status.txt"
+printf '%s\n' "$output_file"

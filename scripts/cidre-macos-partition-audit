@@ -1,0 +1,143 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+print_json=false
+print_text=false
+output_dir="$(cidre_macos_restore_current_dir)"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-partition-audit [options]
+
+Options:
+  --json
+  --text
+  --output <dir>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) print_json=true; shift ;;
+    --text) print_text=true; shift ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+cidre_macos_restore_prepare_dirs
+mkdir -p "$output_dir"
+
+text_path="$output_dir/partition-audit.txt"
+json_path="$output_dir/partition-audit.json"
+diskutil_list="$(mktemp "/tmp/cidre-diskutil-list.XXXXXX")"
+diskutil_apfs="$(mktemp "/tmp/cidre-diskutil-apfs.XXXXXX")"
+storage_info="$(mktemp "/tmp/cidre-storage-info.XXXXXX")"
+trap 'rm -f "$diskutil_list" "$diskutil_apfs" "$storage_info"' EXIT HUP INT TERM
+
+diskutil list > "$diskutil_list"
+diskutil apfs list > "$diskutil_apfs" 2>/dev/null || true
+system_profiler SPStorageDataType > "$storage_info" 2>/dev/null || true
+
+candidate_tmp="$(mktemp "/tmp/cidre-candidates.XXXXXX")"
+protected_tmp="$(mktemp "/tmp/cidre-protected.XXXXXX")"
+trap 'rm -f "$diskutil_list" "$diskutil_apfs" "$storage_info" "$candidate_tmp" "$protected_tmp"' EXIT HUP INT TERM
+
+awk '
+  /Asahi|Linux|CIDRE|Cidre|U-Boot|EFI/ {
+    print "candidate|high|" $0
+  }
+' "$diskutil_list" > "$candidate_tmp"
+
+awk '
+  /Macintosh HD|Macintosh HD - Data|Preboot|Recovery|VM/ {
+    print "protected|high|" $0
+  }
+' "$diskutil_list" > "$protected_tmp"
+
+{
+  echo "Cidre macOS partition audit"
+  echo "Generated: $(cidre_macos_restore_timestamp)"
+  echo
+  echo "This audit is read-only."
+  echo "It does not delete partitions."
+  echo "Do not delete any partition based only on this report."
+  echo
+  echo "## diskutil list"
+  cat "$diskutil_list"
+  echo
+  echo "## diskutil apfs list"
+  cat "$diskutil_apfs"
+  echo
+  echo "## system_profiler SPStorageDataType"
+  cat "$storage_info"
+  echo
+  echo "## Candidate Summary"
+  if [ -s "$candidate_tmp" ]; then
+    while IFS='|' read -r kind confidence line; do
+      [ -n "$kind" ] || continue
+      printf '- [%s] (%s) %s\n' "$kind" "$confidence" "$line"
+    done < "$candidate_tmp"
+  else
+    echo "- No obvious Cidre/Asahi candidates detected from names alone."
+  fi
+  echo
+  echo "## Protected Partition Reminder"
+  echo "- Do not touch macOS system, data, preboot, recovery, or VM volumes."
+} > "$text_path"
+
+candidate_count="$(wc -l < "$candidate_tmp" | awk '{print $1}')"
+protected_count="$(wc -l < "$protected_tmp" | awk '{print $1}')"
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_macos_restore_timestamp)"
+  printf '  "warning": "%s",\n' "$(cidre_macos_restore_json_escape "This audit is read-only. It does not delete partitions. Do not delete any partition based only on this report.")"
+  printf '  "candidate_count": %s,\n' "$candidate_count"
+  printf '  "protected_count": %s,\n' "$protected_count"
+  printf '  "candidates": [\n'
+  first=true
+  while IFS='|' read -r kind confidence line; do
+    [ -n "$kind" ] || continue
+    [ "$kind" = "candidate" ] || continue
+    if [ "$first" = true ]; then
+      first=false
+    else
+      printf ',\n'
+    fi
+    printf '    {"confidence":"%s","reason":"name/type hint","line":"%s"}' \
+      "$(cidre_macos_restore_json_escape "$confidence")" \
+      "$(cidre_macos_restore_json_escape "$line")"
+  done < "$candidate_tmp"
+  printf '\n  ],\n'
+  printf '  "protected": [\n'
+  first=true
+  while IFS='|' read -r kind confidence line; do
+    [ -n "$kind" ] || continue
+    if [ "$first" = true ]; then
+      first=false
+    else
+      printf ',\n'
+    fi
+    printf '    {"confidence":"%s","reason":"macOS protected volume hint","line":"%s"}' \
+      "$(cidre_macos_restore_json_escape "$confidence")" \
+      "$(cidre_macos_restore_json_escape "$line")"
+  done < "$protected_tmp"
+  printf '\n  ]\n'
+  printf '}\n'
+} > "$json_path"
+
+if [ "$print_json" = "true" ]; then
+  cat "$json_path"
+elif [ "$print_text" = "true" ]; then
+  cat "$text_path"
+else
+  printf '%s\n%s\n' "$text_path" "$json_path"
+fi

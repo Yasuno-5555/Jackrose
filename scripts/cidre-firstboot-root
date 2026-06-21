@@ -195,21 +195,35 @@ fi
 }
 
 mkdir -p "$STATE_DIR"
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "init" >/dev/null
 "$SCRIPT_DIR/cidre-firstboot-state" mark-started >/dev/null
 
+set +e
+
+# Stage: seed-check
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "seed-check" >/dev/null
 if [ -n "$IMPORT_SEED_PATH" ]; then
-  CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}" "$SCRIPT_DIR/cidre-seed-import" "$IMPORT_SEED_PATH"
+  if ! CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-}" "$SCRIPT_DIR/cidre-seed-import" "$IMPORT_SEED_PATH"; then
+    "$SCRIPT_DIR/cidre-firstboot-state" set-error "seed import failed"
+    "$SCRIPT_DIR/cidre-firstboot-state" mark-failed >/dev/null
+    exit 1
+  fi
 fi
 
+# Stage: resume-check
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "resume-check" >/dev/null
 [ -n "$PROFILE_NAME" ] || PROFILE_NAME="$(resume_profile)"
 
+# Stage: user-check
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "user-check" >/dev/null
 if [ -z "$USER_NAME" ]; then
   if [ "$NON_INTERACTIVE" -eq 1 ]; then
     existing_user="$(normal_users | head -n1 || true)"
-    [ -n "$existing_user" ] || {
-      printf 'ERROR: --non-interactive mode requires --user or an existing normal user.\n' >&2
+    if [ -z "$existing_user" ]; then
+      "$SCRIPT_DIR/cidre-firstboot-state" set-error "no user for non-interactive mode"
+      "$SCRIPT_DIR/cidre-firstboot-state" mark-failed >/dev/null
       exit 1
-    }
+    fi
     USER_NAME="$existing_user"
   else
     if [ -n "$PROFILE_NAME" ]; then
@@ -225,18 +239,8 @@ if [ -n "$PROFILE_NAME" ]; then
   printf '%s\n' "$PROFILE_NAME" > "$STATE_DIR/selected-profile"
 fi
 
-printf '[INFO] lightweight readiness checks\n'
-if command -v pacman >/dev/null 2>&1; then
-  printf '[OK] pacman available\n'
-else
-  printf '[WARN] pacman missing\n'
-fi
-if command -v ip >/dev/null 2>&1 && ip route show default 2>/dev/null | grep -q '^default'; then
-  printf '[OK] default route present\n'
-else
-  printf '[WARN] default route not detected\n'
-fi
-
+# Stage: oobe
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "oobe" >/dev/null
 oobe_args="--user $USER_NAME"
 if [ -n "$PROFILE_NAME" ]; then
   oobe_args="$oobe_args --profile $PROFILE_NAME"
@@ -245,27 +249,53 @@ if [ "$NON_INTERACTIVE" -eq 1 ]; then
   oobe_args="$oobe_args --non-interactive"
 fi
 # shellcheck disable=SC2086
-"$SCRIPT_DIR/cidre-oobe" $oobe_args
+if ! "$SCRIPT_DIR/cidre-oobe" $oobe_args; then
+  "$SCRIPT_DIR/cidre-firstboot-state" set-error "oobe execution failed"
+  "$SCRIPT_DIR/cidre-firstboot-state" mark-failed >/dev/null
+  if [ -x "$SCRIPT_DIR/cidre-firstboot-console" ]; then
+    "$SCRIPT_DIR/cidre-firstboot-console" --status || true
+  fi
+  if [ -x "$SCRIPT_DIR/cidre-panic" ]; then
+    "$SCRIPT_DIR/cidre-panic" --reason firstboot-failed --stage oobe --message "oobe execution failed" --report --dry-run || true
+  fi
+  exit 1
+fi
 
+# Stage: preinstall-handoff
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "preinstall-handoff" >/dev/null
 preinstall_args="--prepare --non-interactive --yes --user $USER_NAME"
 if [ -n "$IMPORT_SEED_PATH" ]; then
   preinstall_args="$preinstall_args --import-seed $IMPORT_SEED_PATH"
 fi
-if [ -n "$PROFILE_NAME" ]; then
-  :
-fi
 
 printf '\n[INFO] delegating to cidre-preinstall\n'
 # shellcheck disable=SC2086
-"$SCRIPT_DIR/cidre-preinstall" $preinstall_args
+if ! "$SCRIPT_DIR/cidre-preinstall" $preinstall_args; then
+  "$SCRIPT_DIR/cidre-firstboot-state" set-error "preinstall step failed"
+  "$SCRIPT_DIR/cidre-firstboot-state" mark-failed >/dev/null
+  if [ -x "$SCRIPT_DIR/cidre-firstboot-console" ]; then
+    "$SCRIPT_DIR/cidre-firstboot-console" --recovery || true
+  fi
+  if [ -x "$SCRIPT_DIR/cidre-panic" ]; then
+    "$SCRIPT_DIR/cidre-panic" --reason firstboot-failed --stage preinstall-handoff --message "preinstall step failed" --report --dry-run || true
+  fi
+  exit 1
+fi
 
+# Stage: handoff
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "handoff" >/dev/null
 if [ -n "$PROFILE_NAME" ]; then
   "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME" --profile "$PROFILE_NAME" >/dev/null
 else
   "$SCRIPT_DIR/cidre-firstboot-handoff" --user "$USER_NAME" >/dev/null
 fi
 
+# Stage: complete
+"$SCRIPT_DIR/cidre-firstboot-state" set-stage "complete" >/dev/null
 "$SCRIPT_DIR/cidre-firstboot-state" mark-completed >/dev/null
+rm -f "$STATE_DIR/failed"
+
+set -e
 
 cat <<EOF
 Cidre firstboot root setup is complete.

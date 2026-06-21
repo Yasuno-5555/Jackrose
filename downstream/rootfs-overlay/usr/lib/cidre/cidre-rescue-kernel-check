@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+CURRENT_DIR="$STATE_ROOT/current"
+main_root=""
+boot_path=""
+json_output=false
+report_file="$CURRENT_DIR/kernel-check-report.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-kernel-check [options]
+
+Options:
+  --main-root <path>
+  --boot <path>
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --main-root) main_root="$2"; shift 2 ;;
+    --boot) boot_path="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+[ -n "$main_root" ] || { printf 'ERROR: --main-root is required\n' >&2; exit 1; }
+[ -d "$main_root" ] || { printf 'ERROR: main root not found: %s\n' "$main_root" >&2; exit 1; }
+[ -n "$boot_path" ] || boot_path="$main_root/boot"
+mkdir -p "$CURRENT_DIR"
+
+kernel_status="missing"
+initramfs_status="missing"
+bootloader_status="missing"
+pacman_log_status="missing"
+
+find "$boot_path" -maxdepth 2 -type f \( -name 'Image*' -o -name 'vmlinuz*' \) | grep -q . && kernel_status="present" || true
+find "$boot_path" -maxdepth 2 -type f \( -name 'initramfs*' -o -name '*.img' \) | grep -q . && initramfs_status="present" || true
+find "$boot_path" -maxdepth 3 -type f \( -name 'extlinux.conf' -o -name 'grub.cfg' -o -name 'loader.conf' \) | grep -q . && bootloader_status="present" || true
+[ -f "$main_root/var/log/pacman.log" ] && pacman_log_status="present"
+
+cat > "$report_file" <<EOF
+# Cidre Rescue Kernel Check
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- main root: \`$main_root\`
+- boot path: \`$boot_path\`
+- kernel image: \`$kernel_status\`
+- initramfs: \`$initramfs_status\`
+- bootloader config: \`$bootloader_status\`
+- pacman log: \`$pacman_log_status\`
+
+## Suggested Next Steps
+
+1. Mount the main Cidre root read-only first.
+2. Confirm kernel and initramfs files exist together.
+3. Review pacman kernel package logs before attempting any write.
+4. If Repair is needed, do it explicitly from Rescue or reinstall the main system.
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "kernel_image": "$kernel_status",
+  "initramfs": "$initramfs_status",
+  "bootloader_config": "$bootloader_status",
+  "pacman_log": "$pacman_log_status"
+}
+EOF
+else
+  printf 'kernel image: %s\n' "$kernel_status"
+  printf 'initramfs: %s\n' "$initramfs_status"
+  printf 'bootloader config: %s\n' "$bootloader_status"
+  printf 'pacman log: %s\n' "$pacman_log_status"
+  printf '%s\n' "$report_file"
+fi

@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+mode="generate"
+validate_file=""
+output_file="$CURRENT_DIR/rescue-slot-metadata.json"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-slot-metadata [options]
+
+Options:
+  --generate
+  --validate <file>
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --generate) mode="generate"; shift ;;
+    --validate) mode="validate"; validate_file="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$mode" = "validate" ]; then
+  [ -f "$validate_file" ] || { printf 'ERROR: metadata not found: %s\n' "$validate_file" >&2; exit 1; }
+  grep -q '"slot_type": "rescue"' "$validate_file" || { printf 'ERROR: slot_type rescue missing\n' >&2; exit 1; }
+  grep -q '"boot_integration": "planned"' "$validate_file" || { printf 'ERROR: boot_integration planned missing\n' >&2; exit 1; }
+  grep -q '"destructive_operations": false' "$validate_file" || { printf 'ERROR: destructive_operations false missing\n' >&2; exit 1; }
+  printf 'Rescue slot metadata validation passed: %s\n' "$validate_file"
+  exit 0
+fi
+
+mkdir -p "$CURRENT_DIR"
+cat > "$output_file" <<EOF
+{
+  "schema_version": 1,
+  "cidre_version": "0.27.0",
+  "slot_type": "rescue",
+  "profile": "minimal-rescue",
+  "desktop": false,
+  "primary_shell": "bash",
+  "recommended_size_gib": 8,
+  "boot_integration": "planned",
+  "partition_created": false,
+  "boot_entry_created": false,
+  "destructive_operations": false,
+  "main_cidre_dependency": false
+}
+EOF
+printf '%s\n' "$output_file"

@@ -174,4 +174,3 @@ if $do_boot_readiness; then
 fi
 
 echo "Real build flow finished."
-EOF

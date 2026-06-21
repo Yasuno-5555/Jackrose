@@ -34,3 +34,11 @@ Cidre should record:
 - source commit
 - dirty tree status
 - generated manifest checksum
+
+## Uninstall and Exit Path Risks
+
+- wrong partition deletion
+- boot target confusion
+- missing state export
+- confirmation fatigue
+- assuming Linux-side tools can fully restore macOS state

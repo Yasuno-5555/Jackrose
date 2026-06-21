@@ -1,0 +1,13 @@
+[Unit]
+Description=Cidre Emergency Banner
+DefaultDependencies=no
+After=rescue.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/cidre/cidre-emergency-banner --reason emergency-target
+StandardOutput=tty
+TTYPath=/dev/tty1
+
+[Install]
+WantedBy=rescue.target

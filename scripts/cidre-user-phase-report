@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# cidre-user-phase-report: Generate user phase execution report in markdown
+set -euo pipefail
+
+USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+output_file=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-user-phase-report [options]
+
+Compile user phase diagnostic metrics and details into a markdown report.
+
+Options:
+  --output <file>  Markdown report output file path
+  --help           Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$output_file" ]; then
+  output_file="$USER_STATE_DIR/report.md"
+fi
+
+mkdir -p "$(dirname "$output_file")"
+
+# Compile metrics
+curr_user=$(id -un)
+profile="unknown"
+resume_state="unknown"
+repo_path="unknown"
+
+resume_file="$USER_STATE_DIR/resume.env"
+if [ -f "$resume_file" ]; then
+  CIDRE_SELECTED_PROFILE=""
+  CIDRE_RESUME_STATE_PATH=""
+  CIDRE_REPO_PATH=""
+  # shellcheck disable=SC1090
+  source "$resume_file"
+  profile="${CIDRE_SELECTED_PROFILE:-unknown}"
+  resume_state="${CIDRE_RESUME_STATE_PATH:-unknown}"
+  repo_path="${CIDRE_REPO_PATH:-unknown}"
+fi
+
+last_stage="unknown"
+if [ -f "$USER_STATE_DIR/last-stage" ]; then
+  last_stage=$(cat "$USER_STATE_DIR/last-stage")
+fi
+
+last_error="none"
+if [ -f "$USER_STATE_DIR/last-error" ]; then
+  last_error=$(cat "$USER_STATE_DIR/last-error")
+fi
+
+status="incomplete"
+if [ -f "$USER_STATE_DIR/completed" ]; then
+  status="completed"
+elif [ -f "$USER_STATE_DIR/failed" ]; then
+  status="failed"
+fi
+
+install_log="$USER_STATE_DIR/install.log"
+
+cat > "$output_file" <<EOF
+# Cidre User Phase Setup Report
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+User:      $curr_user
+
+## Execution Status
+- **Overall Status**: $status
+- **Last Stage**:     $last_stage
+- **Last Error**:     $last_error
+
+## Configuration Parameters
+- **Profile**:        $profile
+- **Resume State**:   $resume_state
+- **Repo Path**:      $repo_path
+- **Install Log**:    $install_log
+
+## Diagnostics & Recovery Guidance
+To troubleshoot user phase installer issues, run the following:
+* Run doctor check suite:    \`cidre-doctor --user-phase\`
+* Check recovery status:      \`cidre-recovery user-phase-status\`
+* Run verify checks:          \`scripts/cidre-user-phase-verify\`
+* Try repair tools:           \`scripts/cidre-user-phase-repair --dry-run\`
+EOF
+
+echo "User phase report compiled successfully at: $output_file"

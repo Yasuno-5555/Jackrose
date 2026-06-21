@@ -1,0 +1,108 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+output_dir="$(cidre_exit_current_dir)"
+print_json=false
+print_text=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-partition-audit [options]
+
+Options:
+  --json
+  --text
+  --output <dir>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) print_json=true; shift ;;
+    --text) print_text=true; shift ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$output_dir"
+
+text_path="$output_dir/partition-audit.txt"
+json_path="$output_dir/partition-audit.json"
+tmp_lsblk="$(mktemp "/tmp/cidre-lsblk.XXXXXX")"
+trap 'rm -f "$tmp_lsblk"' EXIT HUP INT TERM
+
+if ! command -v lsblk >/dev/null 2>&1; then
+  echo "ERROR: lsblk is required" >&2
+  exit 1
+fi
+
+lsblk -J -o NAME,SIZE,FSTYPE,FSVER,LABEL,UUID,PARTUUID,MOUNTPOINTS > "$tmp_lsblk"
+
+{
+  echo "Cidre partition audit"
+  echo "Generated: $(cidre_exit_timestamp)"
+  echo "Hostname: $(hostname 2>/dev/null || echo unknown)"
+  echo "Kernel: $(uname -r)"
+  echo
+  echo "This audit is read-only."
+  echo "It does not identify partitions for deletion with absolute certainty."
+  echo "Do not delete partitions based only on this report."
+  echo
+  echo "## lsblk -f"
+  lsblk -f || true
+  echo
+  echo "## lsblk detailed"
+  lsblk -o NAME,SIZE,FSTYPE,FSVER,LABEL,UUID,PARTUUID,MOUNTPOINTS || true
+  echo
+  echo "## findmnt"
+  findmnt || true
+  echo
+  echo "## blkid"
+  blkid || true
+  echo
+  echo "## mount"
+  mount || true
+} > "$text_path"
+
+device_count=0
+if command -v python3 >/dev/null 2>&1; then
+  device_count="$(python3 - <<PY
+import json
+with open("$tmp_lsblk", "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+print(len(data.get("blockdevices", [])))
+PY
+)"
+else
+  device_count="$(grep -c '"name"' "$tmp_lsblk" || true)"
+fi
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_exit_timestamp)"
+  printf '  "hostname": "%s",\n' "$(cidre_exit_json_escape "$(hostname 2>/dev/null || echo unknown)")"
+  printf '  "kernel": "%s",\n' "$(cidre_exit_json_escape "$(uname -r)")"
+  printf '  "device_count": %s,\n' "$device_count"
+  printf '  "note": "%s",\n' "$(cidre_exit_json_escape "This audit is read-only. Do not delete partitions based only on this report.")"
+  printf '  "lsblk": '
+  cat "$tmp_lsblk"
+  printf '\n}\n'
+} > "$json_path"
+
+cidre_exit_try_copy_to_system "$text_path" "partition-audit.txt"
+
+if [ "$print_json" = "true" ]; then
+  cat "$json_path"
+elif [ "$print_text" = "true" ]; then
+  cat "$text_path"
+else
+  printf '%s\n%s\n' "$text_path" "$json_path"
+fi

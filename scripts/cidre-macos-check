@@ -4,6 +4,9 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 STATUS=0
+RESTORE_READINESS=0
+RESCUE_READINESS=0
+RESTORE_STATE_DIR="$REPO_ROOT/.local/state/cidre/macos-restore/current"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -41,6 +44,32 @@ check_url() {
   fi
 }
 
+usage() {
+  cat <<'EOF'
+Usage: cidre-macos-check [--restore-readiness] [--rescue-readiness]
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --restore-readiness)
+      RESTORE_READINESS=1
+      shift
+      ;;
+    --rescue-readiness)
+      RESCUE_READINESS=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+done
+
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"
 
@@ -53,6 +82,34 @@ if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   warn "running as root is not recommended on macOS"
 else
   ok "running as a normal macOS user"
+fi
+
+if [ "$RESCUE_READINESS" -eq 1 ]; then
+  printf '\nCidre macOS rescue readiness\n\n'
+  if command -v diskutil >/dev/null 2>&1; then
+    ok "diskutil found"
+  else
+    fail "diskutil is required for rescue readiness"
+  fi
+  RESCUE_STATE_DIR="$REPO_ROOT/.local/state/cidre/macos-rescue/current"
+  if mkdir -p "$RESCUE_STATE_DIR" 2>/dev/null; then
+    ok "rescue state dir writable: $RESCUE_STATE_DIR"
+  else
+    fail "rescue state dir is not writable: $RESCUE_STATE_DIR"
+  fi
+  for script in \
+    "$SCRIPT_DIR/cidre-macos-rescue-check" \
+    "$SCRIPT_DIR/cidre-macos-rescue-disk-audit" \
+    "$SCRIPT_DIR/cidre-macos-rescue-plan" \
+    "$SCRIPT_DIR/cidre-macos-rescue-guide" \
+    "$SCRIPT_DIR/cidre-macos-rescue-report"; do
+    if [ -x "$script" ]; then
+      ok "rescue script present: $(basename "$script")"
+    else
+      fail "rescue script missing: $(basename "$script")"
+    fi
+  done
+  info "destructive operations remain unavailable"
 fi
 
 if [ "$ARCH_NAME" = "arm64" ]; then
@@ -120,6 +177,34 @@ if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
   warn "working tree has uncommitted changes"
 else
   ok "working tree clean"
+fi
+
+if [ "$RESTORE_READINESS" -eq 1 ]; then
+  printf '\nCidre macOS restore readiness\n\n'
+  if command -v diskutil >/dev/null 2>&1; then
+    ok "diskutil found"
+  else
+    fail "diskutil is required for restore readiness"
+  fi
+  if mkdir -p "$RESTORE_STATE_DIR" 2>/dev/null; then
+    ok "restore state dir writable: $RESTORE_STATE_DIR"
+  else
+    fail "restore state dir is not writable: $RESTORE_STATE_DIR"
+  fi
+  for script in \
+    "$SCRIPT_DIR/cidre-macos-restore-check" \
+    "$SCRIPT_DIR/cidre-macos-partition-audit" \
+    "$SCRIPT_DIR/cidre-macos-startup-disk-check" \
+    "$SCRIPT_DIR/cidre-macos-uninstall-guide" \
+    "$SCRIPT_DIR/cidre-macos-restore-report" \
+    "$SCRIPT_DIR/cidre-macos-risk"; do
+    if [ -x "$script" ]; then
+      ok "restore script present: $(basename "$script")"
+    else
+      fail "restore script missing: $(basename "$script")"
+    fi
+  done
+  info "destructive operations remain unavailable"
 fi
 
 exit 0

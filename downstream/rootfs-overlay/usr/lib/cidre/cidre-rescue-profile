@@ -1,0 +1,92 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+PROFILE_DIR="$REPO_ROOT/rescue/profile"
+PACKAGES_FILE="$PROFILE_DIR/packages.txt"
+PROFILE_ENV="$PROFILE_DIR/profile.env"
+output_file=""
+print_packages=false
+json_output=false
+validate=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-profile [options]
+
+Options:
+  --print-packages
+  --json
+  --validate
+  --output <file>
+  --help
+EOF
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --print-packages) print_packages=true; shift ;;
+    --json) json_output=true; shift ;;
+    --validate) validate=true; shift ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+[ -f "$PACKAGES_FILE" ] || { printf 'ERROR: packages file missing: %s\n' "$PACKAGES_FILE" >&2; exit 1; }
+[ -f "$PROFILE_ENV" ] || { printf 'ERROR: profile env missing: %s\n' "$PROFILE_ENV" >&2; exit 1; }
+
+# shellcheck disable=SC1090
+. "$PROFILE_ENV"
+
+if [ "$validate" = "true" ]; then
+  [ "${CIDRE_RESCUE:-0}" = "1" ] || { printf 'ERROR: CIDRE_RESCUE marker missing\n' >&2; exit 1; }
+  [ "${CIDRE_RESCUE_PROFILE:-}" = "minimal-rescue" ] || { printf 'ERROR: rescue profile must be minimal-rescue\n' >&2; exit 1; }
+  [ "${CIDRE_RESCUE_DESKTOP:-1}" = "0" ] || { printf 'ERROR: rescue desktop policy must be disabled\n' >&2; exit 1; }
+  [ "${CIDRE_RESCUE_PRIMARY_SHELL:-}" = "bash" ] || { printf 'ERROR: rescue primary shell must be bash\n' >&2; exit 1; }
+  if grep -Eqi '^(niri|waybar|ghostty|quickshell|firefox|chromium)$' "$PACKAGES_FILE"; then
+    printf 'ERROR: desktop package found in rescue profile\n' >&2
+    exit 1
+  fi
+  printf 'Cidre rescue profile validation\n'
+  printf '[OK] profile: %s\n' "$CIDRE_RESCUE_PROFILE"
+  printf '[OK] desktop: false\n'
+  printf '[OK] primary shell: %s\n' "$CIDRE_RESCUE_PRIMARY_SHELL"
+  exit 0
+fi
+
+if [ "$print_packages" = "true" ]; then
+  cat "$PACKAGES_FILE"
+  exit 0
+fi
+
+packages_json="$(awk 'NF { printf "%s\"%s\"", sep, $0; sep=", " }' "$PACKAGES_FILE")"
+profile_json=$(cat <<EOF
+{
+  "schema_version": 1,
+  "profile": "$(json_escape "${CIDRE_RESCUE_PROFILE:-minimal-rescue}")",
+  "base": "ALARM",
+  "desktop": false,
+  "primary_shell": "$(json_escape "${CIDRE_RESCUE_PRIMARY_SHELL:-bash}")",
+  "cidre_tools": true,
+  "packages": [ $packages_json ]
+}
+EOF
+)
+
+if [ -n "$output_file" ]; then
+  mkdir -p "$(dirname "$output_file")"
+  printf '%s\n' "$profile_json" > "$output_file"
+fi
+
+if [ "$json_output" = "true" ] || [ -z "$output_file" ]; then
+  printf '%s\n' "$profile_json"
+else
+  printf '%s\n' "$output_file"
+fi

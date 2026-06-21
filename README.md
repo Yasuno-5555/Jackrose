@@ -1,4 +1,4 @@
-# Cidre (v0.19.0 Real Image Build Pack)
+# Cidre (v0.25.0 Recovery Screen & Safe Mode Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -41,6 +41,61 @@ Cidre v0.18.0 integrates the boot validation layer and rootfs overlay trees with
 
 Cidre v0.19.0 introduces the first local real image build flow. It supports executing the ALARM image builder, staging custom configurations, registering produced prototype images into local state directories, verifying checksums/manifests, and generating markdown build/failure reports.
 This remains a developer release intended to ensure robust, repeatable local image building.
+
+## Controlled Boot Test Status
+
+Cidre v0.20.0 introduces controlled boot testing orchestration on Apple Silicon Macs, supporting observations checklist tracking, boot logs collection, failure classification, and test result reports.
+
+## Firstboot Fixup Status
+
+Cidre v0.21.0 improves firstboot stability, retry, repair, diagnosis, and reporting.
+This makes the prototype image firstboot path easier to validate and recover, but it still does not mean Cidre ships a public production image.
+
+## User Phase Handoff Status
+
+Cidre v0.22.0 adds user phase handoff validation and state tracking.
+This improves the transition from firstboot root setup to `./install --resume` as the normal user.
+It does not yet mean the full desktop profile is production-ready.
+
+## Exit Path First
+
+Cidre v0.23.0 adds uninstall readiness checks, state export, partition audit reports, and macOS restore guide generation.
+This release does not perform destructive disk operations.
+
+## macOS Restore Assistant
+
+Cidre v0.24.0 adds macOS-side restore readiness checks.
+It can collect read-only disk layout information, generate uninstall guides, and report restore risk from macOS.
+It does not delete partitions or resize APFS containers.
+
+## Recovery Screen and Safe Mode
+
+Cidre is designed to fail visibly.
+
+If the normal desktop session cannot start, Cidre can show a recovery screen
+with actions for safe shell, doctor checks, state export, exit plan generation,
+and macOS restore guidance.
+
+v0.25.0 does not repair kernel-level boot failures.
+Those require a future Rescue Slot or macOS-side restore path.
+
+## Rescue Slot foundation
+
+Cidre v0.26.0 introduces the foundation for a separate minimal rescue environment.
+
+The Rescue Slot is intended for cases where the main Cidre install no longer boots
+far enough to show the Recovery Screen.
+
+v0.26.0 does not create partitions or modify boot entries automatically.
+
+## Rescue Boot Integration
+
+Cidre v0.27.0 adds rescue boot integration planning.
+
+It can generate rescue slot plans, metadata, dry-run creation reports,
+macOS-side rescue disk audits, and validation checklists.
+
+This release does not create partitions, modify boot entries, or install a fully bootable Rescue Slot.
 
 ## Installation Flow
 
@@ -95,6 +150,40 @@ After switching to the normal user, resume the Cidre setup:
 - [Image Build Notes](./docs/image-build-notes.md)
 - [Image Build Validation](./docs/image-build-validation.md)
 - [Firstboot OOBE](./docs/firstboot-oobe.md)
+- [Firstboot Fixup](./docs/firstboot-fixup.md)
+- [Firstboot Service Ordering](./docs/firstboot-service-ordering.md)
+- [Firstboot Retry & Repair](./docs/firstboot-retry-repair.md)
+- [User Phase Handoff](./docs/user-phase-handoff.md)
+- [User Phase State](./docs/user-phase-state.md)
+- [First Login](./docs/first-login.md)
+- [Install Resume Validation](./docs/install-resume-validation.md)
+- [Uninstall Guide](./docs/uninstall.md)
+- [Exit Path](./docs/exit-path.md)
+- [State Export](./docs/state-export.md)
+- [Partition Audit](./docs/partition-audit.md)
+- [macOS Restore Guide](./docs/macos-restore-guide.md)
+- [macOS Restore Assistant](./docs/macos-restore-assistant.md)
+- [macOS Partition Audit](./docs/macos-partition-audit.md)
+- [macOS Startup Disk Check](./docs/macos-startup-disk.md)
+- [macOS Uninstall Guide](./docs/macos-uninstall-guide.md)
+- [Uninstall Threat Model](./docs/uninstall-threat-model.md)
+- [Recovery Screen](./docs/recovery-screen.md)
+- [Safe Mode](./docs/safe-mode.md)
+- [Failure Levels](./docs/failure-levels.md)
+- [TTY Recovery](./docs/tty-recovery.md)
+- [Recovery Shortcuts](./docs/recovery-shortcuts.md)
+- [Rescue Slot](./docs/rescue-slot.md)
+- [Rescue Profile](./docs/rescue-profile.md)
+- [Rescue Image](./docs/rescue-image.md)
+- [Rescue Mount](./docs/rescue-mount.md)
+- [Rescue Kernel Check](./docs/rescue-kernel-repair.md)
+- [Rescue Threat Model](./docs/rescue-threat-model.md)
+- [Rescue Boot Integration](./docs/rescue-boot-integration.md)
+- [Rescue Slot Layout](./docs/rescue-slot-layout.md)
+- [Rescue Boot Metadata](./docs/rescue-boot-metadata.md)
+- [Rescue Boot Validation](./docs/rescue-boot-validation.md)
+- [macOS Rescue Slot Planning](./docs/macos-rescue-slot.md)
+- [Rescue Boot Threat Model](./docs/rescue-boot-threat-model.md)
 - [Firstboot Security](./docs/firstboot-security.md)
 - [Firstboot Root Login Problem](./docs/firstboot-root-login-problem.md)
 - [Fresh ALARM Base Setup](./docs/base-install.md)
@@ -118,6 +207,14 @@ After switching to the normal user, resume the Cidre setup:
 - [Recovery Guide](./docs/recovery.md)
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
+- [v0.23.0 Release Notes](./docs/v0.23.0-uninstall-exit-path.md)
+- [v0.24.0 Release Notes](./docs/v0.24.0-macos-restore-assistant.md)
+- [v0.25.0 Release Notes](./docs/v0.25.0-recovery-screen-safe-mode.md)
+- [v0.26.0 Release Notes](./docs/v0.26.0-rescue-slot-foundation.md)
+- [v0.27.0 Release Notes](./docs/v0.27.0-rescue-boot-integration.md)
+- [v0.22.0 Release Notes](./docs/v0.22.0-user-phase-handoff.md)
+- [v0.21.0 Release Notes](./docs/v0.21.0-firstboot-fixup.md)
+- [v0.20.0 Release Notes](./docs/v0.20.0-controlled-boot-test.md)
 - [v0.19.0 Release Notes](./docs/v0.19.0-real-image-build.md)
 - [v0.18.0 Release Notes](./docs/v0.18.0-builder-integration.md)
 - [v0.17.0 Release Notes](./docs/v0.17.0-image-boot-validation.md)

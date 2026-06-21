@@ -11,6 +11,19 @@ The macOS-side bootstrap entrypoint for Apple Silicon onboarding.
 * `--profile <name>`: Selects `desktop`, `developer`, `minimal`, or `recovery`.
 * `--no-seed`: Skips manifest generation.
 * `--print-handoff`: Prints ALARM/Asahi installer continuation guidance only.
+* `--restore-help`: Prints v0.23.0 restore and removal guidance only.
+* `--restore-check`: Runs macOS-side restore readiness checks.
+* `--partition-audit`: Collects a read-only macOS partition audit.
+* `--startup-disk-check`: Generates startup disk guidance.
+* `--uninstall-guide`: Generates a macOS uninstall guide.
+* `--restore-report`: Generates a macOS restore report.
+* `--rescue-help`: Prints Rescue Slot guidance only.
+* `--rescue-check`: Runs macOS-side Rescue Slot readiness checks.
+* `--rescue-disk-audit`: Collects a read-only macOS rescue disk audit.
+* `--rescue-plan`: Generates a macOS rescue plan.
+* `--rescue-guide`: Generates a macOS rescue guide.
+* `--rescue-report`: Generates a macOS rescue report.
+* `--rescue-create-dry-run`: Prints rescue creation dry-run guidance.
 
 ### `scripts/cidre-seed`
 The Linux-side seed command wrapper.
@@ -106,11 +119,30 @@ Diagnoses system compatibility and environment state.
 * `--image`: Audits prototype image scripts, overlay contents, workspace docs, and latest generated artifacts.
 * `--firstboot`: Audits firstboot scripts, state markers, handoff files, and overlay OOBE content.
 * `--fix-suggestions`: Renders actionable recovery commands based on the last run.
+* `--recovery-screen`: Audits recovery screen assets and state directories.
+* `--safe-mode`: Audits safe mode assets and non-destructive recovery actions.
+* `--rescue`: Audits Rescue Slot foundation assets, profile metadata, and read-only safety defaults.
+* `--rescue-boot`: Audits Rescue Boot Integration assets and dry-run planning flow.
+* `--macos-rescue`: Audits macOS-side rescue planning scripts.
 
 ### `cidre-recovery`
 Dispatches rescue triggers from console TTY in emergency loops.
 * `status`: Inspects session and config state.
-* `safe-mode`: Disables compositor customizations and re-routes logins to console standard.
+* `screen`: Shows the recovery screen.
+* `safe-mode`: Opens the v0.25.0 safe mode path.
+* `panic`: Triggers the panic entrypoint.
+* `actions`: Lists or runs recovery actions.
+* `recovery-report`: Generates the recovery report.
+* `rescue-status`: Runs Rescue Slot readiness checks.
+* `rescue-plan`: Generates a Rescue Slot plan.
+* `rescue-report`: Generates the Rescue Slot report.
+* `rescue-build`: Builds the Rescue Slot overlay artifact.
+* `rescue-inspect`: Inspects the Rescue Slot overlay.
+* `rescue-boot-status`: Shows rescue boot integration risk or status.
+* `rescue-boot-plan`: Generates the rescue boot plan.
+* `rescue-boot-report`: Generates the rescue boot report.
+* `rescue-boot-checklist`: Generates the rescue boot checklist.
+* `rescue-create-dry-run`: Generates rescue creation dry-run output.
 * `restore latest`: Restores configurations to the last snapshot.
 * `reset-niri`: Resets composer files to stable factory defaults.
 * `seed-status`: Shows imported seed profile and source commit summary.
@@ -139,6 +171,72 @@ Consolidates standard admin tasks.
 
 ### `scripts/cidre-macos-check`
 Runs macOS-side readiness checks for Apple Silicon, command availability, network reachability, disk advisory output, and repository state.
+* `--restore-readiness`: Prints the current macOS-side restore-readiness checklist stub.
+
+### `scripts/cidre-macos-restore-check`
+Runs the macOS-side high-level restore readiness audit.
+
+### `scripts/cidre-macos-partition-audit`
+Collects `diskutil`-based partition layout output and advisory candidate summaries.
+
+### `scripts/cidre-macos-startup-disk-check`
+Generates startup disk guidance without changing any setting.
+
+### `scripts/cidre-macos-uninstall-guide`
+Generates the macOS-side uninstall guide from current restore artifacts.
+
+### `scripts/cidre-macos-restore-report`
+Generates the macOS-side restore report.
+
+### `scripts/cidre-macos-risk`
+Classifies macOS-side restore risk from advisory audit output.
+
+### Exit Path Commands
+The Linux-side uninstall foundation commands.
+* `scripts/cidre-uninstall-check`: Read-only uninstall readiness audit.
+* `scripts/cidre-exit-plan`: Generates a human-readable exit plan.
+* `scripts/cidre-state-export`: Exports Cidre state and reports into an archive.
+* `scripts/cidre-partition-audit`: Records the current partition layout in text and JSON.
+* `scripts/cidre-macos-restore-guide`: Writes a macOS cleanup checklist.
+* `scripts/cidre-uninstall-risk`: Classifies uninstall readiness risk.
+* `scripts/cidre-goodbye`: Generates a final uninstall summary.
+* `scripts/cidre-erase-preflight`: Confirms prerequisites and intentionally blocks destructive erase in v0.23.0.
+
+### Recovery Commands
+The TTY-first recovery UX commands.
+* `scripts/cidre-panic`: Records a failure reason and routes to recovery UX.
+* `scripts/cidre-recovery-screen`: Prints the recovery screen and available actions.
+* `scripts/cidre-safe-mode`: Skips normal desktop startup and opens recovery guidance.
+* `scripts/cidre-safe-shell`: Prints or opens the safe shell environment.
+* `scripts/cidre-session-failure`: Records session failure and connects to panic flow.
+* `scripts/cidre-desktop-failure-detect`: Detects repeated desktop failure state.
+* `scripts/cidre-recovery-actions`: Lists or runs non-destructive recovery actions.
+* `scripts/cidre-emergency-banner`: Prints emergency recovery commands.
+* `scripts/cidre-recovery-report`: Writes the recovery summary report.
+
+### Rescue Commands
+The separate rescue environment foundation commands.
+* `scripts/cidre-rescue`: High-level rescue entrypoint.
+* `scripts/cidre-rescue-check`: Verifies rescue environment readiness.
+* `scripts/cidre-rescue-plan`: Generates the Rescue Slot plan.
+* `scripts/cidre-rescue-profile`: Prints and validates rescue profile metadata.
+* `scripts/cidre-rescue-image-build`: Builds rescue overlay artifacts.
+* `scripts/cidre-rescue-image-inspect`: Inspects rescue artifacts or overlay trees.
+* `scripts/cidre-rescue-manifest`: Generates and validates rescue manifests.
+* `scripts/cidre-rescue-mount`: Scans and mounts likely main Cidre roots with read-only default.
+* `scripts/cidre-rescue-export`: Exports state and logs from a mounted main root.
+* `scripts/cidre-rescue-kernel-check`: Inspects kernel, initramfs, and boot files.
+* `scripts/cidre-rescue-report`: Summarizes rescue session status and next steps.
+* `scripts/cidre-rescue-clean`: Cleans rescue artifacts and temporary paths safely.
+* `scripts/cidre-rescue-boot-plan`: Generates rescue boot integration plan output.
+* `scripts/cidre-rescue-disk-check`: Collects read-only Linux-side rescue disk hints.
+* `scripts/cidre-rescue-slot-metadata`: Generates and validates rescue boot metadata.
+* `scripts/cidre-rescue-boot-guide`: Generates human-readable rescue boot guidance.
+* `scripts/cidre-rescue-boot-report`: Summarizes rescue boot planning status.
+* `scripts/cidre-rescue-create-dry-run`: Prints future rescue creation steps without writing to disk.
+* `scripts/cidre-rescue-boot-checklist`: Generates a real-hardware validation checklist.
+* `scripts/cidre-rescue-boot-risk`: Classifies rescue boot planning risk.
+* `scripts/cidre-rescue-boot-validate`: Records rescue boot validation status.
 
 ### `scripts/cidre-macos-seed`
 Generates `.local/state/cidre/macos-bootstrap/manifest.json`, checksum metadata, and handoff notes for later manual continuation.

@@ -1,0 +1,73 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue}"
+CURRENT_DIR="$STATE_ROOT/current"
+output_file="$CURRENT_DIR/rescue-plan.md"
+size_gib="8"
+profile="minimal"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-plan [options]
+
+Options:
+  --output <file>
+  --size <GiB>
+  --profile minimal
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --size) size_gib="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+# Cidre Rescue Slot Plan
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- Purpose: provide a separate minimal rescue environment when the main Cidre system no longer boots.
+- Recommended size: ${size_gib} GiB
+- Profile: ${profile}-rescue
+- Package policy: minimal ALARM + bash + Cidre rescue tools
+- Desktop: disabled
+- Primary shell: bash
+
+## What It Can Repair
+
+- Scan likely main Cidre roots
+- Mount the main root read-only by default
+- Export logs and state
+- Inspect kernel, initramfs, and boot files
+- Prepare rollback, reinstall, or exit decisions
+
+## What It Cannot Repair
+
+- Automatic partition creation
+- Automatic boot picker entry creation
+- Automatic destructive repair
+- GUI rescue desktop
+
+## Manual Notes
+
+1. Keep Rescue separate from the main Cidre rootfs.
+2. Update Rescue conservatively.
+3. Prefer read-only inspection first.
+4. Use macOS Restore Assistant if Rescue cannot recover the system.
+
+## Future Boot Integration
+
+Boot integration remains pending in v0.26.0.
+EOF
+printf '%s\n' "$output_file"

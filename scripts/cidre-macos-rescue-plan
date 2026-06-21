@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+size_gib="8"
+output_file="$PWD/.local/state/cidre/macos-rescue/current/macos-rescue-plan.md"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-rescue-plan [options]
+
+Options:
+  --size <GiB>
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size) size_gib="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+# Cidre macOS Rescue Plan
+
+- recommended size: ${size_gib} GiB
+- current limitations: read-only planning only
+- free space note: confirm manually from disk audit before any future creation flow
+- future creation flow: guided dry-run first, manual creation assist later
+- destructive action: unavailable
+EOF
+printf '%s\n' "$output_file"

@@ -20,3 +20,15 @@ This document maps error logs and observations to specific failure categories.
    Bootstrap seeds under `/var/lib/cidre/seed/` are missing or corrupted.
 8. **handoff**:
    Normal user account is not created or `install --resume` targets are missing.
+
+## Firstboot Subcategories (v0.21.0)
+
+Cidre v0.21.0 adds detailed classification subcategories:
+* **firstboot-service-missing**: The systemd firstboot service unit file is missing or not installed.
+* **firstboot-service-not-started**: The firstboot service was scheduled but never initiated execution (no started marker).
+* **firstboot-service-failed**: The firstboot setup process crashed or aborted with a non-zero exit code (failed marker present).
+* **firstboot-output-not-visible**: The setup outputs did not write to standard terminal displays.
+* **firstboot-state-incomplete**: Setup began execution but never reached completion or explicit failure states.
+* **firstboot-repeated**: Setup completed but ran again due to missing execution prevention conditions.
+* **handoff-missing**: Firstboot completed but failed to generate the required user phase configuration handoff.
+* **resume-state-missing**: Execution failed because the bootstrap seed or installer resumption states could not be resolved.

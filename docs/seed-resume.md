@@ -56,6 +56,8 @@ This verifies the archive, stores it under `/var/lib/cidre/`, and prepares resum
 ./install --resume
 ```
 
+Cidre v0.22.0 extends seed/resume into a user-phase handoff state. Before executing `./install --resume`, normal users can verify the imported handoff state using `scripts/cidre-user-handoff --verify` and `scripts/cidre-user-phase-verify`.
+
 ## Troubleshooting
 
 - `ERROR: seed file not found`: confirm the path and mount point.

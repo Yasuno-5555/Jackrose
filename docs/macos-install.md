@@ -79,4 +79,6 @@ Switch to the normal user and run:
 
 - Re-run `./install-macos --check` to repeat the readiness checks.
 - Re-run `./install-macos --print-handoff` to print the continuation steps again.
+- Run `./install-macos --restore-help` to print the current restore and removal guidance.
+- Run `./install-macos --restore-check` after returning to macOS.
 - Generated state is stored under `.local/state/cidre/macos-bootstrap/`.

@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+output_file="$(cidre_macos_restore_path "startup-disk-check.txt")"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-startup-disk-check [options]
+
+Options:
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+cidre_macos_restore_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+software_summary="$(sw_vers 2>/dev/null || true)"
+volume_hint="$(diskutil info / 2>/dev/null | awk -F': ' '/Volume Name|Device Identifier|APFS Volume Group/ {print $1 ": " $2}')"
+
+cat > "$output_file" <<EOF
+Cidre macOS startup disk check
+Generated: $(cidre_macos_restore_timestamp)
+
+This check is read-only.
+It does not change startup disk settings.
+
+Current macOS software:
+$software_summary
+
+Current root volume hints:
+$volume_hint
+
+Guidance:
+1. Confirm macOS boots normally.
+2. Confirm your user data is accessible.
+3. Review System Settings > General > Startup Disk manually.
+4. Keep macOS selected before any future partition cleanup.
+5. If startup disk state is unclear, stop and verify manually.
+EOF
+
+printf '%s\n' "$output_file"

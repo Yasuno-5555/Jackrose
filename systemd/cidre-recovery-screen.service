@@ -1,0 +1,15 @@
+[Unit]
+Description=Cidre Recovery Screen
+After=multi-user.target
+ConditionPathExists=/var/lib/cidre/recovery-screen/recovery-screen-requested
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/cidre/cidre-recovery-screen --reason auto --non-interactive
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

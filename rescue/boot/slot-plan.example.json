@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "recommended_size_gib": 8,
+  "minimum_size_gib": 6,
+  "profile": "minimal-rescue",
+  "requires_macos_audit": true,
+  "requires_user_confirmation": true,
+  "automatic_creation_supported": false
+}

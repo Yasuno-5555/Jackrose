@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# cidre-firstboot-report: Compile human readable firstboot reports
+set -euo pipefail
+
+root_dir="/"
+output_file=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-firstboot-report [options]
+
+Compile firstboot diagnostic metrics and details into a markdown report.
+
+Options:
+  --root <path>     Directory root to inspect (default: /)
+  --output <file>   Write output log to file
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) root_dir="$2"; shift 2 ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+state_dir="${root_dir%/}/var/lib/cidre/firstboot-root"
+
+if [ -z "$output_file" ]; then
+  output_file="$state_dir/report.md"
+fi
+
+mkdir -p "$(dirname "$output_file")"
+
+status="incomplete"
+if [ -f "$state_dir/completed" ]; then
+  status="completed"
+elif [ -f "$state_dir/failed" ]; then
+  status="failed"
+elif [ -f "$state_dir/skipped" ]; then
+  status="skipped"
+fi
+
+last_stage="unknown"
+if [ -f "$state_dir/last-stage" ]; then
+  last_stage=$(cat "$state_dir/last-stage")
+fi
+
+last_error="none"
+if [ -f "$state_dir/last-error" ]; then
+  last_error=$(cat "$state_dir/last-error")
+fi
+
+cat > "$output_file" <<EOF
+# Cidre Firstboot Setup Report
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Root: $root_dir
+
+## Execution Status
+- **Overall Status**: $status
+- **Last Stage**: $last_stage
+- **Last Error**: $last_error
+
+## Handoff Information
+$( [ -f "$state_dir/handoff.txt" ] && cat "$state_dir/handoff.txt" || echo "No handoff generated yet." )
+EOF
+
+echo "Firstboot report created: $output_file"

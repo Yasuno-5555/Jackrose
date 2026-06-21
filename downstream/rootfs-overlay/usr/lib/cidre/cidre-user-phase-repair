@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# cidre-user-phase-repair: Repair common user phase configuration and marker issues
+set -euo pipefail
+
+USER_STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+do_import=false
+do_report=false
+do_clear=false
+dry_run=false
+confirm=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-user-phase-repair [options]
+
+Repair normal user phase configuration state and files.
+
+Options:
+  --import-handoff     Re-import handoff parameters to user phase env
+  --regenerate-report  Compile user phase markdown report file
+  --clear-failed       Remove user phase execution failure marker
+  --dry-run            Display planned repairs without performing them
+  --yes                Skip safety confirmation prompts
+  --help               Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --import-handoff) do_import=true; shift ;;
+    --regenerate-report) do_report=true; shift ;;
+    --clear-failed) do_clear=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --yes) confirm=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Ensure state directory exists
+if $dry_run; then
+  echo "[DRY-RUN] Would ensure user state directory exists at: $USER_STATE_DIR"
+else
+  mkdir -p "$USER_STATE_DIR"
+fi
+
+if $do_clear; then
+  if [ -f "$USER_STATE_DIR/failed" ]; then
+    if $dry_run; then
+      echo "[DRY-RUN] Would remove failure marker at $USER_STATE_DIR/failed"
+    else
+      if ! $confirm; then
+        read -p "Are you sure you want to clear the failed marker? [y/N]: " ans
+        if [[ ! "$ans" =~ ^[yY] ]]; then
+          echo "Cancelled clear failed."
+          exit 0
+        fi
+      fi
+      rm -f "$USER_STATE_DIR/failed"
+      echo "Failed marker cleared."
+    fi
+  else
+    echo "No failed marker exists to clear."
+  fi
+fi
+
+if $do_import; then
+  if $dry_run; then
+    echo "[DRY-RUN] Would run handoff import"
+  else
+    "$SCRIPT_DIR/cidre-user-handoff" --import
+  fi
+fi
+
+if $do_report; then
+  if $dry_run; then
+    echo "[DRY-RUN] Would regenerate setup markdown report"
+  else
+    "$SCRIPT_DIR/cidre-user-phase-report"
+  fi
+fi
+
+echo "Repair execution finished."

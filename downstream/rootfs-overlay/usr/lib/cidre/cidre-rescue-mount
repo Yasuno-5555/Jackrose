@@ -1,0 +1,99 @@
+#!/bin/sh
+set -eu
+
+scan=false
+mount_device=""
+target_path="/mnt/cidre-main"
+read_only=true
+read_write=false
+confirm_rw=false
+dry_run=false
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-mount [options]
+
+Options:
+  --scan
+  --mount <device>
+  --target <path>
+  --read-only
+  --read-write
+  --i-understand-this-can-modify-main-cidre
+  --dry-run
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --scan) scan=true; shift ;;
+    --mount) mount_device="$2"; shift 2 ;;
+    --target) target_path="$2"; shift 2 ;;
+    --read-only) read_only=true; read_write=false; shift ;;
+    --read-write) read_write=true; read_only=false; shift ;;
+    --i-understand-this-can-modify-main-cidre) confirm_rw=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ "$scan" = "true" ]; then
+  if [ "$json_output" = "true" ]; then
+    printf '{\n  "schema_version": 1,\n  "candidates": [\n'
+    if command -v lsblk >/dev/null 2>&1; then
+      lsblk -nrpo NAME,FSTYPE,LABEL 2>/dev/null | awk '
+        BEGIN { first=1 }
+        $2 ~ /ext4|btrfs|xfs/ {
+          label=$3; if (label=="") label="unknown";
+          if (!first) printf ",\n";
+          printf "    {\"device\": \"%s\", \"fs\": \"%s\", \"label\": \"%s\", \"confidence\": \"medium\"}", $1, $2, label;
+          first=0
+        }'
+    fi
+    printf '\n  ]\n}\n'
+  else
+    printf 'Candidate main Cidre roots:\n\n'
+    if command -v lsblk >/dev/null 2>&1; then
+      lsblk -nrpo NAME,FSTYPE,LABEL 2>/dev/null | awk '
+        $2 ~ /ext4|btrfs|xfs/ {
+          label=$3; if (label=="") label="unknown";
+          printf "  %s\n    label: %s\n    fs: %s\n    confidence: medium\n    mounted: no\n\n", $1, label, $2
+        }'
+    else
+      printf '  no candidates found (lsblk unavailable)\n'
+    fi
+  fi
+  exit 0
+fi
+
+[ -n "$mount_device" ] || { printf 'ERROR: --mount <device> is required unless --scan is used\n' >&2; exit 1; }
+
+if [ "$read_write" = "true" ] && [ "$confirm_rw" != "true" ]; then
+  printf 'ERROR: --read-write requires --i-understand-this-can-modify-main-cidre\n' >&2
+  exit 1
+fi
+
+if [ "$dry_run" = "true" ]; then
+  printf 'Cidre rescue mount (dry-run)\n'
+  printf 'device: %s\n' "$mount_device"
+  printf 'target: %s\n' "$target_path"
+  if [ "$read_only" = "true" ]; then
+    printf 'mode: read-only\n'
+  else
+    printf 'mode: read-write\n'
+  fi
+  exit 0
+fi
+
+mkdir -p "$target_path"
+if [ "$read_only" = "true" ]; then
+  mount -o ro "$mount_device" "$target_path"
+else
+  mount "$mount_device" "$target_path"
+fi
+printf 'Mounted %s at %s\n' "$mount_device" "$target_path"

@@ -1,0 +1,76 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+output_file="$CURRENT_DIR/rescue-boot-report.md"
+json_output=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-report [options]
+
+Options:
+  --output <file>
+  --json
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --json) json_output=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+artifact_status="$( [ -f "$REPO_ROOT/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ] && printf present || printf missing )"
+profile_status="$( [ -f "$REPO_ROOT/rescue/profile/profile.env" ] && printf present || printf missing )"
+metadata_status="$( [ -f "$CURRENT_DIR/rescue-slot-metadata.json" ] && printf present || printf missing )"
+disk_audit_status="$( [ -f "$CURRENT_DIR/rescue-disk-check.json" ] && printf present || printf missing )"
+macos_status="$( [ -f "$REPO_ROOT/.local/state/cidre/macos-rescue/current/macos-rescue-report.md" ] && printf present || printf pending )"
+guide_status="$( [ -f "$CURRENT_DIR/rescue-boot-guide.md" ] && printf present || printf missing )"
+validation_status="not-tested"
+[ -f "$CURRENT_DIR/validation-status.txt" ] && validation_status="$(cat "$CURRENT_DIR/validation-status.txt")"
+
+cat > "$output_file" <<EOF
+# Cidre Rescue Boot Report
+
+- rescue artifact status: \`$artifact_status\`
+- rescue profile status: \`$profile_status\`
+- rescue metadata status: \`$metadata_status\`
+- disk audit status: \`$disk_audit_status\`
+- macOS rescue check status: \`$macos_status\`
+- boot guide status: \`$guide_status\`
+- boot integration state: planned
+- rescue boot validation: \`$validation_status\`
+- pending validation: real Apple Silicon rescue boot
+
+## Next Steps
+
+1. Generate or refresh rescue slot metadata.
+2. Generate macOS-side rescue disk audit.
+3. Generate rescue create dry-run.
+4. Generate rescue boot checklist.
+5. Keep boot integration in planned state until hardware validation exists.
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat <<EOF
+{
+  "schema_version": 1,
+  "artifact": "$artifact_status",
+  "metadata": "$metadata_status",
+  "disk_audit": "$disk_audit_status",
+  "macos_rescue": "$macos_status",
+  "validation": "$validation_status"
+}
+EOF
+else
+  printf '%s\n' "$output_file"
+fi

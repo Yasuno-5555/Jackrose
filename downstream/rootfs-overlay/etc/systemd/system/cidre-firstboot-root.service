@@ -1,7 +1,7 @@
 [Unit]
 Description=Cidre Firstboot Root Setup
 Documentation=file:/usr/share/doc/cidre/firstboot-oobe.md
-After=network-online.target
+After=basic.target
 Wants=network-online.target
 ConditionPathExists=!/var/lib/cidre/firstboot-root/completed
 ConditionPathExists=!/var/lib/cidre/firstboot-root/skipped

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# cidre-firstboot-retry: Allow developer to safety retry a failed firstboot setup
+set -euo pipefail
+
+root_dir="/"
+dry_run=false
+confirm=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-firstboot-retry [options]
+
+Reset firstboot failed state to trigger a retry setup.
+
+Options:
+  --root <path>     Directory root to inspect (default: /)
+  --dry-run         Print planned changes
+  --yes             Skip interactive prompt checks
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) root_dir="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --yes) confirm=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+state_dir="${root_dir%/}/var/lib/cidre/firstboot-root"
+
+if [ ! -d "$state_dir" ]; then
+  echo "ERROR: firstboot-root state directory missing." >&2
+  exit 1
+fi
+
+if [ -f "$state_dir/completed" ]; then
+  echo "ERROR: firstboot is already completed" >&2
+  exit 1
+fi
+
+if [ -f "$state_dir/skipped" ] && ! $confirm; then
+  read -p "Warning: firstboot is marked skipped. Proceed anyway? [y/N]: " ans
+  if [[ ! "$ans" =~ ^[yY] ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+fi
+
+if $dry_run; then
+  echo "Cidre firstboot retry (dry-run)"
+  echo "  Target root: $root_dir"
+  echo "  Action: create marker 'retry-requested', remove marker 'failed'"
+  exit 0
+fi
+
+echo "Setting retry markers..."
+date -u '+%Y-%m-%dT%H:%M:%SZ' > "$state_dir/retry-requested"
+rm -f "$state_dir/failed"
+
+echo "Firstboot retry parameters configured."

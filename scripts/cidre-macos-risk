@@ -1,0 +1,116 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-macos-restore-common"
+
+audit_path=""
+json_stdout=false
+output_file="$(cidre_macos_restore_path "macos-risk.json")"
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-risk [options]
+
+Options:
+  --audit <path>
+  --json
+  --output <file>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --audit) audit_path="$2"; shift 2 ;;
+    --json) json_stdout=true; shift ;;
+    --output) output_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_macos_restore_require_macos
+cidre_macos_restore_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+[ -n "$audit_path" ] || audit_path="$(cidre_macos_restore_path "partition-audit.json")"
+
+risk="low"
+reasons=""
+next_steps=""
+
+append_line() {
+  var_name="$1"
+  value="$2"
+  eval "$var_name=\${$var_name}\"$value
+\""
+}
+
+if ! command -v diskutil >/dev/null 2>&1; then
+  risk="blocked"
+  append_line reasons "diskutil unavailable"
+  append_line next_steps "run this command on macOS with diskutil available"
+fi
+
+if [ ! -f "$audit_path" ]; then
+  risk="blocked"
+  append_line reasons "partition audit missing"
+  append_line next_steps "run ./install-macos --partition-audit"
+fi
+
+if [ -f "$audit_path" ] && grep -q '"protected_count": 0' "$audit_path"; then
+  case "$risk" in
+    low) risk="medium" ;;
+  esac
+  append_line reasons "protected partition detection is unclear"
+  append_line next_steps "review diskutil output manually"
+fi
+
+if [ -f "$audit_path" ] && grep -q '"candidate_count": 0' "$audit_path"; then
+  case "$risk" in
+    low) risk="medium" ;;
+  esac
+  append_line reasons "no strong Linux/Cidre candidate was detected"
+  append_line next_steps "review advisory audit lines manually"
+fi
+
+append_line reasons "startup disk state still requires manual review"
+append_line next_steps "run ./install-macos --startup-disk-check"
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_macos_restore_timestamp)"
+  printf '  "risk": "%s",\n' "$(cidre_macos_restore_json_escape "$risk")"
+  printf '  "reasons": [\n'
+  first=true
+  printf '%s' "$reasons" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$first" = "true" ]; then
+      first=false
+      printf '    "%s"' "$(cidre_macos_restore_json_escape "$line")"
+    else
+      printf ',\n    "%s"' "$(cidre_macos_restore_json_escape "$line")"
+    fi
+  done
+  printf '\n  ],\n'
+  printf '  "next_steps": [\n'
+  first=true
+  printf '%s' "$next_steps" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$first" = "true" ]; then
+      first=false
+      printf '    "%s"' "$(cidre_macos_restore_json_escape "$line")"
+    else
+      printf ',\n    "%s"' "$(cidre_macos_restore_json_escape "$line")"
+    fi
+  done
+  printf '\n  ]\n'
+  printf '}\n'
+} > "$output_file"
+
+if [ "$json_stdout" = "true" ]; then
+  cat "$output_file"
+else
+  printf '%s\n' "$output_file"
+fi

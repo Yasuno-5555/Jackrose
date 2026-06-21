@@ -101,6 +101,20 @@ Use: scripts/cidre-controlled-boot-test --collect-logs
 
 ---
 
+## Rescue Slot
+
+- [ ] Rescue Slot plan generated (scripts/cidre-rescue-plan)
+- [ ] Rescue profile validated (scripts/cidre-rescue-profile --validate)
+- [ ] Rescue artifact built or overlay synced
+- [ ] Rescue boot integration pending warning acknowledged
+- [ ] Main and Rescue separation documented
+- [ ] Rescue boot metadata generated
+- [ ] macOS rescue disk audit generated
+- [ ] Rescue create dry-run generated
+- [ ] Real rescue boot validation pending acknowledged
+
+---
+
 ## Known limitations
 
 - Real Apple Silicon boot not yet validated by Cidre CI

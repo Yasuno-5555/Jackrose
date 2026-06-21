@@ -2,6 +2,161 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.27.0] - 2026-06-21
+### Added
+- Added rescue boot integration planning.
+- Added rescue slot metadata generation.
+- Added rescue create dry-run planning.
+- Added macOS-side rescue disk audit tooling.
+- Added rescue boot guide, report, checklist, and validation recording.
+- Added rescue boot threat model documentation.
+
+### Changed
+- Extended `install-macos` with rescue planning commands.
+- Extended `cidre-doctor` with rescue boot checks.
+- Extended `cidre-recovery` with rescue boot subcommands.
+- Extended Recovery Screen and Emergency Banner with rescue boot commands.
+- Extended boot readiness and boot checklist with rescue boot state.
+
+### Notes
+- v0.27.0 is a planning and readiness release.
+- It does not create partitions, modify boot entries, or perform destructive disk operations.
+
+## [0.26.0] - 2026-06-21
+### Added
+- Added Cidre Rescue Slot foundation.
+- Added rescue profile metadata.
+- Added rescue rootfs artifact flow.
+- Added rescue mount, export, kernel-check, and report tools.
+- Added rescue documentation.
+
+### Changed
+- Extended `cidre-doctor` with `--rescue`.
+- Extended `cidre-recovery` with rescue subcommands.
+- Extended Recovery Screen and Emergency Banner with Rescue Slot guidance.
+- Extended image and rootfs inspection with rescue readiness checks.
+
+### Notes
+- v0.26.0 does not create partitions, modify boot entries, or perform destructive disk operations.
+- Boot integration is deferred to a future release.
+
+## [0.25.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-panic`.
+- Added `scripts/cidre-recovery-screen`.
+- Added `scripts/cidre-safe-mode`.
+- Added `scripts/cidre-safe-shell`.
+- Added `scripts/cidre-session-failure`.
+- Added `scripts/cidre-desktop-failure-detect`.
+- Added `scripts/cidre-recovery-actions`.
+- Added `scripts/cidre-emergency-banner`.
+- Added `scripts/cidre-recovery-report`.
+- Added recovery screen and safe mode documentation.
+- Added systemd recovery and safe-mode prototypes.
+
+### Changed
+- Extended `cidre-doctor` with recovery screen and safe mode checks.
+- Extended `cidre-recovery` with recovery screen, panic, actions, and recovery report commands.
+- Connected firstboot and first-login failure paths to recovery UX.
+- Extended boot log collection with recovery screen state.
+- Extended overlay sync and image inspection with recovery assets.
+
+### Notes
+- v0.25.0 handles failures where main Cidre can still boot far enough to present a TTY or TUI recovery path.
+- Kernel-level boot failure recovery is deferred to a future Rescue Slot.
+
+## [0.24.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-macos-restore-check`.
+- Added `scripts/cidre-macos-partition-audit`.
+- Added `scripts/cidre-macos-startup-disk-check`.
+- Added `scripts/cidre-macos-uninstall-guide`.
+- Added `scripts/cidre-macos-restore-report`.
+- Added `scripts/cidre-macos-risk`.
+- Added macOS restore assistant documentation.
+
+### Changed
+- Extended `install-macos` with restore assistant commands.
+- Extended `scripts/cidre-macos-installer` with restore mode dispatch.
+- Expanded `scripts/cidre-macos-check --restore-readiness`.
+- Added `cidre-doctor --macos-restore`.
+- Updated uninstall and exit path documentation.
+
+### Notes
+- v0.24.0 is read-only.
+- It does not delete partitions, resize APFS containers, or modify startup disk settings.
+
+## [0.23.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-uninstall-check`.
+- Added `scripts/cidre-exit-plan`.
+- Added `scripts/cidre-state-export`.
+- Added `scripts/cidre-partition-audit`.
+- Added `scripts/cidre-macos-restore-guide`.
+- Added `scripts/cidre-uninstall-risk`.
+- Added `scripts/cidre-goodbye`.
+- Added `scripts/cidre-erase-preflight`.
+- Added uninstall and exit path documentation.
+
+### Changed
+- Added `cidre-doctor --uninstall`.
+- Added uninstall and exit path recovery commands.
+- Updated boot/build reports with exit path guidance.
+- Updated validation matrix and v1.0.0 clean-install test plan with uninstall requirements.
+- Added `./install-macos --restore-help` and `scripts/cidre-macos-check --restore-readiness`.
+
+### Notes
+- v0.23.0 does not delete partitions or modify macOS boot policy.
+- It creates the read-only foundation for a future guided uninstaller.
+
+## [0.22.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-user-handoff`.
+- Added `scripts/cidre-user-phase-state`.
+- Added `scripts/cidre-user-phase-verify`.
+- Added `scripts/cidre-user-phase-report`.
+- Added `scripts/cidre-user-phase-repair`.
+- Added `scripts/cidre-first-login`.
+- Added docs/user-phase-handoff.md, docs/user-phase-state.md, docs/first-login.md, docs/install-resume-validation.md, and docs/v0.22.0-user-phase-handoff.md.
+
+### Changed
+- Extended `cidre-firstboot-handoff` to output machine-readable user-phase handoff states (env and JSON profiles).
+- Improved `cidre-installer --resume` preflight checks, failure trapping, and user phase state tracking.
+- Updated `cidre-resume` to check schema versions and warn on profile discrepancies.
+- Added `cidre-doctor --user-phase` check options.
+- Added user phase recovery commands (`user-phase-status`, `user-phase-report`, `user-phase-repair`, `user-handoff`).
+- Updated boot log collection and boot test reports to parse user phase metrics directories.
+- Updated validation matrix and clean-install test plans.
+
+### Notes
+- v0.22.0 focuses on user phase handoff stabilization.
+- It does not distribute a public bootable Cidre image.
+
+## [0.21.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-firstboot-diagnose` to check state directory markers and error logs.
+- Added `scripts/cidre-firstboot-retry` to safely reset failures to trigger retries.
+- Added `scripts/cidre-firstboot-repair` to clear failed markers and regenerate user handoff files.
+- Added `scripts/cidre-firstboot-report` to compile markdown execution reports.
+- Added `scripts/cidre-firstboot-console` to print status messages optimized for boot screens.
+- Added docs/firstboot-fixup.md, docs/firstboot-service-ordering.md, docs/firstboot-retry-repair.md, and docs/v0.21.0-firstboot-fixup.md.
+
+### Changed
+- Improved `scripts/cidre-firstboot-root` stage tracking, failure handling, and completion routines.
+- Updated `scripts/cidre-oobe` with visual styling for plain shell fallbacks and improved non-interactive output.
+- Extended `scripts/cidre-firstboot-state` with subcommands: clear-failed, clear-retry-requested, mark-retry-requested, set-stage, set-error.
+- Updated `scripts/cidre-firstboot-handoff` to include diagnostic recommendations and safer next-step guidance.
+- Updated `scripts/cidre-boot-log-collect` to retrieve firstboot diagnostics, unit definitions, and logs.
+- Updated `scripts/cidre-boot-failure-classify` with detailed classification subcategories (firstboot-service-missing, firstboot-service-failed, firstboot-state-incomplete, handoff-missing, etc.).
+- Updated `scripts/cidre-image-build` to sync the new firstboot scripts into the rootfs overlay.
+- Updated `scripts/cidre-doctor` to add `--firstboot-fixup` option and verify all new files in release candidate checks.
+- Updated `scripts/cidre-recovery` with subcommands: firstboot-diagnose, firstboot-retry, firstboot-repair, and firstboot-report.
+- Adjusted systemd service target ordering in `cidre-firstboot-root.service` to prevent boot hangs when offline.
+
+### Notes
+- v0.21.0 focuses on stabilizing the first boot initialization path.
+- It does not distribute a public bootable Cidre image.
+
 ## [0.20.0] - 2026-06-21
 ### Added
 - Added `scripts/cidre-boot-preflight` to verify files and manifest configurations before boot validation.

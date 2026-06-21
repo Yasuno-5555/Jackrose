@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cidre_version": "0.26.0",
+  "profile": "minimal-rescue",
+  "desktop": false,
+  "primary_shell": "bash",
+  "boot_integration": "pending",
+  "destructive_operations": false
+}

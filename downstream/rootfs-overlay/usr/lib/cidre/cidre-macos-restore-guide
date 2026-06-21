@@ -1,0 +1,73 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+output_file="$(cidre_exit_current_path "macos-restore-guide.md")"
+audit_path=""
+
+usage() {
+  cat <<EOF
+Usage: cidre-macos-restore-guide [options]
+
+Options:
+  --output <file>
+  --from-audit <path>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --from-audit) audit_path="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+if [ -z "$audit_path" ]; then
+  audit_path="$(cidre_exit_current_path "partition-audit.json")"
+fi
+
+cat > "$output_file" <<EOF
+# macOS Restore Guide
+
+Generated: $(cidre_exit_timestamp)
+
+Before deleting any Cidre, Linux, or Asahi partition:
+
+1. Boot into macOS.
+2. Confirm macOS starts normally.
+3. Set macOS as the default startup disk from System Settings or Startup Disk.
+4. Open Disk Utility or use \`diskutil list\`.
+5. Review the partition layout carefully.
+6. Compare macOS-side identifiers with the Linux-side audit.
+7. Delete only confirmed Linux/Asahi/Cidre partitions.
+8. Expand the macOS container only when the layout is fully understood.
+9. Reboot and verify macOS startup.
+
+## Inputs
+
+- Linux-side partition audit: \`$audit_path\`
+- Exit plan: \`$(cidre_exit_current_path "exit-plan.md")\`
+- State export archive: \`$(cidre_exit_current_path "cidre-state-export.tar.gz")\`
+
+## Important Limits
+
+- v0.24.0 does not run \`diskutil eraseVolume\`, change startup disk settings, or delete partitions.
+- The Linux-side audit is advisory and read-only.
+- Cleanup remains manual on macOS in this release.
+
+## If You Are Now In macOS
+
+- Run \`./install-macos --restore-check\`
+- Run \`./install-macos --partition-audit\`
+- Run \`./install-macos --uninstall-guide\`
+EOF
+
+printf '%s\n' "$output_file"

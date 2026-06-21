@@ -56,6 +56,20 @@ if "$dry_run"; then
   echo "                             -> $output_dir/doctor-firstboot.txt"
   echo "  scripts/cidre-recovery firstboot-status"
   echo "                             -> $output_dir/recovery-firstboot-status.txt"
+  echo "  ~/.local/state/cidre/exit/current/uninstall-check.log"
+  echo "                             -> $output_dir/uninstall-check.log"
+  echo "  ~/.local/state/cidre/exit/current/partition-audit.txt"
+  echo "                             -> $output_dir/partition-audit.txt"
+  echo "  ~/.local/state/cidre/exit/current/exit-plan.md"
+  echo "                             -> $output_dir/exit-plan.md"
+  echo "  ~/.local/state/cidre/exit/current/uninstall-risk.json"
+  echo "                             -> $output_dir/uninstall-risk.json"
+  echo "  ~/.local/state/cidre/rescue/"
+  echo "                             -> $output_dir/rescue/"
+  echo "  ~/.local/state/cidre/rescue-boot/"
+  echo "                             -> $output_dir/rescue-boot/"
+  echo "  ~/.local/state/cidre/macos-rescue/"
+  echo "                             -> $output_dir/macos-rescue/"
   echo ""
   echo "No files written (dry-run)."
   exit 0
@@ -120,6 +134,87 @@ if [ -x "$SCRIPT_DIR/cidre-recovery" ]; then
     "$SCRIPT_DIR/cidre-recovery" firstboot-status
 else
   echo "  [SKIP] cidre-recovery not found"
+fi
+
+# Collect firstboot fixup diagnostic details (v0.21.0)
+if [ -x "$SCRIPT_DIR/cidre-firstboot-diagnose" ]; then
+  _collect "cidre-firstboot-diagnose" "firstboot-diagnose.txt" \
+    "$SCRIPT_DIR/cidre-firstboot-diagnose"
+fi
+
+if [ -f "/var/lib/cidre/firstboot-root/report.md" ]; then
+  cp "/var/lib/cidre/firstboot-root/report.md" "$output_dir/firstboot-report.md"
+  echo "  -> $output_dir/firstboot-report.md"
+fi
+
+if [ -x "$SCRIPT_DIR/cidre-firstboot-console" ]; then
+  _collect "cidre-firstboot-console --status" "firstboot-console.txt" \
+    "$SCRIPT_DIR/cidre-firstboot-console" --status
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  _collect "systemctl cat cidre-firstboot-root.service" "firstboot-service-unit.txt" \
+    systemctl cat cidre-firstboot-root.service
+fi
+
+# Collect user phase metrics (v0.22.0)
+USER_STATE_DIR_COLLECT="${HOME}/.local/state/cidre/user-phase"
+if [ -d "$USER_STATE_DIR_COLLECT" ]; then
+  mkdir -p "$output_dir/user-phase"
+  cp -r "$USER_STATE_DIR_COLLECT"/* "$output_dir/user-phase/" 2>/dev/null || true
+  echo "  -> Collected user phase state files to user-phase/"
+fi
+
+if [ -x "$SCRIPT_DIR/cidre-doctor" ]; then
+  _collect "cidre-doctor --user-phase" "doctor-user-phase.txt" \
+    "$SCRIPT_DIR/cidre-doctor" --user-phase
+fi
+
+if [ -x "$SCRIPT_DIR/cidre-recovery" ]; then
+  _collect "cidre-recovery user-phase-status" "recovery-user-phase-status.txt" \
+    "$SCRIPT_DIR/cidre-recovery" user-phase-status
+fi
+
+EXIT_STATE_DIR="${HOME}/.local/state/cidre/exit/current"
+for artifact in uninstall-check.log partition-audit.txt exit-plan.md uninstall-risk.json; do
+  if [ -f "$EXIT_STATE_DIR/$artifact" ]; then
+    cp "$EXIT_STATE_DIR/$artifact" "$output_dir/$artifact"
+    echo "  -> $output_dir/$artifact"
+  fi
+done
+
+RECOVERY_STATE_DIR="${HOME}/.local/state/cidre/recovery-screen"
+if [ -d "$RECOVERY_STATE_DIR" ]; then
+  mkdir -p "$output_dir/recovery-screen"
+  cp -r "$RECOVERY_STATE_DIR"/* "$output_dir/recovery-screen/" 2>/dev/null || true
+  echo "  -> Collected recovery screen state files"
+fi
+
+if [ -d "/var/lib/cidre/recovery-screen" ]; then
+  mkdir -p "$output_dir/recovery-screen-system"
+  cp -r /var/lib/cidre/recovery-screen/* "$output_dir/recovery-screen-system/" 2>/dev/null || true
+  echo "  -> Collected system recovery screen state files"
+fi
+
+RESCUE_STATE_DIR="${HOME}/.local/state/cidre/rescue"
+if [ -d "$RESCUE_STATE_DIR" ]; then
+  mkdir -p "$output_dir/rescue"
+  cp -r "$RESCUE_STATE_DIR"/* "$output_dir/rescue/" 2>/dev/null || true
+  echo "  -> Collected rescue state files"
+fi
+
+RESCUE_BOOT_STATE_DIR="${HOME}/.local/state/cidre/rescue-boot"
+if [ -d "$RESCUE_BOOT_STATE_DIR" ]; then
+  mkdir -p "$output_dir/rescue-boot"
+  cp -r "$RESCUE_BOOT_STATE_DIR"/* "$output_dir/rescue-boot/" 2>/dev/null || true
+  echo "  -> Collected rescue boot state files"
+fi
+
+MACOS_RESCUE_STATE_DIR="${HOME}/.local/state/cidre/macos-rescue"
+if [ -d "$MACOS_RESCUE_STATE_DIR" ]; then
+  mkdir -p "$output_dir/macos-rescue"
+  cp -r "$MACOS_RESCUE_STATE_DIR"/* "$output_dir/macos-rescue/" 2>/dev/null || true
+  echo "  -> Collected macOS rescue state files"
 fi
 
 echo ""

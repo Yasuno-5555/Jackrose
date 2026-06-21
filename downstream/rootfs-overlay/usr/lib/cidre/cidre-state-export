@@ -1,0 +1,196 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+output_path=""
+format="tar.gz"
+include_logs=false
+include_reports=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-state-export [options]
+
+Options:
+  --output <path>
+  --format tar.gz|tar.zst
+  --include-logs
+  --include-reports
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_path="$2"; shift 2 ;;
+    --format) format="$2"; shift 2 ;;
+    --include-logs) include_logs=true; shift ;;
+    --include-reports) include_reports=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+
+case "$format" in
+  tar.gz|tar.zst) ;;
+  *) echo "ERROR: unsupported format: $format" >&2; exit 1 ;;
+esac
+
+if [ -z "$output_path" ]; then
+  case "$format" in
+    tar.gz) output_path="$(cidre_exit_current_path "cidre-state-export.tar.gz")" ;;
+    tar.zst) output_path="$(cidre_exit_current_path "cidre-state-export.tar.zst")" ;;
+  esac
+fi
+
+REPO_ROOT="$(cidre_exit_repo_root "$SCRIPT_DIR")"
+USER_STATE_ROOT="$(cidre_exit_user_state_root)"
+SYSTEM_STATE_ROOT="$(cidre_exit_system_state_root)"
+MANIFEST_PATH="$(cidre_exit_current_path "state-export-manifest.json")"
+
+include_list=""
+add_path() {
+  path="$1"
+  if [ -e "$path" ]; then
+    include_list="${include_list}${path}
+"
+  fi
+}
+
+add_path "$REPO_ROOT/.local/state/cidre/image-build"
+add_path "$REPO_ROOT/.local/state/cidre/boot-test"
+add_path "$REPO_ROOT/.local/state/cidre/exit"
+add_path "$USER_STATE_ROOT/user-phase"
+add_path "$USER_STATE_ROOT/desktop-session"
+add_path "$USER_STATE_ROOT/settings"
+add_path "$USER_STATE_ROOT/doctor"
+add_path "$USER_STATE_ROOT/update"
+add_path "$USER_STATE_ROOT/manifest.json"
+add_path "$SYSTEM_STATE_ROOT/seed"
+add_path "$SYSTEM_STATE_ROOT/resume"
+add_path "$SYSTEM_STATE_ROOT/firstboot-root"
+
+if [ "$include_logs" = "true" ]; then
+  add_path "$USER_STATE_ROOT/user-phase/install.log"
+  add_path "$SYSTEM_STATE_ROOT/firstboot-root/firstboot.log"
+fi
+
+if [ "$include_reports" = "true" ]; then
+  add_path "$REPO_ROOT/.local/state/cidre/image-build/build-report.md"
+  add_path "$REPO_ROOT/.local/state/cidre/boot-test/current/report.md"
+  add_path "$SYSTEM_STATE_ROOT/firstboot-root/report.md"
+  add_path "$USER_STATE_ROOT/user-phase/report.md"
+fi
+
+excluded_patterns='*.img *.img.zst *.raw *.qcow2 *secret* *token* *cache*'
+
+mkdir -p "$(dirname "$output_path")"
+
+{
+  printf '{\n'
+  printf '  "schema_version": 1,\n'
+  printf '  "created_at": "%s",\n' "$(cidre_exit_timestamp)"
+  printf '  "cidre_revision": "%s",\n' "$(cidre_exit_json_escape "$(cidre_exit_git_revision "$REPO_ROOT")")"
+  printf '  "format": "%s",\n' "$(cidre_exit_json_escape "$format")"
+  printf '  "included_paths": [\n'
+  first=true
+  printf '%s' "$include_list" | while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ "$first" = true ]; then
+      first=false
+      printf '    "%s"' "$(cidre_exit_json_escape "$path")"
+    else
+      printf ',\n    "%s"' "$(cidre_exit_json_escape "$path")"
+    fi
+  done
+  printf '\n  ],\n'
+  printf '  "excluded_patterns": [\n'
+  first=true
+  for pattern in $excluded_patterns; do
+    if [ "$first" = true ]; then
+      first=false
+      printf '    "%s"' "$(cidre_exit_json_escape "$pattern")"
+    else
+      printf ',\n    "%s"' "$(cidre_exit_json_escape "$pattern")"
+    fi
+  done
+  printf '\n  ]\n'
+  printf '}\n'
+} > "$MANIFEST_PATH"
+
+if [ "$dry_run" = "true" ]; then
+  echo "Cidre state export (dry-run)"
+  echo
+  echo "Output archive: $output_path"
+  echo "Manifest: $MANIFEST_PATH"
+  echo
+  echo "Included paths:"
+  printf '%s' "$include_list" | sed '/^$/d; s/^/  /'
+  echo
+  echo "Excluded patterns:"
+  for pattern in $excluded_patterns; do
+    echo "  $pattern"
+  done
+  echo
+  echo "No archive created (dry-run)."
+  exit 0
+fi
+
+tmp_archive="$(mktemp "/tmp/cidre-state-export.XXXXXX")"
+trap 'rm -f "$tmp_archive"' EXIT HUP INT TERM
+
+tar_args=""
+for pattern in $excluded_patterns; do
+  tar_args="$tar_args --exclude=$pattern"
+done
+
+set -- -C /
+printf '%s' "$include_list" | while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  set -- "$@" "${path#/}"
+done
+
+# Rebuild positional parameters outside subshell.
+paths_args=""
+printf '%s' "$include_list" | while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  printf '%s\n' "${path#/}"
+done > "${tmp_archive}.paths"
+set -- -C /
+while IFS= read -r relpath; do
+  [ -n "$relpath" ] || continue
+  set -- "$@" "$relpath"
+done < "${tmp_archive}.paths"
+
+if [ "$#" -le 2 ]; then
+  echo "ERROR: no exportable state paths found" >&2
+  exit 1
+fi
+
+case "$format" in
+  tar.gz)
+    # shellcheck disable=SC2086
+    tar -czf "$tmp_archive" $tar_args "$@"
+    mv "$tmp_archive" "$output_path"
+    ;;
+  tar.zst)
+    if ! command -v zstd >/dev/null 2>&1; then
+      echo "ERROR: zstd is required for --format tar.zst" >&2
+      exit 1
+    fi
+    # shellcheck disable=SC2086
+    tar -cf - $tar_args "$@" | zstd -q -o "$tmp_archive"
+    mv "$tmp_archive" "$output_path"
+    ;;
+esac
+
+rm -f "${tmp_archive}.paths"
+printf '%s\n' "$output_path"
+printf '%s\n' "$MANIFEST_PATH"

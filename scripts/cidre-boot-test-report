@@ -57,7 +57,19 @@ Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 - Preflight Log: $([ -f "$state_dir/preflight.log" ] && echo "Present" || echo "Missing")
 - Observation Checklist: $([ -f "$state_dir/observation.md" ] && echo "Present" || echo "Missing")
 - Failure Classification: $([ -f "$state_dir/failure-classification.md" ] && echo "Present" || echo "Missing")
+
+## User Phase Handoff (v0.22.0)
+- **User Phase State**: $([ -f "$state_dir/user-phase/completed" ] && echo "completed" || ([ -f "$state_dir/user-phase/failed" ] && echo "failed" || echo "incomplete"))
+- **Handoff Imported**: $([ -f "$state_dir/user-phase/handoff-imported" ] && echo "Yes" || echo "No")
+- **Last Stage**: $([ -f "$state_dir/user-phase/last-stage" ] && cat "$state_dir/user-phase/last-stage" || echo "none")
+- **Last Error**: $([ -f "$state_dir/user-phase/last-error" ] && cat "$state_dir/user-phase/last-error" || echo "none")
+- **Install Resume Log**: $([ -f "$state_dir/user-phase/install.log" ] && echo "Collected" || echo "Missing")
+
+## Exit Path Reminder (v0.23.0)
+- Generate uninstall readiness: \`scripts/cidre-uninstall-check\`
+- Export Cidre state: \`scripts/cidre-state-export --include-logs --include-reports\`
+- Record partition layout read-only: \`scripts/cidre-partition-audit\`
+- Classify uninstall risk before cleanup: \`scripts/cidre-uninstall-risk\`
 EOF
 
-echo "Boot test report created at: $output_file"
-EOF
+echo "Boot test report compiled successfully at: $output_file"

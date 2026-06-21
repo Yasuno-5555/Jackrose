@@ -4,6 +4,8 @@
 
 Cidre firstboot OOBE is the root-phase entrypoint intended for future Cidre-controlled images.
 
+Cidre v0.21.0 improves firstboot visibility, failure reporting, and retry guidance.
+
 Its job is to guide the first boot state toward:
 
 - seed/resume awareness

@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+output_file="$CURRENT_DIR/rescue-boot-plan.md"
+size_gib="8"
+profile="minimal-rescue"
+include_macos_steps=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-boot-plan [options]
+
+Options:
+  --output <file>
+  --size <GiB>
+  --profile minimal-rescue
+  --include-macos-steps
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --size) size_gib="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --include-macos-steps) include_macos_steps=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$(dirname "$output_file")"
+cat > "$output_file" <<EOF
+# Cidre Rescue Boot Plan
+
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+- Purpose: move Rescue Slot toward a bootable rescue environment without modifying disks in this release.
+- Rescue Slot role: separate minimal repair-oriented environment.
+- Recommended size: ${size_gib} GiB
+- Profile: ${profile}
+- Expected artifact: \`cidre-rescue-rootfs.tar.gz\`
+- Expected metadata: rescue manifest plus rescue slot metadata
+- Boot integration constraints: Apple Silicon pairing, ESP handling, and boot entry design remain planned
+- Non-goals: partition creation, APFS resize, boot entry mutation, destructive operations
+
+## Next Validation Steps
+
+1. Generate rescue slot metadata.
+2. Generate rescue boot guide.
+3. Generate rescue dry-run creation report.
+4. Generate macOS-side rescue disk audit.
+5. Record validation status as not-tested until real hardware checks occur.
+EOF
+
+if [ "$include_macos_steps" = "true" ]; then
+  cat >> "$output_file" <<'EOF'
+
+## macOS-side checks
+
+1. Run `./install-macos --rescue-check`
+2. Run `./install-macos --rescue-disk-audit`
+3. Run `./install-macos --rescue-plan`
+4. Run `./install-macos --rescue-guide`
+5. Run `./install-macos --rescue-report`
+EOF
+fi
+
+printf '%s\n' "$output_file"

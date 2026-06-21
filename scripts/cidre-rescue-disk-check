@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="${CIDRE_RESCUE_BOOT_STATE_ROOT:-$REPO_ROOT/.local/state/cidre/rescue-boot}"
+CURRENT_DIR="$STATE_ROOT/current"
+json_output=false
+output_dir="$CURRENT_DIR"
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue-disk-check [options]
+
+Options:
+  --json
+  --output <dir>
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) json_output=true; shift ;;
+    --output) output_dir="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+mkdir -p "$output_dir"
+text_file="$output_dir/rescue-disk-check.txt"
+json_file="$output_dir/rescue-disk-check.json"
+
+root_source="$(findmnt -n -o SOURCE / 2>/dev/null || printf 'unknown')"
+boot_hint="$(findmnt -n -o SOURCE /boot 2>/dev/null || printf 'unknown')"
+
+cat > "$text_file" <<EOF
+Cidre Rescue Disk Check
+
+- lsblk: $(command -v lsblk >/dev/null 2>&1 && printf available || printf missing)
+- blkid: $(command -v blkid >/dev/null 2>&1 && printf available || printf missing)
+- findmnt: $(command -v findmnt >/dev/null 2>&1 && printf available || printf missing)
+- current main Cidre root hint: $root_source
+- mounted boot hint: $boot_hint
+- known rescue artifact: $( [ -f "$REPO_ROOT/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ] && printf present || printf missing )
+- free space estimate: unknown from Linux-side audit
+
+This audit is read-only.
+Use macOS-side rescue disk audit as the stronger reference for creation planning.
+EOF
+
+cat > "$json_file" <<EOF
+{
+  "schema_version": 1,
+  "root_source": "$root_source",
+  "boot_hint": "$boot_hint",
+  "rescue_artifact": "$( [ -f "$REPO_ROOT/.local/state/cidre/rescue/artifacts/cidre-rescue-rootfs.tar.gz" ] && printf present || printf missing )",
+  "free_space": "unknown",
+  "destructive_operations": false
+}
+EOF
+
+if [ "$json_output" = "true" ]; then
+  cat "$json_file"
+else
+  cat "$text_file"
+fi

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# cidre-user-phase-state: Read and write normal user phase installation states
+set -euo pipefail
+
+STATE_DIR="${CIDRE_USER_STATE_DIR:-$HOME/.local/state/cidre/user-phase}"
+
+usage() {
+  cat <<EOF
+Usage: cidre-user-phase-state <command> [args]
+
+Commands:
+  status               Show current user phase state summary
+  mark-started         Create started marker file
+  mark-completed       Create completed marker file and clear failed marker
+  mark-failed          Create failed marker file
+  mark-recovery-reason Write a recovery-screen reason marker
+  set-stage <stage>    Set the current execution stage
+  set-error <message>  Record the last encountered error message
+  clear-failed         Remove failed marker file
+  dump                 Dump all raw state files contents
+EOF
+}
+
+mark_file() {
+  marker="$1"
+  mkdir -p "$STATE_DIR"
+  date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STATE_DIR/$marker"
+  printf '[OK] marked %s\n' "$marker"
+}
+
+clear_file() {
+  marker="$1"
+  rm -f "$STATE_DIR/$marker"
+  printf '[OK] cleared %s\n' "$marker"
+}
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+cmd="$1"
+shift || true
+
+case "$cmd" in
+  status)
+    printf 'Cidre user phase state:\n\n'
+    for marker in started completed failed handoff-imported; do
+      if [ -f "$STATE_DIR/$marker" ]; then
+        printf '  %s: yes (%s)\n' "$marker" "$(cat "$STATE_DIR/$marker")"
+      else
+        printf '  %s: no\n' "$marker"
+      fi
+    done
+    if [ -f "$STATE_DIR/last-stage" ]; then
+      printf '  last-stage: %s\n' "$(cat "$STATE_DIR/last-stage")"
+    else
+      printf '  last-stage: unknown\n'
+    fi
+    if [ -f "$STATE_DIR/last-error" ]; then
+      printf '  last-error: %s\n' "$(cat "$STATE_DIR/last-error")"
+    else
+      printf '  last-error: none\n'
+    fi
+    ;;
+  mark-started)
+    mark_file started
+    ;;
+  mark-completed)
+    mark_file completed
+    rm -f "$STATE_DIR/failed"
+    ;;
+  mark-failed)
+    mark_file failed
+    ;;
+  mark-recovery-reason)
+    if [ "$#" -lt 1 ]; then
+      printf 'ERROR: mark-recovery-reason requires a reason\n' >&2
+      exit 1
+    fi
+    mkdir -p "$HOME/.local/state/cidre/recovery-screen/current"
+    printf '%s\n' "$1" > "$HOME/.local/state/cidre/recovery-screen/current/reason"
+    printf '[OK] recovery reason set to %s\n' "$1"
+    ;;
+  set-stage)
+    if [ "$#" -lt 1 ]; then
+      printf 'ERROR: set-stage requires stage name\n' >&2
+      exit 1
+    fi
+    mkdir -p "$STATE_DIR"
+    printf '%s\n' "$1" > "$STATE_DIR/last-stage"
+    printf '[OK] set stage to %s\n' "$1"
+    ;;
+  set-error)
+    if [ "$#" -lt 1 ]; then
+      printf 'ERROR: set-error requires error message\n' >&2
+      exit 1
+    fi
+    mkdir -p "$STATE_DIR"
+    printf '%s\n' "$1" > "$STATE_DIR/last-error"
+    printf '[OK] recorded error: %s\n' "$1"
+    ;;
+  clear-failed)
+    clear_file failed
+    ;;
+  dump)
+    if [ -d "$STATE_DIR" ]; then
+      find "$STATE_DIR" -type f | sort | while read -r f; do
+        printf '=== %s ===\n' "$(basename "$f")"
+        cat "$f"
+        printf '\n'
+      done
+    else
+      printf 'No user state directory exists at %s\n' "$STATE_DIR"
+    fi
+    ;;
+  *)
+    printf 'ERROR: unknown command: %s\n' "$cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

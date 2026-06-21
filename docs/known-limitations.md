@@ -70,4 +70,64 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
 - Generated images may still fail to boot.
 - Mount/inspect success does not guarantee Apple Silicon boot success.
 
+## v0.20.0 limitations
 
+- Controlled boot tests depend on human observation and physical access to the device.
+- Failure classification categories are preliminary.
+- v0.20.0 does not publish a public Cidre image.
+
+## v0.21.0 limitations
+
+- v0.21.0 stabilizes firstboot behavior but does not guarantee full desktop readiness.
+- Retry/repair commands are conservative and may require manual intervention.
+- Service ordering may still need hardware-specific adjustment.
+- Firstboot console visibility depends on boot target and systemd output behavior.
+
+## v0.22.0 limitations
+
+- v0.22.0 stabilizes user phase handoff but does not guarantee full desktop readiness.
+- ./install --resume may still fail during profile setup.
+- User phase repair intentionally avoids root-level system changes.
+- First login guidance is command-based, not GUI-based.
+- Full niri-cidre desktop readiness is deferred.
+
+## v0.23.0 limitations
+
+- v0.23.0 does not delete partitions.
+- v0.23.0 does not resize APFS containers.
+- v0.23.0 does not set macOS as the default startup disk automatically.
+- Partition audit reports are advisory and read-only.
+- macOS-side cleanup remains manual until a future guided uninstaller exists.
+
+## v0.24.0 limitations
+
+- v0.24.0 does not delete partitions.
+- v0.24.0 does not resize APFS containers.
+- v0.24.0 does not change startup disk settings.
+- macOS partition audit is advisory.
+- Candidate detection is not proof that a partition is safe to delete.
+
+## v0.25.0 limitations
+
+- v0.25.0 cannot handle main kernel boot failure.
+- v0.25.0 cannot recover if the root filesystem cannot be mounted.
+- Recovery Screen depends on the system booting far enough to run Cidre scripts.
+- foot-based GUI rescue is not implemented in v0.25.0.
+- Cidre Rescue Slot is not implemented in v0.25.0.
+
+## v0.26.0 limitations
+
+- v0.26.0 is a Rescue Slot foundation release, not a complete bootable rescue install.
+- Rescue rootfs artifacts can be generated, but real boot integration is still pending.
+- Main Cidre partition detection is advisory.
+- Read-write mount requires explicit confirmation.
+- Kernel repair remains read-only inspection plus suggested commands.
+- Actual Apple Silicon rescue boot validation is still pending.
+
+## v0.27.0 limitations
+
+- v0.27.0 does not create a Rescue Slot partition.
+- v0.27.0 does not modify boot entries.
+- v0.27.0 does not modify m1n1 or U-Boot files.
+- v0.27.0 does not validate a real Apple Silicon rescue boot.
+- Rescue boot integration remains planned or pending.

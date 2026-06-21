@@ -1,0 +1,82 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIR/cidre-exit-common"
+
+output_file="$(cidre_exit_current_path "exit-plan.md")"
+include_partition_audit=false
+include_macos_guide=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-exit-plan [options]
+
+Options:
+  --output <file>
+  --include-partition-audit
+  --include-macos-guide
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) output_file="$2"; shift 2 ;;
+    --include-partition-audit) include_partition_audit=true; shift ;;
+    --include-macos-guide) include_macos_guide=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+cidre_exit_prepare_dirs
+mkdir -p "$(dirname "$output_file")"
+
+partition_audit_path="$(cidre_exit_current_path "partition-audit.json")"
+macos_guide_path="$(cidre_exit_current_path "macos-restore-guide.md")"
+state_export_path="$(cidre_exit_current_path "cidre-state-export.tar.gz")"
+
+cat > "$output_file" <<EOF
+# Cidre Exit Plan
+
+Generated: $(cidre_exit_timestamp)
+
+1. Export Cidre state with \`scripts/cidre-state-export --include-logs --include-reports\`.
+2. Confirm the current Linux-side state with \`scripts/cidre-uninstall-check\`.
+3. Record the current partition layout with \`scripts/cidre-partition-audit\`.
+4. Confirm the macOS boot path and default startup disk from macOS.
+5. Reboot into macOS.
+6. Review the generated macOS restore guide before any partition changes.
+7. Remove only confirmed Linux/Asahi/Cidre partitions manually or with a future guided tool.
+8. Verify the macOS disk layout and boot path after cleanup.
+9. Keep the exported state archive for reinstall, debugging, or issue reports.
+
+## Generated Artifacts
+
+- State export archive: \`$state_export_path\`
+- Partition audit: \`$partition_audit_path\`
+- macOS restore guide: \`$macos_guide_path\`
+EOF
+
+if [ "$include_partition_audit" = "true" ]; then
+  cat >> "$output_file" <<EOF
+
+## Partition Audit Note
+
+This release records partition identifiers for review, but it does not identify delete targets with absolute certainty.
+Do not delete partitions based only on the Linux-side audit.
+EOF
+fi
+
+if [ "$include_macos_guide" = "true" ]; then
+  cat >> "$output_file" <<EOF
+
+## macOS Restore Note
+
+Use the generated guide from macOS to confirm startup disk settings, inspect partition layout, and perform any cleanup manually.
+No destructive command is executed by this plan.
+EOF
+fi
+
+printf '%s\n' "$output_file"

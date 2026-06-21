@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+check_mode=false
+plan_mode=false
+mount_mode=false
+export_mode=false
+kernel_mode=false
+report_mode=false
+menu_mode=false
+dry_run=false
+
+usage() {
+  cat <<EOF
+Usage: cidre-rescue [options]
+
+Options:
+  --check
+  --plan
+  --mount-main
+  --export
+  --kernel-check
+  --report
+  --menu
+  --dry-run
+  --help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) check_mode=true; shift ;;
+    --plan) plan_mode=true; shift ;;
+    --mount-main) mount_mode=true; shift ;;
+    --export) export_mode=true; shift ;;
+    --kernel-check) kernel_mode=true; shift ;;
+    --report) report_mode=true; shift ;;
+    --menu) menu_mode=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+
+if [ "$check_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-check" "$@"
+fi
+if [ "$plan_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-plan" "$@"
+fi
+if [ "$mount_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-mount" "$@"
+fi
+if [ "$export_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-export" "$@"
+fi
+if [ "$kernel_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-kernel-check" "$@"
+fi
+if [ "$report_mode" = "true" ]; then
+  exec "$SCRIPT_DIR/cidre-rescue-report" "$@"
+fi
+
+if [ "$menu_mode" = "true" ] || [ "$dry_run" = "true" ] || [ $# -eq 0 ]; then
+  cat <<EOF
+Cidre Rescue
+
+Available actions:
+  cidre-rescue --check
+  cidre-rescue --plan
+  cidre-rescue-mount --scan --dry-run
+  cidre-rescue-export --main-root /mnt/cidre-main --dry-run
+  cidre-rescue-kernel-check --main-root <path>
+  cidre-rescue-report
+EOF
+  exit 0
+fi
+
+usage
+exit 1

@@ -19,6 +19,9 @@ NO_COMPRESS=0
 BOOT_READINESS=0
 BUILDER_STATUS=0
 BUILDER_CONFIG_INTEGRATE=0
+SYNC_RESCUE_OVERLAY=0
+RESCUE_OVERLAY_ONLY=0
+RESCUE_DIR="$REPO_ROOT/rescue"
 
 usage() {
   cat <<'EOF'
@@ -29,6 +32,8 @@ Options:
   --dry-run
   --overlay-only
   --sync-overlay
+  --sync-rescue-overlay
+  --rescue-overlay-only
   --builder <path>
   --builder-config
   --output <dir>
@@ -64,9 +69,10 @@ sync_overlay_tree() {
   overlay_state_dir="$OVERLAY_DIR/var/lib/cidre"
 
   mkdir -p "$overlay_cidre_dir" "$overlay_systemd_dir" "$overlay_wants_dir" \
-    "$overlay_state_dir/seed" "$overlay_state_dir/resume" "$overlay_state_dir/firstboot-root"
+    "$overlay_state_dir/seed" "$overlay_state_dir/resume" "$overlay_state_dir/firstboot-root" \
+    "$overlay_state_dir/recovery-screen" "$overlay_state_dir/rescue"
 
-  for subdir in seed resume firstboot-root; do
+  for subdir in seed resume firstboot-root recovery-screen rescue; do
     keep_file="$overlay_state_dir/$subdir/.gitkeep"
     [ -f "$keep_file" ] || : > "$keep_file"
   done
@@ -76,12 +82,54 @@ sync_overlay_tree() {
     "scripts/cidre-oobe:cidre-oobe" \
     "scripts/cidre-firstboot-state:cidre-firstboot-state" \
     "scripts/cidre-firstboot-handoff:cidre-firstboot-handoff" \
+    "scripts/cidre-firstboot-diagnose:cidre-firstboot-diagnose" \
+    "scripts/cidre-firstboot-retry:cidre-firstboot-retry" \
+    "scripts/cidre-firstboot-repair:cidre-firstboot-repair" \
+    "scripts/cidre-firstboot-report:cidre-firstboot-report" \
+    "scripts/cidre-firstboot-console:cidre-firstboot-console" \
+    "scripts/cidre-user-handoff:cidre-user-handoff" \
+    "scripts/cidre-user-phase-state:cidre-user-phase-state" \
+    "scripts/cidre-user-phase-verify:cidre-user-phase-verify" \
+    "scripts/cidre-user-phase-report:cidre-user-phase-report" \
+    "scripts/cidre-user-phase-repair:cidre-user-phase-repair" \
+    "scripts/cidre-first-login:cidre-first-login" \
     "scripts/cidre-seed:cidre-seed" \
     "scripts/cidre-seed-verify:cidre-seed-verify" \
     "scripts/cidre-seed-import:cidre-seed-import" \
     "scripts/cidre-resume:cidre-resume" \
     "scripts/cidre-doctor:cidre-doctor" \
     "scripts/cidre-recovery:cidre-recovery" \
+    "scripts/cidre-recovery-common:cidre-recovery-common" \
+    "scripts/cidre-panic:cidre-panic" \
+    "scripts/cidre-recovery-screen:cidre-recovery-screen" \
+    "scripts/cidre-safe-mode:cidre-safe-mode" \
+    "scripts/cidre-safe-shell:cidre-safe-shell" \
+    "scripts/cidre-session-failure:cidre-session-failure" \
+    "scripts/cidre-desktop-failure-detect:cidre-desktop-failure-detect" \
+    "scripts/cidre-recovery-actions:cidre-recovery-actions" \
+    "scripts/cidre-emergency-banner:cidre-emergency-banner" \
+    "scripts/cidre-recovery-report:cidre-recovery-report" \
+    "scripts/cidre-rescue:cidre-rescue" \
+    "scripts/cidre-rescue-check:cidre-rescue-check" \
+    "scripts/cidre-rescue-plan:cidre-rescue-plan" \
+    "scripts/cidre-rescue-profile:cidre-rescue-profile" \
+    "scripts/cidre-rescue-image-build:cidre-rescue-image-build" \
+    "scripts/cidre-rescue-image-inspect:cidre-rescue-image-inspect" \
+    "scripts/cidre-rescue-manifest:cidre-rescue-manifest" \
+    "scripts/cidre-rescue-mount:cidre-rescue-mount" \
+    "scripts/cidre-rescue-export:cidre-rescue-export" \
+    "scripts/cidre-rescue-kernel-check:cidre-rescue-kernel-check" \
+    "scripts/cidre-rescue-report:cidre-rescue-report" \
+    "scripts/cidre-rescue-clean:cidre-rescue-clean" \
+    "scripts/cidre-rescue-boot-plan:cidre-rescue-boot-plan" \
+    "scripts/cidre-rescue-disk-check:cidre-rescue-disk-check" \
+    "scripts/cidre-rescue-slot-metadata:cidre-rescue-slot-metadata" \
+    "scripts/cidre-rescue-boot-guide:cidre-rescue-boot-guide" \
+    "scripts/cidre-rescue-boot-report:cidre-rescue-boot-report" \
+    "scripts/cidre-rescue-create-dry-run:cidre-rescue-create-dry-run" \
+    "scripts/cidre-rescue-boot-checklist:cidre-rescue-boot-checklist" \
+    "scripts/cidre-rescue-boot-risk:cidre-rescue-boot-risk" \
+    "scripts/cidre-rescue-boot-validate:cidre-rescue-boot-validate" \
     "scripts/cidre-preinstall:cidre-preinstall" \
     "scripts/cidre-installer:cidre-installer"; do
     src="${mapping%%:*}"
@@ -91,7 +139,45 @@ sync_overlay_tree() {
   done
 
   cp "$REPO_ROOT/systemd/cidre-firstboot-root.service" "$overlay_systemd_dir/cidre-firstboot-root.service"
+  cp "$REPO_ROOT/systemd/cidre-recovery-screen.service" "$overlay_systemd_dir/cidre-recovery-screen.service"
+  cp "$REPO_ROOT/systemd/cidre-safe-mode.service" "$overlay_systemd_dir/cidre-safe-mode.service"
+  cp "$REPO_ROOT/systemd/cidre-emergency-banner.service" "$overlay_systemd_dir/cidre-emergency-banner.service"
+  cp "$REPO_ROOT/systemd/cidre-desktop-failure.target" "$overlay_systemd_dir/cidre-desktop-failure.target"
+  cp "$REPO_ROOT/systemd/cidre-safe-mode.target" "$overlay_systemd_dir/cidre-safe-mode.target"
   ln -sfn ../cidre-firstboot-root.service "$overlay_wants_dir/cidre-firstboot-root.service"
+}
+
+sync_rescue_overlay_tree() {
+  overlay_cidre_dir="$RESCUE_DIR/overlay/usr/lib/cidre"
+  overlay_etc_dir="$RESCUE_DIR/overlay/etc/cidre"
+  overlay_state_dir="$RESCUE_DIR/overlay/var/lib/cidre/rescue"
+  mkdir -p "$overlay_cidre_dir" "$overlay_etc_dir" "$overlay_state_dir"
+  cp "$RESCUE_DIR/profile/profile.env" "$overlay_etc_dir/profile.env"
+  for script in \
+    cidre-rescue \
+    cidre-rescue-check \
+    cidre-rescue-plan \
+    cidre-rescue-profile \
+    cidre-rescue-image-build \
+    cidre-rescue-image-inspect \
+    cidre-rescue-manifest \
+    cidre-rescue-mount \
+    cidre-rescue-export \
+    cidre-rescue-kernel-check \
+    cidre-rescue-report \
+    cidre-rescue-clean \
+    cidre-rescue-boot-plan \
+    cidre-rescue-disk-check \
+    cidre-rescue-slot-metadata \
+    cidre-rescue-boot-guide \
+    cidre-rescue-boot-report \
+    cidre-rescue-create-dry-run \
+    cidre-rescue-boot-checklist \
+    cidre-rescue-boot-risk \
+    cidre-rescue-boot-validate; do
+    cp "$REPO_ROOT/scripts/$script" "$overlay_cidre_dir/$script"
+    chmod +x "$overlay_cidre_dir/$script"
+  done
 }
 
 while [ "$#" -gt 0 ]; do
@@ -99,6 +185,8 @@ while [ "$#" -gt 0 ]; do
     --dry-run) DRY_RUN=1; shift ;;
     --overlay-only) OVERLAY_ONLY=1; shift ;;
     --sync-overlay) SYNC_OVERLAY=1; shift ;;
+    --sync-rescue-overlay) SYNC_RESCUE_OVERLAY=1; shift ;;
+    --rescue-overlay-only) RESCUE_OVERLAY_ONLY=1; shift ;;
     --builder)
       [ "$#" -ge 2 ] || { printf 'ERROR: --builder requires a path\n' >&2; exit 1; }
       BUILDER_DIR="$2"
@@ -159,8 +247,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
   if [ "$CLEAN_OUTPUT" -eq 1 ]; then
     printf '[DRY-RUN] would clean output dir\n'
   fi
-  if [ "$SYNC_OVERLAY" -eq 1 ] || [ "$OVERLAY_ONLY" -eq 1 ] || [ "$INSPECT_ARTIFACT" -eq 1 ]; then
+  if [ "$SYNC_OVERLAY" -eq 1 ] || [ "$OVERLAY_ONLY" -eq 1 ] || [ "$INSPECT_ARTIFACT" -eq 1 ] || [ "$SYNC_RESCUE_OVERLAY" -eq 1 ] || [ "$RESCUE_OVERLAY_ONLY" -eq 1 ]; then
     printf '[DRY-RUN] would sync scripts and systemd units into the overlay\n'
+  fi
+  if [ "$SYNC_RESCUE_OVERLAY" -eq 1 ] || [ "$RESCUE_OVERLAY_ONLY" -eq 1 ]; then
+    printf '[DRY-RUN] would sync Rescue Slot overlay files\n'
   fi
   if [ "$OVERLAY_ONLY" -eq 1 ]; then
     printf '[DRY-RUN] would write overlay artifact: %s\n' "$overlay_artifact"
@@ -203,8 +294,18 @@ if [ "$SYNC_OVERLAY" -eq 1 ] || [ "$OVERLAY_ONLY" -eq 1 ] || [ "$INSPECT_ARTIFAC
   log "overlay sync: completed"
 fi
 
-if [ "$SYNC_OVERLAY" -eq 1 ] && [ "$OVERLAY_ONLY" -eq 0 ] && [ "$INSPECT_ARTIFACT" -eq 0 ]; then
+if [ "$SYNC_RESCUE_OVERLAY" -eq 1 ] || [ "$RESCUE_OVERLAY_ONLY" -eq 1 ]; then
+  sync_rescue_overlay_tree
+  log "rescue overlay sync: completed"
+fi
+
+if [ "$SYNC_OVERLAY" -eq 1 ] && [ "$OVERLAY_ONLY" -eq 0 ] && [ "$INSPECT_ARTIFACT" -eq 0 ] && [ "$SYNC_RESCUE_OVERLAY" -eq 0 ] && [ "$RESCUE_OVERLAY_ONLY" -eq 0 ]; then
   log "[OK] overlay sync complete"
+  exit 0
+fi
+
+if [ "$SYNC_RESCUE_OVERLAY" -eq 1 ] && [ "$RESCUE_OVERLAY_ONLY" -eq 0 ] && [ "$SYNC_OVERLAY" -eq 0 ] && [ "$OVERLAY_ONLY" -eq 0 ] && [ "$INSPECT_ARTIFACT" -eq 0 ]; then
+  log "[OK] rescue overlay sync complete"
   exit 0
 fi
 
@@ -266,4 +367,3 @@ if [ -n "$BUILDER_DIR" ]; then
   log "Planning build execution using ALARM builder at: $BUILDER_DIR"
   CIDRE_ALARM_BUILDER_DIR="$BUILDER_DIR" CIDRE_IMAGE_PROFILE="$PROFILE" "$SCRIPT_DIR/cidre-builder-invoke" --dry-run >> "$BUILD_LOG"
 fi
-
