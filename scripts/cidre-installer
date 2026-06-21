@@ -16,6 +16,10 @@ PROFILE=""
 YES=false
 NO_COLOR=false
 RC_DRY_RUN=false
+RESUME_MODE=false
+NO_RESUME=false
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_RESUME_FILE="${CIDRE_SYSTEM_ROOT}/resume/resume.env"
 
 show_help() {
   echo "Usage: install [options]"
@@ -23,6 +27,9 @@ show_help() {
   echo "  --check             Perform preflight system checks without making changes"
   echo "  --dry-run           Show the commands that would be executed"
   echo "  --profile <name>    Set installation profile (desktop, developer, minimal, recovery)"
+  echo "  --resume            Use imported Cidre resume state to select the profile"
+  echo "  --resume-profile    Print the imported resume profile and exit"
+  echo "  --no-resume         Ignore imported resume state and use normal selection"
   echo "  --yes               Skip confirmation prompts"
   echo "  --no-color          Disable colored terminal output"
   echo "  --rc-dry-run        Validate all installer/doctor profiles in simulation mode"
@@ -43,6 +50,18 @@ while [ $# -gt 0 ]; do
       PROFILE="$2"
       shift 2
       ;;
+    --resume) RESUME_MODE=true; shift ;;
+    --resume-profile)
+      if [ -f "${SYSTEM_RESUME_FILE}" ]; then
+        # shellcheck disable=SC1090
+        . "${SYSTEM_RESUME_FILE}"
+        printf '%s\n' "${CIDRE_RESUME_PROFILE:-}"
+        exit 0
+      fi
+      echo "ERROR: no Cidre resume state found." >&2
+      exit 1
+      ;;
+    --no-resume) NO_RESUME=true; shift ;;
     --yes) YES=true; shift ;;
     --no-color) NO_COLOR=true; shift ;;
     --help) show_help; exit 0 ;;
@@ -123,6 +142,26 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "Installation started at $(date)"
 
+write_user_resume_state() {
+  if [ "${RESUME_MODE}" = false ]; then
+    return 0
+  fi
+  local user_resume_dir="${LOG_DIR}/resume"
+  mkdir -p "${user_resume_dir}"
+  if [ -f "${CIDRE_SYSTEM_ROOT}/seed/manifest.json" ]; then
+    cp "${CIDRE_SYSTEM_ROOT}/seed/manifest.json" "${user_resume_dir}/manifest.json"
+  fi
+  printf '%s\n' "${PROFILE}" > "${user_resume_dir}/applied-profile"
+  date -Is > "${user_resume_dir}/applied-at"
+  {
+    echo "resume_mode=true"
+    echo "profile=${PROFILE}"
+    echo "source_commit=${CIDRE_RESUME_SOURCE_COMMIT:-unknown}"
+    echo "source_branch=${CIDRE_RESUME_SOURCE_BRANCH:-unknown}"
+    echo "applied_at=$(date -Is)"
+  } > "${user_resume_dir}/resume.log"
+}
+
 # Root check
 if [ "$EUID" -eq 0 ] && [ "$DRY_RUN" = false ] && [ "$CHECK_ONLY" = false ] && [ "$RC_DRY_RUN" = false ]; then
   echo -e "\e[1;31mFAIL: Do not run ./install as root.\e[0m" >&2
@@ -165,6 +204,31 @@ fi
 if [ "$CHECK_ONLY" = true ]; then
   echo "Check-only mode complete. System is ready for install."
   exit 0
+fi
+
+if [ "${NO_RESUME}" = true ]; then
+  RESUME_MODE=false
+fi
+
+if [ "${RESUME_MODE}" = true ]; then
+  if [ ! -f "${SYSTEM_RESUME_FILE}" ]; then
+    echo "ERROR: no Cidre resume state found." >&2
+    echo "Hint: run ./preinstall --import-seed /path/to/cidre-seed.tar.gz first, or run ./install normally." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "${SYSTEM_RESUME_FILE}"
+  RESUME_PROFILE="${CIDRE_RESUME_PROFILE:-}"
+  if [ -z "${RESUME_PROFILE}" ]; then
+    echo "ERROR: imported Cidre resume state does not include a profile." >&2
+    exit 1
+  fi
+  if [ -n "${PROFILE}" ] && [ "${PROFILE}" != "${RESUME_PROFILE}" ]; then
+    echo "[WARN] --profile ${PROFILE} overrides resume profile ${RESUME_PROFILE}."
+  else
+    PROFILE="${RESUME_PROFILE}"
+    echo "Resume profile selected from imported seed: ${PROFILE}"
+  fi
 fi
 
 # Step 2: Profile Selection
@@ -241,6 +305,7 @@ echo ""
 echo "=== Step 6: Applying User Configurations ==="
 python3 "${SCRIPT_DIR}/cidre-user-setup" apply --profile "$SETUP_PROFILE"
 python3 "${SCRIPT_DIR}/cidre-user-setup" verify
+write_user_resume_state
 
 # Step 7: Diagnostics
 echo ""

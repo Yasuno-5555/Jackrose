@@ -1,0 +1,148 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+ok() {
+  printf '[OK] %s\n' "$*"
+}
+
+validate_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) fail "invalid profile: $1" ;;
+  esac
+}
+
+write_checksum() {
+  file_path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file_path" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+  else
+    openssl dgst -sha256 "$file_path" | awk '{print $NF}'
+  fi
+}
+
+validate_env_value() {
+  value="$1"
+  case "$value" in
+    *[!A-Za-z0-9._:/@+-]*)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+load_resume_env() {
+  env_file="$1"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      \#*) continue ;;
+      *=*)
+        key="${line%%=*}"
+        value="${line#*=}"
+        validate_env_value "$value" || fail "unsafe value in resume.env: $key"
+        eval "${key}=\$value"
+        export "$key"
+        ;;
+      *)
+        fail "invalid line in resume.env: $line"
+        ;;
+    esac
+  done < "$env_file"
+}
+
+[ "$#" -eq 1 ] || fail "verify requires <seed.tar.gz>"
+SEED_PATH="$1"
+
+[ -e "$SEED_PATH" ] || fail "seed file not found"
+[ -f "$SEED_PATH" ] || fail "seed path must be a regular file"
+[ -r "$SEED_PATH" ] || fail "seed file is not readable"
+
+SEED_SIZE="$(wc -c < "$SEED_PATH" 2>/dev/null || printf '0')"
+[ "$SEED_SIZE" -gt 0 ] || fail "seed file is empty"
+[ "$SEED_SIZE" -le 52428800 ] || fail "seed file is unreasonably large"
+ok "seed archive readable"
+
+LISTING="$(tar -tzf "$SEED_PATH" 2>/dev/null)" || fail "seed archive could not be listed"
+
+while IFS= read -r entry; do
+  [ -n "$entry" ] || continue
+  case "$entry" in
+    /*) fail "unsafe path in seed archive: $entry" ;;
+    *".."*) fail "unsafe path in seed archive: $entry" ;;
+    cidre-seed|cidre-seed/*) ;;
+    *) fail "unexpected path in seed archive: $entry" ;;
+  esac
+done <<EOF
+$LISTING
+EOF
+
+if tar -tvzf "$SEED_PATH" 2>/dev/null | awk '
+  BEGIN { bad=0 }
+  /^[lcbp]/ { bad=1 }
+  /^[^d].*[sS].*[sS]?/ {
+    perms=$1
+    if (substr(perms,4,1) ~ /[sS]/ || substr(perms,7,1) ~ /[sS]/) bad=1
+  }
+  END { exit bad ? 0 : 1 }
+'; then
+  fail "unsafe file type or permissions in seed archive"
+fi
+
+TMPDIR_PATH="$(mktemp -d "${TMPDIR:-/tmp}/cidre-seed-verify.XXXXXX")"
+trap 'rm -rf "$TMPDIR_PATH"' EXIT HUP INT TERM
+tar -xzf "$SEED_PATH" -C "$TMPDIR_PATH"
+
+SEED_DIR="$TMPDIR_PATH/cidre-seed"
+MANIFEST="$SEED_DIR/manifest.json"
+RESUME_ENV="$SEED_DIR/resume.env"
+CHECKSUM_FILE="$SEED_DIR/checksum.txt"
+HANDOFF_FILE="$SEED_DIR/handoff.txt"
+REPO_INFO="$SEED_DIR/repo-info.txt"
+
+[ -f "$MANIFEST" ] || fail "manifest.json not found"
+[ -f "$RESUME_ENV" ] || fail "resume.env not found"
+[ -f "$CHECKSUM_FILE" ] || fail "checksum.txt not found"
+[ -f "$HANDOFF_FILE" ] || fail "handoff.txt not found"
+[ -f "$REPO_INFO" ] || fail "repo-info.txt not found"
+
+ok "manifest.json found"
+ok "resume.env found"
+
+grep -q '"schema_version"[[:space:]]*:[[:space:]]*1' "$MANIFEST" || fail "unsupported schema_version in manifest.json"
+grep -q '"install_mode"[[:space:]]*:[[:space:]]*"macos-bootstrap"' "$MANIFEST" || fail "invalid install_mode in manifest.json"
+grep -q '"commit"[[:space:]]*:[[:space:]]*"' "$MANIFEST" || fail "source.commit missing in manifest.json"
+grep -q '"base"[[:space:]]*:[[:space:]]*"' "$MANIFEST" || fail "target.base missing in manifest.json"
+
+load_resume_env "$RESUME_ENV"
+[ "${CIDRE_SEED_SCHEMA_VERSION:-}" = "1" ] || fail "unsupported schema version in resume.env"
+[ "${CIDRE_SEED_INSTALL_MODE:-}" = "macos-bootstrap" ] || fail "invalid install mode in resume.env"
+validate_profile "${CIDRE_SEED_PROFILE:-}"
+[ -n "${CIDRE_SEED_SOURCE_COMMIT:-}" ] || fail "source commit missing in resume.env"
+[ -n "${CIDRE_SEED_TARGET_BASE:-}" ] || fail "target base missing in resume.env"
+
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -n "$line" ] || continue
+  expected_sum="${line%%  *}"
+  file_name="${line#*  }"
+  target_file="$SEED_DIR/$file_name"
+  [ -f "$target_file" ] || fail "checksum target missing: $file_name"
+  actual_sum="$(write_checksum "$target_file")"
+  [ "$expected_sum" = "$actual_sum" ] || fail "checksum mismatch: $file_name"
+done < "$CHECKSUM_FILE"
+
+ok "profile: ${CIDRE_SEED_PROFILE}"
+ok "install mode: ${CIDRE_SEED_INSTALL_MODE}"
+ok "checksum verified"
+ok "seed verified"

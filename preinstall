@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 # preinstall: Root-level entrypoint script to launch Cidre preinstall helper
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec "${SCRIPT_DIR}/scripts/cidre-preinstall" "$@"

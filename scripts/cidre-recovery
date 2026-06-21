@@ -2,6 +2,10 @@
 # cidre-recovery: Cidre emergency system recovery command
 set -euo pipefail
 
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_SEED_ENV="${CIDRE_SYSTEM_ROOT}/seed/resume.env"
+SYSTEM_RESUME_ENV="${CIDRE_SYSTEM_ROOT}/resume/resume.env"
+
 show_help() {
   echo "Usage: cidre-recovery <command> [options]"
   echo "Commands:"
@@ -11,6 +15,8 @@ show_help() {
   echo "  list                 List available legacy niri configurations and backups"
   echo "  snapshots            List available configuration snapshots (cidre-snapshot list)"
   echo "  restore <id|latest>  Restore files from a snapshot (delegates to cidre-snapshot)"
+  echo "  seed-status          Show imported seed status"
+  echo "  resume-status        Show imported resume status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
   echo "  enable-greetd        Enable greetd system service to launch the graphical desktop"
   echo "  reset-niri           Restore default config.kdl to ~/.config/niri/"
@@ -117,6 +123,34 @@ case "$CMD" in
     else
       echo "Error: cidre-snapshot command not found." >&2
       exit 1
+    fi
+    ;;
+  seed-status)
+    echo "Cidre seed:"
+    if [ -f "$SYSTEM_SEED_ENV" ]; then
+      # shellcheck disable=SC1090
+      . "$SYSTEM_SEED_ENV"
+      echo "  imported: yes"
+      echo "  profile: ${CIDRE_SEED_PROFILE:-unknown}"
+      echo "  source commit: ${CIDRE_SEED_SOURCE_COMMIT:-unknown}"
+    else
+      echo "  imported: no"
+    fi
+    ;;
+  resume-status)
+    echo "Cidre resume:"
+    if [ -f "$SYSTEM_RESUME_ENV" ]; then
+      # shellcheck disable=SC1090
+      . "$SYSTEM_RESUME_ENV"
+      echo "  available: yes"
+      echo "  profile: ${CIDRE_RESUME_PROFILE:-unknown}"
+      if [ -f "$HOME/.local/state/cidre/resume/applied-profile" ]; then
+        echo "  applied by user: yes"
+      else
+        echo "  applied by user: no"
+      fi
+    else
+      echo "  available: no"
     fi
     ;;
   disable-greetd)

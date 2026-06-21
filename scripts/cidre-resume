@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_RESUME="$CIDRE_SYSTEM_ROOT/resume/resume.env"
+USER_RESUME="${HOME}/.local/state/cidre/resume"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-resume <command>
+
+Commands:
+  status
+  show
+  profile
+EOF
+}
+
+load_resume() {
+  [ -f "$SYSTEM_RESUME" ] || {
+    printf 'ERROR: no Cidre resume state found.\n' >&2
+    exit 1
+  }
+
+  # shellcheck disable=SC1090
+  . "$SYSTEM_RESUME"
+}
+
+cmd="${1:-status}"
+
+case "$cmd" in
+  status)
+    if [ -f "$SYSTEM_RESUME" ]; then
+      printf '[OK] resume state found\n'
+      if [ -f "$USER_RESUME/applied-profile" ]; then
+        printf '[OK] user resume state applied\n'
+      else
+        printf '[WARN] user resume state not yet applied\n'
+      fi
+    else
+      printf '[WARN] no Cidre resume state found\n'
+      exit 1
+    fi
+    ;;
+  show)
+    load_resume
+    printf 'Cidre resume state\n\n'
+    printf 'profile: %s\n' "${CIDRE_RESUME_PROFILE:-unknown}"
+    printf 'install mode: %s\n' "${CIDRE_RESUME_INSTALL_MODE:-unknown}"
+    printf 'source commit: %s\n' "${CIDRE_RESUME_SOURCE_COMMIT:-unknown}"
+    printf 'source branch: %s\n' "${CIDRE_RESUME_SOURCE_BRANCH:-unknown}"
+    if [ -f "$USER_RESUME/applied-profile" ]; then
+      printf 'user applied profile: %s\n' "$(cat "$USER_RESUME/applied-profile")"
+    fi
+    ;;
+  profile)
+    load_resume
+    printf '%s\n' "${CIDRE_RESUME_PROFILE:-}"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    printf 'ERROR: unknown resume command: %s\n' "$cmd" >&2
+    usage
+    exit 1
+    ;;
+esac

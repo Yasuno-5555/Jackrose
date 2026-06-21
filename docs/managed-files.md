@@ -30,3 +30,21 @@ All user configuration files managed under `cidre-user-setup` and `cidre-snapsho
 
 ## Manifest State
 Every deployment records state under `~/.local/state/cidre/manifest.json`, which tracks target file hashes, deployment status, and current profile settings. The `cidre-maintenance drift` command parses this manifest file to detect deviations.
+
+## Seed & Resume State
+
+System-level imported seed and resume state are stored under:
+
+- `/var/lib/cidre/seed/manifest.json`
+- `/var/lib/cidre/seed/resume.env`
+- `/var/lib/cidre/seed/checksum.txt`
+- `/var/lib/cidre/seed/handoff.txt`
+- `/var/lib/cidre/seed/import.log`
+- `/var/lib/cidre/resume/resume.env`
+
+User-level resume apply state is stored under:
+
+- `~/.local/state/cidre/resume/manifest.json`
+- `~/.local/state/cidre/resume/applied-profile`
+- `~/.local/state/cidre/resume/applied-at`
+- `~/.local/state/cidre/resume/resume.log`

@@ -1,0 +1,125 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATUS=0
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf '[WARN] %s\n' "$*"
+  STATUS=2
+}
+
+ok() {
+  printf '[OK] %s\n' "$*"
+}
+
+info() {
+  printf '[INFO] %s\n' "$*"
+}
+
+check_command() {
+  if command -v "$1" >/dev/null 2>&1; then
+    ok "$1 found"
+  else
+    fail "$1 is required"
+  fi
+}
+
+check_url() {
+  label="$1"
+  url="$2"
+  if curl -fsI --max-time 5 "$url" >/dev/null 2>&1; then
+    ok "$label reachable"
+  else
+    warn "$label could not be reached: $url"
+  fi
+}
+
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+
+printf 'Cidre macOS readiness check\n\n'
+
+[ "$OS_NAME" = "Darwin" ] || fail "./install-macos must be run on macOS."
+ok "running on macOS"
+
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+  warn "running as root is not recommended on macOS"
+else
+  ok "running as a normal macOS user"
+fi
+
+if [ "$ARCH_NAME" = "arm64" ]; then
+  ok "architecture: arm64"
+else
+  fail "Apple Silicon arm64 Mac is required"
+fi
+
+if command -v system_profiler >/dev/null 2>&1; then
+  MODEL_NAME="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Model Name/ {print $2; exit}')"
+  CHIP_NAME="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Chip/ {print $2; exit}')"
+  if [ -n "$MODEL_NAME" ] || [ -n "$CHIP_NAME" ]; then
+    info "hardware: ${MODEL_NAME:-Apple Silicon Mac} ${CHIP_NAME:+($CHIP_NAME)}"
+  else
+    warn "system_profiler did not return a model/chip summary"
+  fi
+else
+  warn "system_profiler is unavailable"
+fi
+
+check_command git
+check_command curl
+check_command sh
+check_command tar
+
+if command -v shasum >/dev/null 2>&1; then
+  ok "shasum found"
+elif command -v openssl >/dev/null 2>&1; then
+  ok "openssl found"
+else
+  fail "shasum or openssl is required"
+fi
+
+check_url "GitHub" "https://github.com/"
+check_url "Asahi Linux" "https://asahilinux.org/"
+check_url "Arch Linux ARM" "https://archlinuxarm.org/"
+
+AVAIL_KB="$(df -k "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "$AVAIL_KB" ]; then
+  AVAIL_GB="$(awk "BEGIN {printf \"%.1f\", $AVAIL_KB / 1024 / 1024}")"
+  info "disk space available near repository: ${AVAIL_GB} GiB"
+else
+  warn "disk space check could not be determined"
+fi
+info "disk check is advisory only"
+
+if git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
+  TOPLEVEL="$(git -C "$REPO_ROOT" rev-parse --show-toplevel)"
+  if [ "$TOPLEVEL" = "$REPO_ROOT" ]; then
+    ok "Cidre repository root detected"
+  else
+    fail "script is not running from the Cidre repository root"
+  fi
+else
+  fail "not inside a git repository"
+fi
+
+BRANCH_NAME="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || printf 'unknown')"
+COMMIT_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+info "repository: $REPO_ROOT"
+info "branch: $BRANCH_NAME"
+info "commit: $COMMIT_ID"
+
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+  warn "working tree has uncommitted changes"
+else
+  ok "working tree clean"
+fi
+
+exit 0

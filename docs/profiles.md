@@ -11,3 +11,13 @@ Cidre supports four distinct installation profiles.
 
 ## Configuration Profile Mappings
 When installing with the `recovery` profile, the system copies recovery scripts to `/usr/bin` but avoids shipping heavy user configurations. Therefore, `cidre-user-setup` maps the user config generation aspect of the `recovery` profile to `minimal` templates.
+
+## Bootstrap Reuse
+
+The same four profiles are now used across the full Cidre entry flow:
+
+| Phase | Entry point | Profiles |
+| :--- | :--- | :--- |
+| macOS bootstrap | `./install-macos` | `desktop`, `developer`, `minimal`, `recovery` |
+| fresh ALARM root | `./preinstall --import-seed` | profile is imported and saved for later continuation |
+| ALARM normal user | `./install --resume` | `desktop`, `developer`, `minimal`, `recovery` |

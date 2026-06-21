@@ -1,4 +1,4 @@
-# Cidre (v0.11.0 Base Setup TUI Pack)
+# Cidre (v0.13.0 Seed & Resume Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -6,30 +6,51 @@ Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Ar
 > **Cidre is not a niri fork.**
 > Cidre is a full integration layer that manages installer scripts, configuration deployment, system recovery, sound optimization, and desktop session profiles. The compositor itself is managed under a separate component called `niri-cidre`.
 
-## Installation
+## Installation Flow
 
-### Phase 1: Fresh ALARM Root Setup
-Log in as `root`, sync packages, and clone the repository:
-```bash
-pacman -Sy --needed git
-git clone https://github.com/Yasuno-5555/Cidre.git
+Cidre has three phases.
+
+### 1. macOS phase
+
+```sh
+git clone https://github.com/Yasuno-5555/Cidre
 cd Cidre
-./preinstall
+./install-macos --profile developer
 ```
 
-`./preinstall` now opens a guided root-phase dashboard/wizard when a TTY is available. It falls back to plain shell prompts when `dialog`/`whiptail` are unavailable, and `./preinstall --check` remains non-destructive.
+This creates a Cidre seed:
 
-### Phase 2: Normal User Setup
-After base environment preparation finishes, switch to your normal user and execute the installer:
+```text
+.local/state/cidre/macos-bootstrap/cidre-seed.tar.gz
+```
+
+`./install-macos` does not directly install ALARM or modify APFS containers. It prepares the Cidre-side bootstrap flow and hands off to the ALARM/Asahi installer.
+
+### 2. fresh ALARM root phase
+
+After installing ALARM and booting into the fresh system, copy the seed into the ALARM environment and run:
+
 ```bash
-su - <username>
-cd ~/Cidre
-./install
+./preinstall --import-seed /path/to/cidre-seed.tar.gz
+```
+
+`./preinstall` can import the macOS-generated seed, verify it, store it under `/var/lib/cidre/`, and continue with the root-phase setup flow.
+
+### 3. ALARM user phase
+
+After switching to the normal user, resume the Cidre setup:
+
+```bash
+./install --resume
 ```
 
 ## Documentation Guides
 
 - [Guided Onboarding](./docs/onboarding.md)
+- [Installing Cidre from macOS](./docs/macos-install.md)
+- [macOS to Cidre Flow](./docs/macos-to-cidre-flow.md)
+- [Installer Threat Model](./docs/installer-threat-model.md)
+- [Seed & Resume](./docs/seed-resume.md)
 - [Fresh ALARM Base Setup](./docs/base-install.md)
 - [Installation Guide (Advanced)](./docs/installation.md)
 - [Stable Commands Reference](./docs/commands.md)
@@ -44,6 +65,8 @@ cd ~/Cidre
 - [Recovery Guide](./docs/recovery.md)
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
+- [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)
+- [v0.12.0 Release Notes](./docs/v0.12.0-macos-bootstrap.md)
 - [v0.11.0 Release Notes](./docs/v0.11.0-base-setup-tui.md)
 - [v0.10.0 Release Notes](./docs/v0.10.0-base-install-simplification.md)
 - [v0.9.0 Release Notes](./docs/v0.9.0-rc-readiness.md)

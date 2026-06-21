@@ -9,6 +9,8 @@ TUI_MODE=false
 NON_INTERACTIVE=false
 USER_NAME=""
 YES=false
+IMPORT_SEED_PATH=""
+NO_SEED=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -16,6 +18,9 @@ STATE_HOME="${HOME:-/root}/.local/state/cidre/preinstall"
 LOG_FILE="${STATE_HOME}/preinstall.log"
 LAST_CHECK_LOG="${STATE_HOME}/last-check.log"
 LAST_STATUS_FILE="${STATE_HOME}/last-status"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_SEED_DIR="${CIDRE_SYSTEM_ROOT}/seed"
+SYSTEM_RESUME_DIR="${CIDRE_SYSTEM_ROOT}/resume"
 INTERACTIVE_SESSION=false
 if [ -t 0 ] && [ -t 1 ]; then
   INTERACTIVE_SESSION=true
@@ -57,6 +62,7 @@ REQUIRED_PACKAGES=(git curl sudo base-devel)
 OPTIONAL_PACKAGES=(rsync dialog whiptail)
 CREATE_USER=false
 SELECTED_EXISTING_USER=false
+RESUME_IMPORTED_THIS_RUN=false
 
 show_help() {
   echo "Usage: preinstall [options]"
@@ -65,6 +71,9 @@ show_help() {
   echo "  --check             Audit system readiness without making changes"
   echo "  --dry-run           Show proposed commands and changes"
   echo "  --prepare           Apply base readiness adjustments (requires root)"
+  echo "  --import-seed <p>   Verify and import a Cidre seed archive"
+  echo "  --seed <path>       Alias for --import-seed"
+  echo "  --no-seed           Disable seed/resume integration"
   echo "  --non-interactive   Disable prompts and use plain output"
   echo "  --user <username>   Specify normal user name to verify/create"
   echo "  --yes               Skip interactive confirmation prompts"
@@ -95,6 +104,7 @@ record_state_files() {
     echo "user=${TARGET_USER_STATUS}"
     echo "sudo=${SUDO_STATUS}"
     echo "tools=${TOOLS_STATUS}"
+    echo "resume_available=$([ -f "${SYSTEM_RESUME_DIR}/resume.env" ] && echo yes || echo no)"
   } > "${LAST_STATUS_FILE}"
 
   {
@@ -133,6 +143,18 @@ merge_status() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+resume_state_available() {
+  [ -f "${SYSTEM_RESUME_DIR}/resume.env" ]
+}
+
+current_handoff_command() {
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    echo "./install --resume"
+  else
+    echo "./install"
+  fi
 }
 
 backend_available() {
@@ -744,6 +766,40 @@ configure_sudo_policy() {
   log_line "Configured sudoers policy for wheel group and ensured ${USER_NAME} membership"
 }
 
+import_seed_if_requested() {
+  if [ "${NO_SEED}" = true ] || [ -z "${IMPORT_SEED_PATH}" ]; then
+    return 0
+  fi
+
+  say ""
+  say "=== Importing Cidre Seed ==="
+  if [ "${DRY_RUN}" = true ]; then
+    "${SCRIPT_DIR}/cidre-seed-import" --dry-run "${IMPORT_SEED_PATH}"
+  else
+    "${SCRIPT_DIR}/cidre-seed-import" "${IMPORT_SEED_PATH}"
+  fi
+  RESUME_IMPORTED_THIS_RUN=true
+  log_line "Seed import requested from ${IMPORT_SEED_PATH}"
+}
+
+run_seed_verify_for_check() {
+  if [ "${NO_SEED}" = true ] || [ -z "${IMPORT_SEED_PATH}" ]; then
+    return 0
+  fi
+  say ""
+  say "=== Seed Verification ==="
+  "${SCRIPT_DIR}/cidre-seed-verify" "${IMPORT_SEED_PATH}"
+}
+
+print_resume_hint() {
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    say ""
+    say "Seed imported successfully."
+    say "After switching to the normal user, run:"
+    say "  ./install --resume"
+  fi
+}
+
 print_handoff() {
   local repo_owner repo_warning handoff_home
   handoff_home="$(getent passwd "${USER_NAME}" 2>/dev/null | cut -d: -f6)"
@@ -764,7 +820,7 @@ print_handoff() {
   else
     say "  cd ~/Cidre"
   fi
-  say "  ./install"
+  say "  $(current_handoff_command)"
 
   if [ "${repo_owner}" = "root" ] || [ "${REPO_ROOT}" = "/root/Cidre" ] || [ "${REPO_ROOT}" = "/root"/* ]; then
     repo_warning="WARN: This repository appears to be under /root. Clone or copy Cidre as the normal user before running ./install."
@@ -776,6 +832,9 @@ print_handoff() {
   say "For detail checks:"
   say "  ./preinstall --check"
   say "  scripts/cidre-doctor --base-readiness --summary"
+  if [ "${NO_SEED}" = false ] && resume_state_available; then
+    say "  scripts/cidre-resume show"
+  fi
   log_line "Printed handoff for ${USER_NAME}. repo_owner=${repo_owner}"
 }
 
@@ -787,6 +846,10 @@ run_prepare_flow() {
 
   assess_base_state
   print_dashboard
+
+  if ! import_seed_if_requested; then
+    return 1
+  fi
 
   if ! install_required_packages; then
     return 1
@@ -800,6 +863,7 @@ run_prepare_flow() {
 
   assess_base_state
   print_dashboard
+  print_resume_hint
   print_handoff
 }
 
@@ -809,6 +873,11 @@ run_wizard() {
 
   assess_base_state
   print_dashboard
+
+  if ! import_seed_if_requested; then
+    choice="$(ui_menu "Seed Import" "Seed import failed." "retry" "Retry seed import" "exit" "Exit preinstall")" || return 1
+    [ "${choice}" = "retry" ] && import_seed_if_requested || return 1
+  fi
 
   if [ "${NETWORK_STATUS}" = "FAIL" ] || [ "${DNS_STATUS}" = "FAIL" ]; then
     print_network_help
@@ -859,6 +928,7 @@ run_wizard() {
 
   assess_base_state
   print_dashboard
+  print_resume_hint
   print_handoff
 }
 
@@ -868,6 +938,15 @@ while [ $# -gt 0 ]; do
     --check) CHECK_ONLY=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --prepare) PREPARE=true; shift ;;
+    --import-seed|--seed)
+      if [ $# -lt 2 ]; then
+        echo "Error: $1 requires an argument." >&2
+        exit 1
+      fi
+      IMPORT_SEED_PATH="$2"
+      shift 2
+      ;;
+    --no-seed) NO_SEED=true; shift ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     --user|--create-user)
       if [ $# -lt 2 ]; then
@@ -885,6 +964,11 @@ done
 
 if [ -n "${USER_NAME}" ] && ! validate_username "${USER_NAME}"; then
   echo "Error: invalid username '${USER_NAME}'." >&2
+  exit 1
+fi
+
+if [ "${NO_SEED}" = true ] && [ -n "${IMPORT_SEED_PATH}" ]; then
+  echo "Error: --no-seed cannot be combined with --import-seed." >&2
   exit 1
 fi
 
@@ -912,6 +996,7 @@ say "=== Running Cidre Base Setup (${UI_BACKEND} backend) ==="
 if [ "${CHECK_ONLY}" = true ]; then
   assess_base_state
   print_dashboard
+  run_seed_verify_for_check
   exit "${STATUS_ERRORS}"
 fi
 

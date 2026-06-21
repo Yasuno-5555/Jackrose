@@ -7,3 +7,6 @@
 /packages/arch/*/src/
 /packages/arch/*/*.pkg.tar.xz
 /packages/arch/niri-cidre/niri-cidre/
+/.local/state/cidre/
+/.local/test-system/
+/state/macos-bootstrap/

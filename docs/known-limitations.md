@@ -14,5 +14,9 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
    - IME activation is managed through systemd user units. Startup behavior depends on standard pam-session loading and environment configs, which can fail to map if launching nested wayland compositors.
 5. **Audio Buffer pop-noise prevention**:
    - Pop-noise mitigations depend on specific speakersafetyd and PipeWire versions. Real hardware outputs may vary depending on firmware versions.
-6. **Installer Automation (v0.11.0 Limitation)**:
-   - Cidre now provides a guided `./preinstall` dashboard/wizard for the root phase, but it still does **not** replace the standard ALARM minimal installer, disk partitioning, bootloader work, or m1n1/DTB configuration. Cidre v1.0.0 remains reserved for a simpler, near-Ubuntu installation experience.
+6. **Installer Automation (v0.13.0 Limitation)**:
+   - Cidre now provides `./install-macos`, `./preinstall --import-seed`, and `./install --resume`, but it still does **not** replace the standard ALARM/Asahi installer, disk partitioning, bootloader work, APFS changes, or m1n1/DTB configuration.
+7. **Manual Seed Transfer Required**:
+   - v0.13.0 does not automatically inject the generated seed into the ALARM rootfs. Users must manually move the seed into the fresh ALARM environment.
+8. **Offline Guarantees Not Provided**:
+   - v0.13.0 does not guarantee offline installation unless all required packages are already available locally.

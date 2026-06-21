@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-seed <command> [options]
+
+Commands:
+  verify <seed.tar.gz>
+  import <seed.tar.gz>
+  status
+  show
+EOF
+}
+
+[ "$#" -ge 1 ] || {
+  usage
+  exit 1
+}
+
+cmd="$1"
+shift
+
+case "$cmd" in
+  verify)
+    [ "$#" -eq 1 ] || {
+      printf 'ERROR: verify requires <seed.tar.gz>\n' >&2
+      exit 1
+    }
+    exec "$SCRIPT_DIR/cidre-seed-verify" "$1"
+    ;;
+  import)
+    exec "$SCRIPT_DIR/cidre-seed-import" "$@"
+    ;;
+  status|show)
+    exec "$SCRIPT_DIR/cidre-resume" "$cmd"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    printf 'ERROR: unknown seed command: %s\n' "$cmd" >&2
+    usage
+    exit 1
+    ;;
+esac

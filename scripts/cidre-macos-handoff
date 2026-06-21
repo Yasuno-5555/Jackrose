@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+PROFILE=""
+STATE_DIR=".local/state/cidre/macos-bootstrap"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: --profile requires an argument\n' >&2
+        exit 1
+      }
+      PROFILE="$2"
+      shift 2
+      ;;
+    --state-dir)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: --state-dir requires an argument\n' >&2
+        exit 1
+      }
+      STATE_DIR="$2"
+      shift 2
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: cidre-macos-handoff [--profile <name>] [--state-dir <path>]
+EOF
+      exit 0
+      ;;
+    *)
+      printf 'ERROR: unknown option: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+printf 'Next steps\n\n'
+printf '1. Start the ALARM/Asahi installer from macOS.\n'
+printf '2. Complete the base installation.\n'
+printf '3. Boot into the new ALARM environment.\n'
+printf '4. Clone Cidre again or copy the generated seed manually.\n'
+printf '5. Copy cidre-seed.tar.gz into the fresh ALARM environment.\n'
+printf '6. Log in as root and run:\n\n'
+printf '   ./preinstall --import-seed /path/to/cidre-seed.tar.gz\n\n'
+printf '7. Switch to the normal user.\n'
+printf '8. Run:\n\n'
+printf '   ./install --resume\n\n'
+printf 'Cidre does not directly modify APFS containers or Apple Silicon boot policy.\n'
+printf 'Disk preparation and OS installation remain the responsibility of the Asahi/ALARM installer.\n'
+if [ -n "$PROFILE" ]; then
+  printf 'Selected profile for continuation: %s\n' "$PROFILE"
+fi
+printf 'Generated bootstrap state path: %s\n' "$STATE_DIR"
+printf 'Documentation:\n'
+printf '  docs/macos-install.md\n'
+printf '  docs/macos-to-cidre-flow.md\n'
+printf '  docs/seed-resume.md\n'
+printf '\nRecovery notes\n'
+printf '  - If installer handoff fails, return to the Cidre repository on macOS and re-run ./install-macos --check.\n'
+printf '  - If you reach a fresh ALARM root shell, use ./preinstall --import-seed /path/to/cidre-seed.tar.gz.\n'
+printf '  - Manual continuation remains required in v0.13.0.\n'

@@ -1,0 +1,150 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+PROFILE=""
+DRY_RUN=0
+NO_SEED=0
+CHECK_ONLY=0
+PRINT_HANDOFF=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./install-macos [options]
+
+Options:
+  --check              Run readiness checks only
+  --dry-run            Print planned actions without making changes
+  --profile <name>     Select profile: desktop, developer, minimal, recovery
+  --no-seed            Skip manifest generation
+  --print-handoff      Print handoff instructions only
+  -h, --help           Show this help
+EOF
+}
+
+validate_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+require_macos() {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    printf 'ERROR: ./install-macos must be run on macOS.\n' >&2
+    exit 1
+  fi
+}
+
+choose_profile() {
+  if [ -n "$PROFILE" ]; then
+    return 0
+  fi
+
+  if [ -t 0 ] && [ -t 1 ]; then
+    printf 'Select Cidre profile:\n'
+    printf '  [1] desktop\n'
+    printf '  [2] developer\n'
+    printf '  [3] minimal\n'
+    printf '  [4] recovery\n'
+    printf 'Select option [1-4] (default: 1): '
+    read answer || true
+    case "${answer:-1}" in
+      2) PROFILE="developer" ;;
+      3) PROFILE="minimal" ;;
+      4) PROFILE="recovery" ;;
+      *) PROFILE="desktop" ;;
+    esac
+  else
+    PROFILE="desktop"
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check)
+      CHECK_ONLY=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --profile)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: --profile requires an argument\n' >&2
+        exit 1
+      }
+      PROFILE="$2"
+      validate_profile "$PROFILE"
+      shift 2
+      ;;
+    --no-seed)
+      NO_SEED=1
+      shift
+      ;;
+    --print-handoff)
+      PRINT_HANDOFF=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ERROR: unknown option: %s\n' "$1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-check"
+fi
+
+choose_profile
+
+if [ "$PRINT_HANDOFF" -eq 1 ]; then
+  require_macos
+  exec "$SCRIPT_DIR/cidre-macos-handoff" --profile "$PROFILE" --state-dir "$REPO_ROOT/.local/state/cidre/macos-bootstrap"
+fi
+
+require_macos
+
+printf 'Cidre macOS Bootstrap\n\n'
+printf 'This tool prepares your Apple Silicon Mac for a Cidre installation.\n'
+printf 'Cidre will not directly modify APFS containers, resize partitions, or change Apple Silicon boot policy.\n'
+printf 'Disk preparation and OS installation are handled by the Asahi/ALARM installer.\n\n'
+
+"$SCRIPT_DIR/cidre-macos-check"
+
+printf '\nSelected profile:\n  %s\n' "$PROFILE"
+printf '\nNext:\n'
+printf '  1. Run the ALARM/Asahi installer\n'
+printf '  2. Boot into the new ALARM environment\n'
+printf '  3. Run Cidre preinstall/install continuation\n'
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '\n[DRY-RUN] Would create macOS bootstrap manifest under .local/state/cidre/macos-bootstrap/.\n'
+  if [ "$NO_SEED" -eq 1 ]; then
+    printf '[DRY-RUN] Seed creation disabled by --no-seed.\n'
+  else
+    "$SCRIPT_DIR/cidre-macos-seed" --profile "$PROFILE" --dry-run
+  fi
+  printf '[DRY-RUN] Would print ALARM/Asahi installer handoff instructions.\n\n'
+  "$SCRIPT_DIR/cidre-macos-handoff" --profile "$PROFILE" --state-dir "$REPO_ROOT/.local/state/cidre/macos-bootstrap"
+  exit 0
+fi
+
+if [ "$NO_SEED" -eq 0 ]; then
+  "$SCRIPT_DIR/cidre-macos-seed" --profile "$PROFILE"
+else
+  printf '\nSeed creation skipped by --no-seed.\n'
+fi
+
+printf '\n'
+"$SCRIPT_DIR/cidre-macos-handoff" --profile "$PROFILE" --state-dir "$REPO_ROOT/.local/state/cidre/macos-bootstrap"

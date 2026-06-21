@@ -11,11 +11,16 @@ SUGGESTIONS_MODE=false
 MAINTENANCE_MODE=false
 RC_READINESS_MODE=false
 BASE_READINESS_MODE=false
+SEED_MODE=false
+RESUME_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
 LAST_SUMMARY="${DOCTOR_DIR}/last-summary.txt"
 HISTORY_LOG="${DOCTOR_DIR}/history.log"
+CIDRE_SYSTEM_ROOT="${CIDRE_SYSTEM_ROOT:-/var/lib/cidre}"
+SYSTEM_SEED_DIR="${CIDRE_SYSTEM_ROOT}/seed"
+SYSTEM_RESUME_DIR="${CIDRE_SYSTEM_ROOT}/resume"
 
 show_help() {
   echo "Usage: cidre-doctor [options]"
@@ -31,6 +36,8 @@ show_help() {
   echo "  --state             Alias for --maintenance"
   echo "  --rc-readiness      Verify if repository state is ready for release candidate"
   echo "  --base-readiness    Verify root-phase base setup readiness for ./preinstall"
+  echo "  --seed              Inspect imported Cidre seed state under /var/lib/cidre/seed"
+  echo "  --resume            Inspect imported/system and user resume state"
   echo "  --summary           Can be combined with --base-readiness for condensed output"
   echo "  --help              Show this help message"
 }
@@ -47,6 +54,8 @@ while [ $# -gt 0 ]; do
     --maintenance|--update-readiness|--state) MAINTENANCE_MODE=true; shift ;;
     --rc-readiness) RC_READINESS_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
+    --seed) SEED_MODE=true; shift ;;
+    --resume) RESUME_MODE=true; shift ;;
     --help) show_help; exit 0 ;;
     *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
   esac
@@ -153,6 +162,19 @@ print_result() {
       echo "FAIL: $msg" >> "$TMP_SUMMARY"
       ;;
   esac
+}
+
+valid_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+load_env_value() {
+  local file_path="$1"
+  local key_name="$2"
+  grep -E "^${key_name}=" "$file_path" 2>/dev/null | head -n 1 | cut -d= -f2-
 }
 
 if [ "$BASE_READINESS_MODE" = true ]; then
@@ -289,6 +311,53 @@ if [ "$BASE_READINESS_MODE" = true ]; then
     fi
   fi
 
+elif [ "$SEED_MODE" = true ]; then
+  if [ -d "${SYSTEM_SEED_DIR}" ]; then
+    print_result OK "System seed directory exists at ${SYSTEM_SEED_DIR}."
+  else
+    print_result WARN "System seed directory is missing at ${SYSTEM_SEED_DIR}."
+  fi
+
+  for file_name in manifest.json resume.env checksum.txt handoff.txt import.log; do
+    if [ -f "${SYSTEM_SEED_DIR}/${file_name}" ]; then
+      print_result OK "Seed file '${file_name}' is present."
+    else
+      print_result WARN "Seed file '${file_name}' is missing."
+    fi
+  done
+
+  if [ -f "${SYSTEM_SEED_DIR}/resume.env" ]; then
+    seed_profile="$(load_env_value "${SYSTEM_SEED_DIR}/resume.env" "CIDRE_SEED_PROFILE")"
+    if valid_profile "${seed_profile}"; then
+      print_result OK "Seed profile is valid (${seed_profile})."
+    else
+      print_result FAIL "Seed profile is invalid (${seed_profile:-missing})."
+    fi
+  fi
+
+elif [ "$RESUME_MODE" = true ]; then
+  if [ -f "${SYSTEM_RESUME_DIR}/resume.env" ]; then
+    print_result OK "System resume state exists."
+    resume_profile="$(load_env_value "${SYSTEM_RESUME_DIR}/resume.env" "CIDRE_RESUME_PROFILE")"
+    if valid_profile "${resume_profile}"; then
+      print_result OK "System resume profile is valid (${resume_profile})."
+    else
+      print_result FAIL "System resume profile is invalid (${resume_profile:-missing})."
+    fi
+  else
+    print_result WARN "System resume state is missing."
+  fi
+
+  if [ -f "${STATE_DIR}/resume/applied-profile" ]; then
+    applied_profile="$(cat "${STATE_DIR}/resume/applied-profile")"
+    print_result OK "User resume applied profile exists (${applied_profile})."
+    if [ -n "${resume_profile:-}" ] && [ "${applied_profile}" != "${resume_profile}" ]; then
+      print_result WARN "User applied profile differs from system resume profile."
+    fi
+  else
+    print_result WARN "User resume applied state is missing."
+  fi
+
 elif [ "$RC_READINESS_MODE" = true ]; then
   # 1. Try to find the Cidre repository root relative to this script
   SCRIPT_PATH=$(realpath "$0")
@@ -305,7 +374,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
     print_result OK "Cidre repository tree found at $REPO_ROOT."
 
     # Verify all commands exist and are executable in tree
-    for cmd in install scripts/cidre-installer scripts/cidre-user-setup scripts/cidre-doctor scripts/cidre-recovery scripts/cidre-snapshot scripts/cidre-update scripts/cidre-maintenance scripts/cidre-firstboot scripts/cidre-welcome scripts/cidre-audio scripts/check-packages; do
+    for cmd in install install-macos scripts/cidre-installer scripts/cidre-macos-installer scripts/cidre-macos-check scripts/cidre-macos-seed scripts/cidre-macos-handoff scripts/cidre-seed scripts/cidre-seed-verify scripts/cidre-seed-import scripts/cidre-resume scripts/cidre-user-setup scripts/cidre-doctor scripts/cidre-recovery scripts/cidre-snapshot scripts/cidre-update scripts/cidre-maintenance scripts/cidre-firstboot scripts/cidre-welcome scripts/cidre-audio scripts/check-packages; do
       if [ -f "${REPO_ROOT}/${cmd}" ]; then
         print_result OK "Command tree file '${cmd}' exists."
         if [ -x "${REPO_ROOT}/${cmd}" ] || [[ "$cmd" == *.py ]]; then
@@ -319,7 +388,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
     done
 
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md; do
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."
         # Extra verification for limitations presence

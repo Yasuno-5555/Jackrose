@@ -2,6 +2,48 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.13.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-seed` for seed operations.
+- Added `scripts/cidre-seed-verify` for validating Cidre seed archives.
+- Added `scripts/cidre-seed-import` for importing macOS-generated seed archives into fresh ALARM systems.
+- Added `scripts/cidre-resume` for inspecting and using imported resume state.
+- Added `./preinstall --import-seed <path>` for root-phase seed import.
+- Added `./install --resume` for user-phase profile continuation.
+- Added seed/resume state storage under `/var/lib/cidre/`.
+- Added `docs/seed-resume.md`.
+- Added `docs/v0.13.0-seed-resume.md`.
+
+### Changed
+- Updated macOS handoff instructions to include seed import and resume.
+- Updated `cidre-doctor --rc-readiness` to check seed/resume commands.
+- Updated validation matrix with seed verification, import, and resume tests.
+- Updated known limitations to clarify manual seed transfer requirements.
+
+### Notes
+- v0.13.0 connects the macOS bootstrap phase to the fresh ALARM setup phase.
+- It does not yet provide automatic rootfs seed injection, a Cidre ALARM image, or a GUI installer.
+
+## [0.12.0] - 2026-06-21
+### Added
+- Added `./install-macos` as the macOS-side Cidre bootstrap entrypoint.
+- Added `scripts/cidre-macos-check` for macOS readiness checks.
+- Added `scripts/cidre-macos-installer` for interactive macOS-side bootstrap flow.
+- Added `scripts/cidre-macos-seed` for generating Cidre install manifests.
+- Added `scripts/cidre-macos-handoff` for ALARM/Asahi installer handoff guidance.
+- Added macOS installation documentation.
+- Added installer threat model documentation.
+- Added macOS-to-Cidre flow documentation.
+
+### Changed
+- Updated README installation flow to distinguish macOS, root-phase, and user-phase entrypoints.
+- Updated validation matrix with macOS bootstrap checks.
+- Updated known limitations to clarify that v0.12.0 does not provide full automatic ALARM installation.
+
+### Notes
+- v0.12.0 introduces the first macOS-side entrypoint for Cidre.
+- It does not yet provide a custom Cidre ALARM image, automatic rootfs seed injection, or a GUI installer.
+
 ## [0.11.0] - 2026-06-21
 ### Added
 - Guided `./preinstall` dashboard/wizard mode with backend selection across `dialog`, `whiptail`, and plain shell fallback.

@@ -4,12 +4,35 @@ This document catalogs all stable command line utilities provided by the Cidre d
 
 ## User-Facing Commands
 
+### `./install-macos`
+The macOS-side bootstrap entrypoint for Apple Silicon onboarding.
+* `--check`: Runs macOS readiness checks only.
+* `--dry-run`: Previews profile selection, seed generation, and handoff steps without writing files.
+* `--profile <name>`: Selects `desktop`, `developer`, `minimal`, or `recovery`.
+* `--no-seed`: Skips manifest generation.
+* `--print-handoff`: Prints ALARM/Asahi installer continuation guidance only.
+
+### `scripts/cidre-seed`
+The Linux-side seed command wrapper.
+* `verify <seed.tar.gz>`: Validates archive structure, manifest metadata, checksum, and profile values.
+* `import <seed.tar.gz>`: Imports a verified seed into `/var/lib/cidre/`.
+* `status`: Shows whether imported resume state exists.
+* `show`: Prints a seed/resume summary.
+
+### `scripts/cidre-resume`
+Reads imported resume state from `/var/lib/cidre/resume/`.
+* `status`: Reports whether resume state exists and whether a user-level apply record exists.
+* `show`: Prints profile, install mode, and source commit summary.
+* `profile`: Prints the imported profile name for installer reuse.
+
 ### `./preinstall` / `cidre-preinstall`
 The root-phase base system helper.
 * `--tui`: Forces the guided dashboard/wizard mode.
 * `--check`: Audits base system packages and connections.
 * `--dry-run`: Previews setup actions.
 * `--prepare`: Installs core dependencies and configures wheel-sudo users.
+* `--import-seed <path>` / `--seed <path>`: Verifies and imports a macOS-generated seed before root-phase continuation.
+* `--no-seed`: Ignores seed/resume integration.
 * `--non-interactive`: Forces plain output without interactive prompts.
 * `--user <name>`: Pins the target normal user for verification or creation.
 * `--yes`: Auto-confirms prompts.
@@ -19,6 +42,9 @@ The guided interactive orchestration installer.
 * `--check`: Runs compatibility checks on commands and packages.
 * `--dry-run`: Simulates the system bootstrap and configuration deploy.
 * `--profile <name>`: Installs with the specified profile (`desktop`, `developer`, `minimal`, `recovery`).
+* `--resume`: Loads the imported profile from `/var/lib/cidre/resume/resume.env`.
+* `--resume-profile`: Prints the imported resume profile and exits.
+* `--no-resume`: Ignores imported resume state.
 * `--rc-dry-run`: Runs comprehensive simulation of all profiles and doctor audits.
 
 ### `cidre-user-setup`
@@ -35,6 +61,8 @@ Diagnoses system compatibility and environment state.
 * `--rc-readiness`: Confirms tree readiness for release candidate standards.
 * `--base-readiness`: Audits root-phase readiness for `./preinstall`.
 * `--base-readiness --summary`: Condensed readiness status for handoff/debugging.
+* `--seed`: Audits imported seed state under `/var/lib/cidre/seed`.
+* `--resume`: Audits system and user resume state.
 * `--fix-suggestions`: Renders actionable recovery commands based on the last run.
 
 ### `cidre-recovery`
@@ -43,6 +71,8 @@ Dispatches rescue triggers from console TTY in emergency loops.
 * `safe-mode`: Disables compositor customizations and re-routes logins to console standard.
 * `restore latest`: Restores configurations to the last snapshot.
 * `reset-niri`: Resets composer files to stable factory defaults.
+* `seed-status`: Shows imported seed profile and source commit summary.
+* `resume-status`: Shows whether resume state exists and whether it has been applied.
 
 ### `cidre-snapshot`
 Takes snapshot points of Cidre configuration directories.
@@ -61,6 +91,15 @@ Consolidates standard admin tasks.
 * `status`: Displays snapshot statistics and log summaries.
 * `prune`: Cleans up logs and snapshots interactively.
 * `drift`: Tracks configuration updates.
+
+### `scripts/cidre-macos-check`
+Runs macOS-side readiness checks for Apple Silicon, command availability, network reachability, disk advisory output, and repository state.
+
+### `scripts/cidre-macos-seed`
+Generates `.local/state/cidre/macos-bootstrap/manifest.json`, checksum metadata, and handoff notes for later manual continuation.
+
+### `scripts/cidre-macos-handoff`
+Prints the ALARM/Asahi installer handoff steps and the follow-up `./preinstall` then `./install` continuation path.
 
 ### `cidre-welcome`
 Visual dashboard greeting users with keybindings and navigation tips upon initial login.

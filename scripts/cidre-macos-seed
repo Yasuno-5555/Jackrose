@@ -1,0 +1,188 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_DIR="$REPO_ROOT/.local/state/cidre/macos-bootstrap"
+PROFILE=""
+DRY_RUN=0
+
+usage() {
+  cat <<'EOF'
+Usage: cidre-macos-seed --profile <name> [--dry-run] [--state-dir <path>]
+EOF
+}
+
+validate_profile() {
+  case "$1" in
+    desktop|developer|minimal|recovery) return 0 ;;
+    *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+json_escape() {
+  printf '%s' "$1" | sed \
+    -e 's/\\/\\\\/g' \
+    -e 's/"/\\"/g' \
+    -e 's/\t/\\t/g' \
+    -e 's/\r/\\r/g' \
+    -e ':a;N;$!ba;s/\n/\\n/g'
+}
+
+write_checksum() {
+  file_path="$1"
+  file_name="$2"
+  if command -v shasum >/dev/null 2>&1; then
+    sum="$(shasum -a 256 "$file_path" | awk '{print $1}')"
+  else
+    sum="$(openssl dgst -sha256 "$file_path" | awk '{print $NF}')"
+  fi
+  printf '%s  %s\n' "$sum" "$file_name"
+}
+
+dirty_to_digit() {
+  case "$1" in
+    true) printf '1\n' ;;
+    *) printf '0\n' ;;
+  esac
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: --profile requires an argument\n' >&2
+        exit 1
+      }
+      PROFILE="$2"
+      validate_profile "$PROFILE"
+      shift 2
+      ;;
+    --state-dir)
+      [ "$#" -ge 2 ] || {
+        printf 'ERROR: --state-dir requires an argument\n' >&2
+        exit 1
+      }
+      STATE_DIR="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ERROR: unknown option: %s\n' "$1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+[ -n "$PROFILE" ] || {
+  printf 'ERROR: --profile is required\n' >&2
+  exit 1
+}
+
+COMMIT_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+BRANCH_NAME="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || printf 'unknown')"
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+  DIRTY_STATE=true
+else
+  DIRTY_STATE=false
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '[DRY-RUN] Would create state directory: %s\n' "$STATE_DIR"
+  printf '[DRY-RUN] Would write manifest.json, resume.env, repo-info.txt, handoff.txt, checksum.txt, cidre-seed.tar.gz\n'
+  exit 0
+fi
+
+mkdir -p "$STATE_DIR"
+TMPDIR_PATH="$(mktemp -d "${TMPDIR:-/tmp}/cidre-macos-seed.XXXXXX")"
+trap 'rm -rf "$TMPDIR_PATH"' EXIT HUP INT TERM
+
+MANIFEST_PATH="$STATE_DIR/manifest.json"
+REPO_INFO_PATH="$STATE_DIR/repo-info.txt"
+HANDOFF_PATH="$STATE_DIR/handoff.txt"
+CHECKSUM_PATH="$STATE_DIR/checksum.txt"
+RESUME_ENV_PATH="$STATE_DIR/resume.env"
+TARBALL_PATH="$STATE_DIR/cidre-seed.tar.gz"
+
+cat > "$MANIFEST_PATH" <<EOF
+{
+  "schema_version": 1,
+  "cidre_version": "0.13.0",
+  "install_mode": "macos-bootstrap",
+  "source": {
+    "repository": "https://github.com/Yasuno-5555/Cidre",
+    "commit": "$(json_escape "$COMMIT_ID")",
+    "branch": "$(json_escape "$BRANCH_NAME")",
+    "dirty": $DIRTY_STATE
+  },
+  "target": {
+    "platform": "apple-silicon",
+    "base": "ALARM/Asahi",
+    "profile": "$(json_escape "$PROFILE")"
+  },
+  "created_on": {
+    "os": "macOS",
+    "arch": "arm64"
+  },
+  "handoff": {
+    "linux_entrypoint": "./preinstall --import-seed then ./install --resume",
+    "notes": [
+      "Cidre v0.13.0 does not inject this seed automatically into the target rootfs.",
+      "Manual continuation is required after ALARM installation."
+    ]
+  }
+}
+EOF
+
+cat > "$REPO_INFO_PATH" <<EOF
+repository=https://github.com/Yasuno-5555/Cidre
+repo_root=$REPO_ROOT
+commit=$COMMIT_ID
+branch=$BRANCH_NAME
+dirty=$DIRTY_STATE
+profile=$PROFILE
+EOF
+
+"$SCRIPT_DIR/cidre-macos-handoff" --profile "$PROFILE" --state-dir "$STATE_DIR" > "$HANDOFF_PATH"
+
+cat > "$RESUME_ENV_PATH" <<EOF
+CIDRE_SEED_SCHEMA_VERSION=1
+CIDRE_SEED_INSTALL_MODE=macos-bootstrap
+CIDRE_SEED_PROFILE=$PROFILE
+CIDRE_SEED_SOURCE_REPOSITORY=https://github.com/Yasuno-5555/Cidre
+CIDRE_SEED_SOURCE_COMMIT=$COMMIT_ID
+CIDRE_SEED_SOURCE_BRANCH=$BRANCH_NAME
+CIDRE_SEED_SOURCE_DIRTY=$(dirty_to_digit "$DIRTY_STATE")
+CIDRE_SEED_TARGET_PLATFORM=apple-silicon
+CIDRE_SEED_TARGET_BASE=ALARM/Asahi
+CIDRE_SEED_CREATED_OS=macOS
+CIDRE_SEED_CREATED_ARCH=arm64
+EOF
+
+mkdir -p "$TMPDIR_PATH/cidre-seed"
+cp "$MANIFEST_PATH" "$TMPDIR_PATH/cidre-seed/manifest.json"
+cp "$REPO_INFO_PATH" "$TMPDIR_PATH/cidre-seed/repo-info.txt"
+cp "$HANDOFF_PATH" "$TMPDIR_PATH/cidre-seed/handoff.txt"
+cp "$RESUME_ENV_PATH" "$TMPDIR_PATH/cidre-seed/resume.env"
+
+{
+  write_checksum "$MANIFEST_PATH" "manifest.json"
+  write_checksum "$RESUME_ENV_PATH" "resume.env"
+  write_checksum "$HANDOFF_PATH" "handoff.txt"
+  write_checksum "$REPO_INFO_PATH" "repo-info.txt"
+} > "$CHECKSUM_PATH"
+
+cp "$CHECKSUM_PATH" "$TMPDIR_PATH/cidre-seed/checksum.txt"
+(cd "$TMPDIR_PATH" && tar -czf "$TARBALL_PATH" cidre-seed)
+
+printf 'Generated macOS bootstrap seed at %s\n' "$STATE_DIR"
+printf 'Manifest: %s\n' "$MANIFEST_PATH"
+printf 'Checksum: %s\n' "$CHECKSUM_PATH"
