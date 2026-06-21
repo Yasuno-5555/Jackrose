@@ -2,7 +2,7 @@
 # cidre-image-boot-readiness: Check image / rootfs / firstboot boot readiness
 set -euo pipefail
 
-SCRIPT_VERSION="0.17.0"
+SCRIPT_VERSION="0.18.0"
 SCRIPT_NAME="cidre-image-boot-readiness"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,6 +12,7 @@ rootfs_path=""
 image_path=""
 manifest_path=""
 strict=false
+
 
 usage() {
   cat <<EOF

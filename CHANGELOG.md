@@ -2,6 +2,30 @@
 
 All notable changes to the Cidre project will be documented in this file.
 
+## [0.18.0] - 2026-06-21
+### Added
+- Added `scripts/cidre-builder-config` to check and load ALARM image builder workspace options.
+- Added `scripts/cidre-builder-integrate` to sync overlays into the builder staging tree.
+- Added `scripts/cidre-builder-invoke` to orchestrate build wrapper commands.
+- Added `scripts/cidre-builder-log` to parse build compiler logs and output warnings.
+- Added `scripts/cidre-builder-artifacts` to scan outputs and register images in state directories.
+- Added `scripts/cidre-image-promote` to copy verified prototypes to public targets.
+- Added documentation for builder integration, ALARM builder notes, and builder artifacts.
+- Added `docs/v0.18.0-builder-integration.md` release plan documentation.
+
+### Changed
+- Updated `scripts/cidre-builder-status` to extract git revision metadata and verify wrapper configurations.
+- Updated `scripts/cidre-image-manifest` schema version to `0.18.0` with `builder_revision` details.
+- Updated `scripts/cidre-image-build` to execute builder config and integration pipelines via `--builder-config`.
+- Updated `scripts/cidre-doctor` to add `--builder` audit verification checks.
+- Updated `scripts/cidre-recovery` to add `builder-status` subcommand.
+- Updated validation matrix and v1.0.0 clean install test plan with builder integration requirements.
+- Updated known limitations with v0.18.0 developer constraints.
+
+### Notes
+- v0.18.0 completes local integration with the ALARM image builder.
+- Target outputs are built and registered locally inside `.local/state/cidre/image-build/`.
+
 ## [0.17.0] - 2026-06-21
 ### Added
 - Added `scripts/cidre-builder-status` for ALARM builder / host tool status checks.

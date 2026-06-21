@@ -108,12 +108,17 @@ else
   DIRTY_STATE=false
 fi
 
+BUILDER_REV="unknown"
+if [ -n "$BUILDER_PATH" ] && [ -d "$BUILDER_PATH/.git" ]; then
+  BUILDER_REV="$(git -C "$BUILDER_PATH" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+fi
+
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 cat > "$OUTPUT_PATH" <<EOF
 {
   "schema_version": 1,
-  "cidre_version": "0.17.0",
+  "cidre_version": "0.18.0",
   "image_name": "$(json_escape "$IMAGE_NAME")",
   "image_profile": "$(json_escape "$IMAGE_PROFILE")",
   "image_version": "$(json_escape "$IMAGE_VERSION")",
@@ -126,7 +131,8 @@ cat > "$OUTPUT_PATH" <<EOF
   "base": {
     "distribution": "ALARM",
     "builder": "asahi-alarm-builder",
-    "builder_path": "$(json_escape "$BUILDER_PATH")"
+    "builder_path": "$(json_escape "$BUILDER_PATH")",
+    "builder_revision": "$(json_escape "$BUILDER_REV")"
   },
   "artifacts": {
     "overlay": "$(json_escape "$OVERLAY_ARTIFACT")",
@@ -153,3 +159,4 @@ cat > "$OUTPUT_PATH" <<EOF
 EOF
 
 printf '[OK] wrote %s\n' "$OUTPUT_PATH"
+

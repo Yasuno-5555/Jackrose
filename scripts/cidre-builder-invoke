@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# cidre-builder-invoke: Build planning and execution wrapper for ALARM builder
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-builder-invoke"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+dry_run=0
+config_file=""
+target_profile="developer"
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Plan and execute the ALARM builder wrapper.
+
+Options:
+  --config <path>   Path to builder config env file
+  --profile <name>  Build profile (desktop, developer, minimal, recovery)
+  --dry-run         Plan the build and verify files without launching actual build
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --config) config_file="$2"; shift 2 ;;
+    --profile) target_profile="$2"; shift 2 ;;
+    --dry-run) dry_run=1; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$config_file" ]; then
+  if [ -f "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+  else
+    echo "ERROR: Config file not found: $config_file" >&2
+    exit 1
+  fi
+fi
+
+builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+profile="${CIDRE_IMAGE_PROFILE:-$target_profile}"
+
+if [ -z "$builder_dir" ]; then
+  echo "ERROR: CIDRE_ALARM_BUILDER_DIR is not set. Run cidre-builder-config --validate to check." >&2
+  exit 1
+fi
+
+case "$profile" in
+  desktop|developer|minimal|recovery) ;;
+  *) echo "ERROR: Invalid profile '$profile'." >&2; exit 1 ;;
+esac
+
+echo "Planning build for profile '$profile' using ALARM builder at $builder_dir..."
+
+# ALARM Builder entry point is typically build.sh or similar shell script
+build_script="$builder_dir/build.sh"
+if [ ! -f "$build_script" ]; then
+  # Fallback check for other script name
+  build_script="$builder_dir/run.sh"
+fi
+
+if [ ! -f "$build_script" ]; then
+  echo "ERROR: Build script not found in builder directory (checked build.sh, run.sh)" >&2
+  exit 1
+fi
+
+echo "  Build Script: $build_script"
+echo "  Build profile: $profile"
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "[DRY-RUN] Verification successful."
+  echo "[DRY-RUN] Planned execution: $build_script --profile $profile"
+  exit 0
+fi
+
+# Execute actual build wrapper
+# In v0.18.0, we simulate or pass commands to build.sh, capturing outputs
+echo "Executing ALARM build.sh wrapper..."
+exec "$build_script" --profile "$profile"

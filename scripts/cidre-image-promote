@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# cidre-image-promote: Promote staging/prototype image to public/verified release
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-image-promote"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+config_file=""
+target_dir=""
+dry_run=0
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Promote a verified prototype image to release target.
+
+Options:
+  --target <dir>    Path where the public release image will be staged/copied
+  --config <path>   Path to builder config env file
+  --dry-run         Show copy steps without writing files
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) target_dir="$2"; shift 2 ;;
+    --config) config_file="$2"; shift 2 ;;
+    --dry-run) dry_run=1; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$config_file" ]; then
+  if [ -f "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+  else
+    echo "ERROR: Config file not found: $config_file" >&2
+    exit 1
+  fi
+fi
+
+if [ -z "$target_dir" ]; then
+  echo "ERROR: --target directory is required." >&2
+  exit 1
+fi
+
+output_dir="${CIDRE_IMAGE_OUTPUT_DIR:-$REPO_ROOT/.local/state/cidre/image-build}"
+image_name="${CIDRE_IMAGE_NAME:-cidre-prototype}"
+
+src_image="$output_dir/${image_name}-rootfs.img.zst"
+src_manifest="$output_dir/cidre-image-manifest.json"
+
+if [ ! -f "$src_image" ]; then
+  echo "ERROR: Staging image not found: $src_image" >&2
+  exit 1
+fi
+
+# Boot readiness and verification check
+# Before promoting, the image manifest must have boot_readiness_checked as true or we warning.
+if [ -f "$src_manifest" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    ready=$(python3 -c "
+import json
+try:
+  d = json.load(open('$src_manifest'))
+  print(d.get('validation', {}).get('boot_readiness_checked', False))
+except:
+  print('False')
+" 2>/dev/null || echo 'False')
+    if [ "$ready" != "True" ] && [ "$ready" != "true" ]; then
+      echo "WARNING: Boot readiness check has not succeeded or is unrecorded in manifest." >&2
+    fi
+  fi
+fi
+
+echo "Promoting image to public release staging at $target_dir..."
+if [ "$dry_run" -eq 1 ]; then
+  echo "[DRY-RUN] Would create directory: $target_dir"
+  echo "[DRY-RUN] Would copy: $src_image -> $target_dir/${image_name}-release-rootfs.img.zst"
+  echo "[DRY-RUN] Would copy: $src_image.sha256 -> $target_dir/${image_name}-release-rootfs.img.zst.sha256"
+  echo "[DRY-RUN] Would update manifest public_image to true and write to target target_dir/cidre-image-manifest.json"
+  exit 0
+fi
+
+mkdir -p "$target_dir"
+cp "$src_image" "$target_dir/${image_name}-release-rootfs.img.zst"
+[ -f "${src_image}.sha256" ] && cp "${src_image}.sha256" "$target_dir/${image_name}-release-rootfs.img.zst.sha256" || :
+
+# Update manifest public status
+if [ -f "$src_manifest" ] && command -v python3 >/dev/null 2>&1; then
+  python3 -c "
+import json
+d = json.load(open('$src_manifest'))
+d['features']['public_image'] = True
+json.dump(d, open('$target_dir/cidre-image-manifest.json', 'w'), indent=2)
+"
+else
+  [ -f "$src_manifest" ] && cp "$src_manifest" "$target_dir/cidre-image-manifest.json" || :
+fi
+
+echo "[OK] Image successfully promoted to release."

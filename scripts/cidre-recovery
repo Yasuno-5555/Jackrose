@@ -19,6 +19,7 @@ show_help() {
   echo "  resume-status        Show imported resume status"
   echo "  downstream-status    Show downstream foundation prototype status"
   echo "  image-status         Show prototype image artifact status"
+  echo "  builder-status       Show builder configuration and staging status"
   echo "  firstboot-status     Show firstboot OOBE state"
   echo "  boot-status          Show image boot validation status"
   echo "  disable-greetd       Disable greetd system service and restore fallback console"
@@ -190,6 +191,21 @@ case "$CMD" in
     fi
     echo "  boot tested: no"
     echo "  public image: no"
+    ;;
+  builder-status)
+    SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+    echo "Cidre builder status:"
+    if [ -f "${SCRIPT_DIR}/cidre-builder-config" ]; then
+      "${SCRIPT_DIR}/cidre-builder-config" || echo "  Failed to retrieve builder config status"
+    else
+      echo "  Error: cidre-builder-config script missing"
+    fi
+    if [ -f "${SCRIPT_DIR}/cidre-builder-status" ]; then
+      "${SCRIPT_DIR}/cidre-builder-status" || echo "  Failed to retrieve builder status info"
+    else
+      echo "  Error: cidre-builder-status script missing"
+    fi
     ;;
   firstboot-status)
     if [ -z "${CIDRE_SYSTEM_ROOT:-}" ] || [ "${CIDRE_SYSTEM_ROOT}" = "/var/lib/cidre" ]; then

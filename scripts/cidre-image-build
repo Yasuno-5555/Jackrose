@@ -18,6 +18,7 @@ CLEAN_OUTPUT=0
 NO_COMPRESS=0
 BOOT_READINESS=0
 BUILDER_STATUS=0
+BUILDER_CONFIG_INTEGRATE=0
 
 usage() {
   cat <<'EOF'
@@ -29,6 +30,7 @@ Options:
   --overlay-only
   --sync-overlay
   --builder <path>
+  --builder-config
   --output <dir>
   --profile <name>
   --inspect
@@ -46,6 +48,7 @@ validate_profile() {
     *) printf 'ERROR: unknown profile: %s\n' "$1" >&2; exit 1 ;;
   esac
 }
+
 
 log() {
   printf '%s\n' "$*"
@@ -117,6 +120,7 @@ while [ "$#" -gt 0 ]; do
     --no-compress) NO_COMPRESS=1; shift ;;
     --boot-readiness) BOOT_READINESS=1; shift ;;
     --builder-status) BUILDER_STATUS=1; shift ;;
+    --builder-config) BUILDER_CONFIG_INTEGRATE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'ERROR: unknown option: %s\n' "$1" >&2; usage; exit 1 ;;
   esac
@@ -162,8 +166,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
   if [ "$INSPECT_ARTIFACT" -eq 1 ]; then
     printf '[DRY-RUN] would inspect generated overlay artifact or overlay tree\n'
   fi
+  if [ "$BUILDER_CONFIG_INTEGRATE" -eq 1 ]; then
+    printf '[DRY-RUN] would validate and stage overlay files into builder integration staging\n'
+  fi
   if [ -n "$BUILDER_DIR" ]; then
-    printf '[DRY-RUN] builder execution is not enabled in v0.15.0; path recorded only\n'
+    printf '[DRY-RUN] would plan execution using ALARM builder at: %s\n' "$BUILDER_DIR"
   fi
   exit 0
 fi
@@ -215,6 +222,14 @@ if [ "$OVERLAY_ONLY" -eq 1 ]; then
   fi
 fi
 
+# Run builder configuration & staging if requested
+if [ "$BUILDER_CONFIG_INTEGRATE" -eq 1 ]; then
+  log "Running builder configuration validation..."
+  CIDRE_ALARM_BUILDER_DIR="$BUILDER_DIR" "$SCRIPT_DIR/cidre-builder-config" --validate >> "$BUILD_LOG"
+  log "Staging overlay files into ALARM builder integration staging..."
+  CIDRE_ALARM_BUILDER_DIR="$BUILDER_DIR" CIDRE_ROOTFS_OVERLAY_DIR="$OVERLAY_DIR" "$SCRIPT_DIR/cidre-builder-integrate" --integrate >> "$BUILD_LOG"
+fi
+
 "$SCRIPT_DIR/cidre-image-manifest" \
   --output "$manifest_path" \
   --image-name "$IMAGE_NAME" \
@@ -244,5 +259,7 @@ if [ "$BOOT_READINESS" -eq 1 ]; then
 fi
 
 if [ -n "$BUILDER_DIR" ]; then
-  log "builder execution is not enabled in v0.15.0; path recorded for future integration"
+  log "Planning build execution using ALARM builder at: $BUILDER_DIR"
+  CIDRE_ALARM_BUILDER_DIR="$BUILDER_DIR" CIDRE_IMAGE_PROFILE="$PROFILE" "$SCRIPT_DIR/cidre-builder-invoke" --dry-run >> "$BUILD_LOG"
 fi
+

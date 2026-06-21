@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# cidre-builder-log: Retain and structure build logs
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-builder-log"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+mode="list"
+config_file=""
+log_limit=10
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Inspect and manage Cidre builder logs.
+
+Options:
+  --list            List past build logs (default)
+  --show <id>       Show content of a specific build log
+  --clean           Clean build log history
+  --limit <n>       Limit listed items to n (default: 10)
+  --config <path>   Path to builder config env file
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) mode="list"; shift ;;
+    --show) mode="show"; log_id="$2"; shift 2 ;;
+    --clean) mode="clean"; shift ;;
+    --limit) log_limit="$2"; shift 2 ;;
+    --config) config_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$config_file" ]; then
+  if [ -f "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+  else
+    echo "ERROR: Config file not found: $config_file" >&2
+    exit 1
+  fi
+fi
+
+output_dir="${CIDRE_IMAGE_OUTPUT_DIR:-$REPO_ROOT/.local/state/cidre/image-build}"
+
+# Output dir contains build logs, typically output_dir/build.log or timestamps like build-YYYYMMDD-HHMMSS.log
+# Let's support both.
+
+if [ "$mode" = "clean" ]; then
+  echo "Cleaning builder logs..."
+  rm -f "$output_dir"/build*.log
+  echo "Clean complete."
+  exit 0
+fi
+
+if [ "$mode" = "show" ]; then
+  if [ -z "${log_id:-}" ]; then
+    echo "ERROR: --show requires a log file name/id." >&2
+    exit 1
+  fi
+  target_log="$output_dir/$log_id"
+  if [ ! -f "$target_log" ]; then
+    # try matches
+    target_log=$(find "$output_dir" -name "*$log_id*" -type f -print -quit)
+  fi
+  if [ -f "$target_log" ]; then
+    echo "=== Log: $target_log ==="
+    cat "$target_log"
+  else
+    echo "ERROR: Log file not found: $log_id" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+# List mode
+echo "Cidre builder logs in $output_dir:"
+if [ -d "$output_dir" ]; then
+  # Find build logs sorted by time
+  find "$output_dir" -maxdepth 1 -name "build*.log" -type f -printf "%T@ %p\n" 2>/dev/null | \
+    sort -rn | head -n "$log_limit" | cut -d' ' -f2- | while read -r logpath; do
+      basename "$logpath"
+    done
+else
+  echo "No logs found (output directory does not exist)."
+fi

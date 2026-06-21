@@ -17,6 +17,7 @@ DOWNSTREAM_MODE=false
 IMAGE_MODE=false
 FIRSTBOOT_MODE=false
 BOOT_MODE=false
+BUILDER_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
@@ -43,12 +44,14 @@ show_help() {
   echo "  --image             Inspect prototype image build scripts and artifacts"
   echo "  --firstboot         Inspect firstboot OOBE scripts and state"
   echo "  --boot              Inspect image boot validation tooling and artifacts"
+  echo "  --builder           Inspect ALARM builder integration state and wrapper tools"
   echo "  --base-readiness    Verify root-phase base setup readiness for ./preinstall"
   echo "  --seed              Inspect imported Cidre seed state under /var/lib/cidre/seed"
   echo "  --resume            Inspect imported/system and user resume state"
   echo "  --summary           Can be combined with --base-readiness for condensed output"
   echo "  --help              Show this help message"
 }
+
 
 # Parse options
 while [ $# -gt 0 ]; do
@@ -65,6 +68,7 @@ while [ $# -gt 0 ]; do
     --image) IMAGE_MODE=true; shift ;;
     --firstboot) FIRSTBOOT_MODE=true; shift ;;
     --boot) BOOT_MODE=true; shift ;;
+    --builder) BUILDER_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -72,6 +76,7 @@ while [ $# -gt 0 ]; do
     *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
   esac
 done
+
 
 if [ "$LAST_MODE" = true ]; then
   echo "=== Last Saved Diagnostics Summary ==="
@@ -572,6 +577,52 @@ elif [ "$BOOT_MODE" = true ]; then
 
   print_result WARN "Real Apple Silicon boot validation not yet performed."
 
+elif [ "${BUILDER_MODE:-false}" = true ]; then
+  SCRIPT_PATH=$(realpath "$0")
+  REPO_ROOT=$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)
+  IMAGE_OUTPUT_DIR="${REPO_ROOT}/.local/state/cidre/image-build"
+
+  echo "Cidre ALARM builder integration check"
+  echo ""
+
+  # Verify new wrapper tools are present and executable
+  for script in \
+    scripts/cidre-builder-config \
+    scripts/cidre-builder-integrate \
+    scripts/cidre-builder-invoke \
+    scripts/cidre-builder-log \
+    scripts/cidre-builder-artifacts \
+    scripts/cidre-image-promote \
+    scripts/cidre-builder-status; do
+    if [ -f "${REPO_ROOT}/${script}" ] && [ -x "${REPO_ROOT}/${script}" ]; then
+      print_result OK "Builder integration tool present: $script"
+    else
+      print_result FAIL "Builder integration tool missing or not executable: $script"
+    fi
+  done
+
+  # Verify docs
+  for doc in \
+    docs/builder-integration.md \
+    docs/alarm-builder-notes.md \
+    docs/builder-artifacts.md \
+    docs/v0.18.0-builder-integration.md; do
+    if [ -f "${REPO_ROOT}/${doc}" ]; then
+      print_result OK "Builder documentation file present: $doc"
+    else
+      print_result WARN "Builder documentation file missing: $doc"
+    fi
+  done
+
+  # Status execution checks
+  if [ -x "${REPO_ROOT}/scripts/cidre-builder-status" ]; then
+    if "${REPO_ROOT}/scripts/cidre-builder-status" >/dev/null 2>&1; then
+      print_result OK "cidre-builder-status runs successfully."
+    else
+      print_result WARN "cidre-builder-status reported issues."
+    fi
+  fi
+
 elif [ "$RC_READINESS_MODE" = true ]; then
   # 1. Try to find the Cidre repository root relative to this script
   SCRIPT_PATH=$(realpath "$0")
@@ -610,8 +661,17 @@ elif [ "$RC_READINESS_MODE" = true ]; then
       fi
     done
 
+    # Builder integration scripts (v0.18.0)
+    for cmd in scripts/cidre-builder-config scripts/cidre-builder-integrate scripts/cidre-builder-invoke scripts/cidre-builder-log scripts/cidre-builder-artifacts scripts/cidre-image-promote; do
+      if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
+        print_result OK "Builder integration script present: ${cmd}"
+      else
+        print_result FAIL "Builder integration script missing or not executable: ${cmd}"
+      fi
+    done
+
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v0.18.0-builder-integration.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md docs/builder-integration.md docs/alarm-builder-notes.md docs/builder-artifacts.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."
         # Extra verification for limitations presence
@@ -626,6 +686,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
         print_result FAIL "Documentation file '${doc}' is missing."
       fi
     done
+
   else
     print_result WARN "Cidre repository tree root not found. Skipping local tree validations."
   fi

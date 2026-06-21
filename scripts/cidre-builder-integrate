@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# cidre-builder-integrate: Stage and integrate Cidre overlay with ALARM builder
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-builder-integrate"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+mode="integrate"
+dry_run=0
+config_file=""
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Integrate Cidre overlay into the ALARM builder directory.
+
+Options:
+  --integrate       Stage and configure overlay inside the builder (default)
+  --clean           Remove integrated Cidre overlays from the builder
+  --config <path>   Path to builder config env file
+  --dry-run         Show what would be done without doing it
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --integrate) mode="integrate"; shift ;;
+    --clean) mode="clean"; shift ;;
+    --config) config_file="$2"; shift 2 ;;
+    --dry-run) dry_run=1; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Load and validate builder config
+if [ -n "$config_file" ]; then
+  if [ -f "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+  else
+    echo "ERROR: Config file not found: $config_file" >&2
+    exit 1
+  fi
+fi
+
+# Load builder-config settings or defaults
+builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+overlay_dir="${CIDRE_ROOTFS_OVERLAY_DIR:-$REPO_ROOT/downstream/rootfs-overlay}"
+
+if [ -z "$builder_dir" ]; then
+  echo "ERROR: CIDRE_ALARM_BUILDER_DIR is not set. Run cidre-builder-config --validate to check." >&2
+  exit 1
+fi
+
+# We expect ALARM builder to have specific directories where customization overlays or hook scripts reside.
+# Typically, asahi-alarm-builder has a customization layer like an overlay directory or a specific build hook.
+# Let's define the builder's staging area for overlays.
+# Default target under builder for customized overlays: e.g., $builder_dir/overlay or similar.
+builder_overlay_target="$builder_dir/overlay"
+
+if [ "$mode" = "clean" ]; then
+  echo "Cleaning integrated Cidre overlay from builder..."
+  if [ "$dry_run" -eq 1 ]; then
+    echo "[DRY-RUN] Would remove: $builder_overlay_target/usr/lib/cidre"
+    echo "[DRY-RUN] Would remove: $builder_overlay_target/etc/systemd/system/cidre-firstboot-root.service"
+    echo "[DRY-RUN] Would remove: $builder_overlay_target/etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service"
+  else
+    if [ -d "$builder_overlay_target" ]; then
+      rm -rf "$builder_overlay_target/usr/lib/cidre"
+      rm -f "$builder_overlay_target/etc/systemd/system/cidre-firstboot-root.service"
+      rm -f "$builder_overlay_target/etc/systemd/system/multi-user.target.wants/cidre-firstboot-root.service"
+      # Cleanup empty directories if any
+      find "$builder_overlay_target" -type d -empty -delete 2>/dev/null || true
+      echo "Clean complete."
+    else
+      echo "Staging area does not exist, nothing to clean."
+    fi
+  fi
+  exit 0
+fi
+
+# Integrate mode
+echo "Integrating Cidre overlay into ALARM builder..."
+echo "  Source overlay: $overlay_dir"
+echo "  Target builder: $builder_dir"
+echo "  Staging target: $builder_overlay_target"
+
+# Basic checks
+if [ ! -d "$overlay_dir" ]; then
+  echo "ERROR: Source overlay directory does not exist: $overlay_dir" >&2
+  exit 1
+fi
+if [ ! -d "$builder_dir" ]; then
+  echo "ERROR: Target builder directory does not exist: $builder_dir" >&2
+  exit 1
+fi
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "[DRY-RUN] Would create directory tree under $builder_overlay_target"
+  echo "[DRY-RUN] Would sync $overlay_dir/ to $builder_overlay_target/"
+  exit 0
+fi
+
+# Perform actual staging copy
+mkdir -p "$builder_overlay_target"
+
+# Copy files preserving permissions and paths
+# Using tar to safely copy path structure
+(cd "$overlay_dir" && tar -cf - usr etc var 2>/dev/null) | (cd "$builder_overlay_target" && tar -xf -)
+
+echo "[OK] Cidre overlay files integrated successfully."
+echo "Integration status:"
+echo "  Staged files count: $(find "$builder_overlay_target" -type f | wc -l)"

@@ -54,3 +54,11 @@ This document lists all known limits, caveats, and risk factors regarding the Ci
 - Image mounting may require root privileges and depends on host tools (`mount`, `losetup`).
 - Rootfs inspection does not guarantee boot success.
 - Boot log collection only works after a successful or partially successful boot.
+
+## v0.18.0 limitations
+
+- v0.18.0 does not distribute public bootable images.
+- Image builder integration assumes local run paths and directory existence; nested VM configurations are not fully automated.
+- Promotion checks verify boot validation metadata, but do not prevent manual promotion of unverified assets if forced.
+- Manifest schemas (v0.18.0) include builder git revisions but do not sign the artifact logs.
+

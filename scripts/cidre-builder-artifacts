@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# cidre-builder-artifacts: Scan and register ALARM builder build outputs
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-builder-artifacts"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+mode="scan"
+config_file=""
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Scan and register builder output artifacts.
+
+Options:
+  --scan            Scan builder directory and list artifacts (default)
+  --register        Copy output artifacts to Cidre state directory and update manifest
+  --config <path>   Path to builder config env file
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --scan) mode="scan"; shift ;;
+    --register) mode="register"; shift ;;
+    --config) config_file="$2"; shift 2 ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$config_file" ]; then
+  if [ -f "$config_file" ]; then
+    # shellcheck disable=SC1090
+    . "$config_file"
+  else
+    echo "ERROR: Config file not found: $config_file" >&2
+    exit 1
+  fi
+fi
+
+builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+output_dir="${CIDRE_IMAGE_OUTPUT_DIR:-$REPO_ROOT/.local/state/cidre/image-build}"
+image_name="${CIDRE_IMAGE_NAME:-cidre-prototype}"
+
+if [ -z "$builder_dir" ]; then
+  echo "ERROR: CIDRE_ALARM_BUILDER_DIR is not set. Run cidre-builder-config --validate to check." >&2
+  exit 1
+fi
+
+# Expected builder outputs: typically in a directory called $builder_dir/out/ or similar.
+builder_out_dir="$builder_dir/out"
+
+if [ "$mode" = "scan" ]; then
+  echo "Scanning builder output directory: $builder_out_dir"
+  if [ -d "$builder_out_dir" ]; then
+    find "$builder_out_dir" -maxdepth 2 -type f | while read -r item; do
+      echo "  Found artifact: $(basename "$item") ($(stat -c%s "$item" 2>/dev/null || echo 0) bytes)"
+    done
+  else
+    echo "No output directory found (nothing built yet or directory missing)."
+  fi
+  exit 0
+fi
+
+# Register mode
+echo "Registering builder artifacts to $output_dir..."
+mkdir -p "$output_dir"
+
+if [ ! -d "$builder_out_dir" ]; then
+  echo "ERROR: Builder output directory $builder_out_dir does not exist." >&2
+  exit 1
+fi
+
+# Locate the rootfs image (typically .img, .img.zst, or .tar.gz)
+rootfs_img=$(find "$builder_out_dir" -maxdepth 1 -name "*.img*" -type f -print -quit)
+
+if [ -z "$rootfs_img" ]; then
+  echo "ERROR: No rootfs image artifact (*.img*) found in $builder_out_dir" >&2
+  exit 1
+fi
+
+echo "  Found rootfs image: $rootfs_img"
+echo "  Copying to output directory..."
+cp "$rootfs_img" "$output_dir/${image_name}-rootfs.img.zst"
+
+# Update checksum
+echo "  Generating checksum..."
+"$SCRIPT_DIR/cidre-image-checksum" "$output_dir/${image_name}-rootfs.img.zst" > "$output_dir/${image_name}-rootfs.img.zst.sha256"
+
+# Run inspect
+echo "  Staging manifest registration..."
+"$SCRIPT_DIR/cidre-image-manifest" \
+  --builder "$builder_dir" \
+  --image "${image_name}-rootfs.img.zst"
+
+echo "[OK] Artifacts successfully registered."

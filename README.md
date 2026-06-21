@@ -1,4 +1,4 @@
-# Cidre (v0.17.0 Image Boot Validation Pack)
+# Cidre (v0.18.0 Builder Integration Pack)
 
 Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
@@ -32,6 +32,11 @@ Cidre v0.17.0 adds image boot validation tooling.
 
 This includes rootfs inspection, boot readiness checks, boot checklists, and boot log collection helpers.
 It still does not mean Cidre ships a public bootable image.
+
+## Builder Integration Status
+
+Cidre v0.18.0 integrates the boot validation layer and rootfs overlay trees with the ALARM image builder, tracking configurations, logs, and output registration.
+This remains a developer release intended to ensure robust, repeatable local image building.
 
 ## Installation Flow
 
@@ -97,11 +102,16 @@ After switching to the normal user, resume the Cidre setup:
 - [Validation Matrix](./docs/validation-matrix.md)
 - [Known Limitations](./docs/known-limitations.md)
 - [v1.0.0 Clean-Install Test Plan](./docs/v1.0.0-clean-install-test-plan.md)
+- [Builder Integration](./docs/builder-integration.md)
+- [ALARM Builder Notes](./docs/alarm-builder-notes.md)
+- [Builder Artifacts](./docs/builder-artifacts.md)
 - [Update Guide](./docs/update.md)
 - [Maintenance Guide](./docs/maintenance.md)
 - [Recovery Guide](./docs/recovery.md)
 - [Diagnostics Guide](./docs/diagnostics.md)
 - [Configuration Management Guide](./docs/config-management.md)
+- [v0.18.0 Release Notes](./docs/v0.18.0-builder-integration.md)
+- [v0.17.0 Release Notes](./docs/v0.17.0-image-boot-validation.md)
 - [v0.16.0 Release Notes](./docs/v0.16.0-firstboot-oobe.md)
 - [v0.15.0 Release Notes](./docs/v0.15.0-cidre-image-prototype.md)
 - [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)

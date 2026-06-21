@@ -1,4 +1,4 @@
-# Cidre v0.16.0 Validation Matrix
+# Cidre v0.18.0 Validation Matrix
 
 The following matrix documents the verification scopes completed on Cidre before the v1.0.0 release.
 
@@ -12,6 +12,7 @@ The following matrix documents the verification scopes completed on Cidre before
 | **downstream foundation** | Yes | Partial | N/A | No | No | Downstream docs exist, installer entry example validates as JSON, rootfs overlay layout exists, and firstboot-root prototype passes syntax checks |
 | **image prototype** | Yes | Yes | N/A | No | No | Image build scripts parse, overlay sync runs, overlay tarball and checksum generate, manifest writes, and overlay inspection passes |
 | **firstboot OOBE** | Yes | Yes | N/A | No | No | firstboot-root dry-run and status work, state transitions and handoff generation work under simulated roots, doctor/recovery report state, and overlay inspection includes OOBE scripts |
+| **builder integration** | Yes | Yes | N/A | No | No | Builder configuration check, staging tree layout, script integration, artifact registration and promotion paths |
 | **bootstrap system** | Yes | Yes | N/A | Partial | No | System commands and pacman dependencies simulated |
 | **user config apply** | Yes | Yes | Yes | Partial | No | Sandboxed user home file deployment fully tested |
 | **diagnostics (doctor)** | Yes | Yes | Yes | Partial | No | Script parsing & maintenance checks verified |
@@ -38,3 +39,17 @@ The following matrix documents the verification scopes completed on Cidre before
 | Boot log collection | `scripts/cidre-boot-log-collect --dry-run` |
 | Doctor boot check | `scripts/cidre-doctor --boot` |
 | Recovery boot status | `scripts/cidre-recovery boot-status` |
+
+## Builder Integration Pack (v0.18.0)
+
+| Check | Command |
+|---|---|
+| Builder config status | `scripts/cidre-builder-config` |
+| Overlay injection | `scripts/cidre-builder-integrate --dry-run` |
+| Build execution wrap | `scripts/cidre-builder-invoke --dry-run` |
+| Build log analysis | `scripts/cidre-builder-log` |
+| Artifact registration | `scripts/cidre-builder-artifacts` |
+| Image promotion | `scripts/cidre-image-promote` |
+| Doctor builder check | `scripts/cidre-doctor --builder` |
+| Recovery builder check | `scripts/cidre-recovery builder-status` |
+

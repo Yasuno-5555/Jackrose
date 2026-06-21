@@ -55,6 +55,9 @@ else
   check OK "builder directory found: $builder_dir"
   if [ -d "$builder_dir/.git" ]; then
     check OK "builder is a git repository"
+    # Show builder commit revision in status
+    builder_rev=$(git -C "$builder_dir" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    check OK "builder commit revision: $builder_rev"
     if git -C "$builder_dir" remote -v 2>/dev/null | grep -q .; then
       check OK "builder has upstream remote configured"
     else
@@ -69,6 +72,16 @@ else
     check WARN "builder directory is not a git repository"
   fi
 fi
+
+echo ""
+echo "Cidre builder wrapper tools:"
+for tool in cidre-builder-config cidre-builder-integrate cidre-builder-invoke cidre-builder-log cidre-builder-artifacts cidre-image-promote; do
+  if [ -f "$SCRIPT_DIR/$tool" ] && [ -x "$SCRIPT_DIR/$tool" ]; then
+    check OK "wrapper tool present: $tool"
+  else
+    check FAIL "wrapper tool missing or not executable: $tool"
+  fi
+done
 
 echo ""
 echo "Required host tools:"
@@ -113,3 +126,4 @@ echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
 if [ "$result_fail" -gt 0 ]; then
   exit 1
 fi
+

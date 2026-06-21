@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# cidre-builder-config: Show and validate Cidre builder configuration
+set -euo pipefail
+
+SCRIPT_VERSION="0.18.0"
+SCRIPT_NAME="cidre-builder-config"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Known valid profiles
+VALID_PROFILES="desktop developer minimal recovery"
+
+mode="show"
+example_path=""
+
+usage() {
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
+
+Show and validate Cidre builder configuration.
+
+Options:
+  --show            Display current configuration (default)
+  --validate        Validate all required settings
+  --write-example <path>  Write example config env file to path
+  --help            Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --show) mode="show"; shift ;;
+    --validate) mode="validate"; shift ;;
+    --write-example)
+      mode="write-example"
+      example_path="$2"
+      shift 2
+      ;;
+    --help) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Resolve defaults
+builder_dir="${CIDRE_ALARM_BUILDER_DIR:-}"
+output_dir="${CIDRE_IMAGE_OUTPUT_DIR:-$REPO_ROOT/.local/state/cidre/image-build}"
+overlay_dir="${CIDRE_ROOTFS_OVERLAY_DIR:-$REPO_ROOT/downstream/rootfs-overlay}"
+profile="${CIDRE_IMAGE_PROFILE:-developer}"
+image_name="${CIDRE_IMAGE_NAME:-cidre-prototype}"
+image_version="${CIDRE_IMAGE_VERSION:-}"
+
+if [ -z "$image_version" ]; then
+  image_version="$(git -C "$REPO_ROOT" describe --tags --always 2>/dev/null || \
+    git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+fi
+
+if [ "$mode" = "show" ]; then
+  echo "Cidre builder configuration"
+  echo ""
+  echo "  CIDRE_ALARM_BUILDER_DIR  = ${builder_dir:-(not set)}"
+  echo "  CIDRE_IMAGE_OUTPUT_DIR   = $output_dir"
+  echo "  CIDRE_ROOTFS_OVERLAY_DIR = $overlay_dir"
+  echo "  CIDRE_IMAGE_PROFILE      = $profile"
+  echo "  CIDRE_IMAGE_NAME         = $image_name"
+  echo "  CIDRE_IMAGE_VERSION      = $image_version"
+  echo ""
+  echo "Paths resolved:"
+  echo "  builder: ${builder_dir:-(not set)}"
+  echo "  overlay: $overlay_dir"
+  echo "  output:  $output_dir"
+  exit 0
+fi
+
+if [ "$mode" = "write-example" ]; then
+  if [ -z "$example_path" ]; then
+    echo "ERROR: --write-example requires a path" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$example_path")"
+  cat >"$example_path" <<EOF
+# Cidre builder configuration example
+# Copy this file and adjust for your environment
+
+# Path to asahi-alarm-builder repository (required for builder invocation)
+# export CIDRE_ALARM_BUILDER_DIR=../asahi-alarm-builder
+
+# Image output directory (default: .local/state/cidre/image-build)
+# export CIDRE_IMAGE_OUTPUT_DIR=.local/state/cidre/image-build
+
+# Rootfs overlay directory (default: downstream/rootfs-overlay)
+# export CIDRE_ROOTFS_OVERLAY_DIR=downstream/rootfs-overlay
+
+# Image profile: desktop / developer / minimal / recovery
+# export CIDRE_IMAGE_PROFILE=developer
+
+# Image name (default: cidre-prototype)
+# export CIDRE_IMAGE_NAME=cidre-prototype
+
+# Image version (default: git describe)
+# export CIDRE_IMAGE_VERSION=
+EOF
+  echo "Example config written to: $example_path"
+  exit 0
+fi
+
+# Validate mode
+result_ok=0
+result_warn=0
+result_fail=0
+
+check() {
+  local status="$1" label="$2"
+  case "$status" in
+    OK)   echo "[OK]   $label"; result_ok=$((result_ok+1)) ;;
+    WARN) echo "[WARN] $label"; result_warn=$((result_warn+1)) ;;
+    FAIL) echo "[FAIL] $label"; result_fail=$((result_fail+1)) ;;
+  esac
+}
+
+echo "Cidre builder configuration validation"
+echo ""
+
+echo "Builder directory:"
+if [ -z "$builder_dir" ]; then
+  check WARN "CIDRE_ALARM_BUILDER_DIR not set (required for builder invocation)"
+elif [ ! -d "$builder_dir" ]; then
+  check FAIL "builder directory not found: $builder_dir"
+else
+  check OK "builder directory found: $builder_dir"
+fi
+
+echo ""
+echo "Overlay directory:"
+if [ -d "$overlay_dir" ]; then
+  check OK "overlay directory found: $overlay_dir"
+else
+  check FAIL "overlay directory not found: $overlay_dir"
+fi
+
+echo ""
+echo "Output directory:"
+if [ -d "$output_dir" ]; then
+  check OK "output directory exists: $output_dir"
+else
+  check WARN "output directory not yet created: $output_dir (will be created on build)"
+fi
+
+echo ""
+echo "Profile:"
+profile_ok=false
+for p in $VALID_PROFILES; do
+  [ "$p" = "$profile" ] && profile_ok=true && break
+done
+if "$profile_ok"; then
+  check OK "profile is valid: $profile"
+else
+  check FAIL "invalid profile '$profile'; valid: $VALID_PROFILES"
+fi
+
+echo ""
+echo "Image name:"
+if [ -n "$image_name" ]; then
+  check OK "image name: $image_name"
+else
+  check FAIL "image name is empty"
+fi
+
+echo ""
+echo "Image version:"
+if [ -n "$image_version" ] && [ "$image_version" != "unknown" ]; then
+  check OK "image version: $image_version"
+else
+  check WARN "image version: unknown (no git tag or explicit version)"
+fi
+
+echo ""
+echo "Summary: OK=$result_ok WARN=$result_warn FAIL=$result_fail"
+
+if [ "$result_fail" -gt 0 ]; then
+  exit 1
+fi
