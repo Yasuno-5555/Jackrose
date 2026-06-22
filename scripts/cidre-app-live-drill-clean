@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/live-drill"
+
+keep_latest=5
+dry_run=false
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --keep-latest) keep_latest="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-live-drill-clean [--dry-run] [--keep-latest N] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$STATE_ROOT" "$keep_latest" "$dry_run" "$json_mode" <<'PY'
+import json, os, shutil, sys
+state_root, keep_latest, dry_run, json_mode = sys.argv[1:]
+keep_latest = int(keep_latest)
+dry_run = dry_run == "true"
+json_mode = json_mode == "true"
+os.makedirs(state_root, exist_ok=True)
+entries = sorted(
+    [name for name in os.listdir(state_root) if name not in {"current"} and os.path.isdir(os.path.join(state_root, name))]
+)
+remove = entries[:-keep_latest] if len(entries) > keep_latest else []
+if not dry_run:
+    for name in remove:
+        shutil.rmtree(os.path.join(state_root, name), ignore_errors=True)
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-live-drill-clean",
+    "status": "passed",
+    "summary": "Live drill cleanup completed." if not dry_run else "Live drill cleanup dry-run completed.",
+    "exit_code": 0,
+    "removed": remove,
+    "kept": entries[-keep_latest:] if entries else [],
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+PY

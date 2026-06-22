@@ -91,6 +91,9 @@ show_help() {
   echo "  disposable-target-status Show disposable target policy guidance"
   echo "  mutation-plan-status Show latest mutation plan status"
   echo "  mutation-report     Show latest controlled mutation report"
+  echo "  live-drill-status   Show latest live drill status"
+  echo "  live-drill-report   Show latest live drill report"
+  echo "  live-drill-clean    Clean old live drill state"
 
   echo "  rescue-build         Build Rescue Slot overlay artifact"
   echo "  rescue-inspect       Inspect Rescue Slot overlay"
@@ -608,6 +611,15 @@ case "$CMD" in
     ;;
   mutation-report)
     exec "$(dirname "$0")/cidre-app-mutation-report" --markdown
+    ;;
+  live-drill-status)
+    exec "$(dirname "$0")/cidre-app-live-drill-state" --status --json
+    ;;
+  live-drill-report)
+    exec "$(dirname "$0")/cidre-app-live-drill-report" --markdown
+    ;;
+  live-drill-clean)
+    exec "$(dirname "$0")/cidre-app-live-drill-clean" --keep-latest 5 --json
     ;;
   boot-failure-report)
     exec "$(dirname "$0")/cidre-app-boot-failure-report" --incident DFU_RESTORE_001 --json

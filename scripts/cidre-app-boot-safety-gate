@@ -21,6 +21,7 @@ killswitch_json="$("$SCRIPT_DIR/cidre-app-installer-killswitch" --status --json)
 recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
 rollback_json="$("$SCRIPT_DIR/cidre-app-rollback-report-check" --json 2>/dev/null || true)"
 mutation_report_json="$("$SCRIPT_DIR/cidre-app-mutation-report" --json 2>/dev/null || true)"
+live_drill_report_json="$("$SCRIPT_DIR/cidre-app-live-drill-report" --json 2>/dev/null || true)"
 
 before_snapshot="$(find "$SNAPSHOT_DIR" -type f -name '*before*.json' | sort | tail -n 1 || true)"
 after_snapshot="$(find "$SNAPSHOT_DIR" -type f -name '*after*.json' | sort | tail -n 1 || true)"
@@ -32,12 +33,12 @@ if [ -n "$before_snapshot" ] && [ -n "$after_snapshot" ]; then
 fi
 
 incident_json_path="$REPO_ROOT/.local/state/cidre/incidents/DFU_RESTORE_001/report.json"
-python3 - "$CURRENT_DIR/boot-safety-state.json" "$json_mode" "$killswitch_json" "$recovery_json" "$guard_json" "$diff_json" "$before_snapshot" "$after_snapshot" "$incident_json_path" "$rollback_json" "$mutation_report_json" <<'PY'
+python3 - "$CURRENT_DIR/boot-safety-state.json" "$json_mode" "$killswitch_json" "$recovery_json" "$guard_json" "$diff_json" "$before_snapshot" "$after_snapshot" "$incident_json_path" "$rollback_json" "$mutation_report_json" "$live_drill_report_json" <<'PY'
 import json
 import os
 import sys
 
-state_file, json_mode, killswitch_raw, recovery_raw, guard_raw, diff_raw, before_snapshot, after_snapshot, incident_path, rollback_raw, mutation_report_raw = sys.argv[1:]
+state_file, json_mode, killswitch_raw, recovery_raw, guard_raw, diff_raw, before_snapshot, after_snapshot, incident_path, rollback_raw, mutation_report_raw, live_drill_report_raw = sys.argv[1:]
 json_mode = json_mode == "true"
 
 def parse(raw):
@@ -55,6 +56,7 @@ guard = parse(guard_raw) or {}
 diff = parse(diff_raw) or {}
 rollback = parse(rollback_raw) or {}
 mutation_report = parse(mutation_report_raw) or {}
+live_drill_report = parse(live_drill_report_raw) or {}
 
 checks = []
 blocked = []
@@ -76,6 +78,8 @@ add_check("protected-partition-guard", "failed" if guard.get("status") == "faile
 add_check("prepost-disk-diff", "failed" if diff.get("status") == "failed" else "blocked", diff.get("status") == "passed", diff.get("summary") or "Disk diff has not passed.")
 if mutation_report:
     add_check("mutation-report", "blocked" if mutation_report.get("status") in {"blocked", "failed"} else "passed", mutation_report.get("summary") or "Mutation report unavailable.")
+if live_drill_report:
+    add_check("live-drill-report", "blocked" if live_drill_report.get("status") in {"blocked", "failed"} else "passed", live_drill_report.get("summary") or "Live drill report unavailable.")
 
 errors = failed + blocked
 status = "passed" if not errors else ("failed" if failed else "blocked")

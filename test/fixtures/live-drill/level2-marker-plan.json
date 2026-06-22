@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "drill_id": "live-drill-fixture-level2",
+  "level": 2,
+  "operation": "disposable-marker",
+  "target": "disk9s3",
+  "requires_disposable_target": true,
+  "requires_confirmation": false,
+  "requires_test_mode": true,
+  "expected_disk_changes": [],
+  "helper_operation": "live-drill",
+  "plan_hash": "fixture-placeholder"
+}

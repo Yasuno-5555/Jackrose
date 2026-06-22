@@ -3,14 +3,16 @@ set -eu
 
 scope="install"
 target=""
+level=""
 json_mode=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --scope) scope="$2"; shift 2 ;;
     --target) target="$2"; shift 2 ;;
+    --level) level="$2"; shift 2 ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard [--target diskXsY] [--json]"; exit 0 ;;
+    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard|live-drill [--level 0|1|2|3] [--target diskXsY] [--json]"; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -36,12 +38,13 @@ if [ -n "$latest_after" ]; then
   guard_json="$("$SCRIPT_DIR/cidre-app-protected-partition-guard" --snapshot "$latest_after" --json 2>/dev/null || true)"
 fi
 
-python3 - "$scope" "$target" "$json_mode" "$killswitch_json" "$mutation_mode_json" "$boot_json" "$shutdown_json" "$rollback_json" "$recovery_json" "$disposable_json" "$guard_json" "$CURRENT_DIR/gate-evaluate-${scope}.json" <<'PY'
+python3 - "$scope" "$target" "$level" "$json_mode" "$killswitch_json" "$mutation_mode_json" "$boot_json" "$shutdown_json" "$rollback_json" "$recovery_json" "$disposable_json" "$guard_json" "$CURRENT_DIR/gate-evaluate-${scope}.json" <<'PY'
 import json
 import sys
 
-scope, target, json_mode, killswitch_raw, mutation_mode_raw, boot_raw, shutdown_raw, rollback_raw, recovery_raw, disposable_raw, guard_raw, state_file = sys.argv[1:]
+scope, target, level_raw, json_mode, killswitch_raw, mutation_mode_raw, boot_raw, shutdown_raw, rollback_raw, recovery_raw, disposable_raw, guard_raw, state_file = sys.argv[1:]
 json_mode = json_mode == "true"
+level = int(level_raw) if level_raw else None
 
 def parse(raw):
     raw = (raw or "").strip()
@@ -115,6 +118,20 @@ elif scope == "finish":
         status = "passed"
         blocked_actions.clear()
         allowed_actions.add("finish")
+elif scope == "live-drill":
+    blocked_actions.update(["live-drill-execution"])
+    level_requires_disposable = level in {2, 3}
+    gate_ready = (
+        killswitch.get("destructive_install_allowed")
+        and mutation_mode.get("enabled")
+        and mutation_mode.get("environment_enabled")
+        and recovery.get("status") == "passed"
+        and (not level_requires_disposable or disposable.get("status") == "passed")
+    )
+    if gate_ready:
+        status = "passed"
+        blocked_actions.clear()
+        allowed_actions.add("live-drill-execution")
 else:
     blocked_actions.update(["finish", "restart", "shutdown", "disk-mutation"])
     if (

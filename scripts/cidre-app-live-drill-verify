@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+plan=""
+before=""
+after=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --before) before="$2"; shift 2 ;;
+    --after) after="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-live-drill-verify --plan plan.json --before before.json --after after.json [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+[ -n "$before" ] || { echo "ERROR: --before is required" >&2; exit 2; }
+[ -n "$after" ] || { echo "ERROR: --after is required" >&2; exit 2; }
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+guard_json="$("$SCRIPT_DIR/cidre-app-protected-partition-guard" --before "$before" --after "$after" --json 2>/dev/null || true)"
+diff_json="$("$SCRIPT_DIR/cidre-app-prepost-disk-diff" --before "$before" --after "$after" --json 2>/dev/null || true)"
+recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
+
+python3 - "$plan" "$json_mode" "$guard_json" "$diff_json" "$recovery_json" <<'PY'
+import json, sys
+
+plan_path, json_mode, guard_raw, diff_raw, recovery_raw = sys.argv[1:]
+json_mode = json_mode == "true"
+with open(plan_path, "r", encoding="utf-8") as handle:
+    plan = json.load(handle)
+def parse(raw):
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+guard = parse(guard_raw)
+diff = parse(diff_raw)
+recovery = parse(recovery_raw)
+level = int(plan.get("level", -1))
+allowed_changes = diff.get("allowed_target_changes") or []
+changed = (diff.get("added_identifiers") or []) or (diff.get("removed_identifiers") or []) or (diff.get("changed_identifiers") or [])
+errors = []
+checks = []
+def add_check(identifier, passed, reason):
+    checks.append({"id": identifier, "status": "passed" if passed else "failed", "reason": None if passed else reason})
+    if not passed:
+        errors.append({"code": identifier, "message": reason})
+add_check("protected-partitions-unchanged", guard.get("status") == "passed", guard.get("summary") or "Protected partition guard failed.")
+add_check("recovery-survival", recovery.get("status") == "passed", recovery.get("summary") or "Recovery survival failed.")
+if level in (0, 1):
+    add_check("disk-unchanged", not changed, "The live drill unexpectedly changed disk state.")
+elif level == 2:
+    add_check("marker-safe", guard.get("status") == "passed", "Disposable marker drill touched protected partitions.")
+elif level == 3:
+    add_check("allowed-target-changes-present", bool(allowed_changes), "The APFS volume drill did not produce an allowed disposable target change.")
+else:
+    add_check("known-level", False, "Unknown live drill level.")
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-live-drill-verify",
+    "status": "passed" if not errors else "failed",
+    "summary": "Live drill verification passed." if not errors else "Live drill verification failed.",
+    "exit_code": 0 if not errors else 8,
+    "level": level,
+    "checks": checks,
+    "errors": errors,
+    "guard": guard,
+    "diff": diff,
+    "recovery_survival": recovery,
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

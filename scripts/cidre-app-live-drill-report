@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/live-drill"
+CURRENT_DIR="$STATE_ROOT/current"
+
+format="json"
+drill_id=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) format="json"; shift ;;
+    --markdown) format="markdown"; shift ;;
+    --drill-id) drill_id="$2"; shift 2 ;;
+    --help|-h) echo "Usage: cidre-app-live-drill-report [--drill-id id] [--json|--markdown]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$STATE_ROOT" "$CURRENT_DIR" "$drill_id" "$format" <<'PY'
+import json, os, sys
+state_root, current_dir, drill_id, fmt = sys.argv[1:]
+base = os.path.join(state_root, drill_id) if drill_id else current_dir
+def load(name):
+    path = os.path.join(base, name)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        try:
+            return json.load(handle)
+        except Exception:
+            return None
+report = {
+    "plan": load("last-plan.json"),
+    "result": load("last-result.json"),
+    "verification": load("last-verification.json"),
+    "state": load("last-state.json"),
+}
+status = ((report["result"] or {}).get("status")
+          or (report["verification"] or {}).get("status")
+          or "blocked")
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-live-drill-report",
+    "status": status,
+    "summary": "Live drill report generated.",
+    "exit_code": 0,
+    "report": report,
+}
+markdown = "\n".join([
+    "# Disposable Target Live Drill Report",
+    "",
+    f"- Status: {status}",
+    f"- Drill ID: {((report['plan'] or {}).get('drill_id', 'unknown'))}",
+    f"- Level: {((report['plan'] or {}).get('level', 'unknown'))}",
+    f"- Operation: {((report['plan'] or {}).get('operation', 'unknown'))}",
+    f"- Target: {((report['plan'] or {}).get('target', 'none'))}",
+    f"- Verification: {((report['verification'] or {}).get('status', 'unknown'))}",
+])
+print(markdown if fmt == "markdown" else json.dumps(payload, indent=2))
+PY

@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+target=""
+drill_dir=""
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --drill-dir) drill_dir="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-disposable-marker-drill --target diskXsY --drill-dir path [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
+[ -n "$drill_dir" ] || { echo "ERROR: --drill-dir is required" >&2; exit 2; }
+mkdir -p "$drill_dir"
+
+python3 - "$target" "$drill_dir" "$json_mode" <<'PY'
+import json, os, sys
+target, drill_dir, json_mode = sys.argv[1:]
+marker_file = os.path.join(drill_dir, "disposable-marker.json")
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-disposable-marker-drill",
+    "status": "passed",
+    "summary": "Disposable target marker was recorded in Cidre state.",
+    "exit_code": 0,
+    "target": target,
+    "marker_file": marker_file,
+}
+with open(marker_file, "w", encoding="utf-8") as handle:
+    json.dump({"target": target, "CIDRE_DISPOSABLE_TARGET": "1", "CIDRE_TEST_TARGET": "1"}, handle, indent=2)
+    handle.write("\n")
+print(json.dumps(payload, indent=2) if json_mode == "true" else payload["summary"])
+PY

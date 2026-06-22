@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-noop-drill [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$json_mode" <<'PY'
+import json, sys
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-noop-drill",
+    "status": "passed",
+    "summary": "No-op live drill completed without disk mutation.",
+    "exit_code": 0,
+    "disk_changed": False,
+}
+print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
+PY

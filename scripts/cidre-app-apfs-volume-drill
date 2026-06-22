@@ -1,0 +1,113 @@
+#!/bin/sh
+set -eu
+
+target=""
+plan=""
+signature=""
+confirmation=""
+drill_dir=""
+json_mode=false
+dry_run=false
+volume_name="CidreLiveDrill"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --plan) plan="$2"; shift 2 ;;
+    --signature) signature="$2"; shift 2 ;;
+    --confirmation) confirmation="$2"; shift 2 ;;
+    --drill-dir) drill_dir="$2"; shift 2 ;;
+    --volume-name) volume_name="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-apfs-volume-drill --target diskN --plan plan.json --signature sig.json --confirmation confirmation.json --drill-dir path [--volume-name name] [--dry-run] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+[ -n "$signature" ] || { echo "ERROR: --signature is required" >&2; exit 2; }
+[ -n "$confirmation" ] || { echo "ERROR: --confirmation is required" >&2; exit 2; }
+[ -n "$drill_dir" ] || { echo "ERROR: --drill-dir is required" >&2; exit 2; }
+mkdir -p "$drill_dir"
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+token="$(python3 - "$confirmation" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("confirmation_token", ""))
+PY
+)"
+
+create_output="$("$SCRIPT_DIR/cidre-app-helper-command" \
+  --operation apfs-add-volume \
+  --target "$target" \
+  --plan "$plan" \
+  --signature "$signature" \
+  --confirmation-file "$confirmation" \
+  --confirm "$token" \
+  --volume-name "$volume_name" \
+  ${dry_run:+--dry-run} \
+  --json 2>/dev/null || true)"
+
+delete_output="{}"
+if [ "$dry_run" = false ]; then
+  created_volume="$(python3 - "$target" "$volume_name" <<'PY'
+import plistlib, subprocess, sys
+target, volume_name = sys.argv[1:]
+try:
+    completed = subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist", target], check=True, capture_output=True)
+    data = plistlib.loads(completed.stdout)
+except Exception:
+    print("")
+    raise SystemExit(0)
+for container in data.get("Containers", []):
+    for volume in container.get("Volumes", []):
+        if (volume.get("Name") or volume.get("VolumeName")) == volume_name:
+            print(volume.get("DeviceIdentifier", ""))
+            raise SystemExit(0)
+print("")
+PY
+)"
+  if [ -n "$created_volume" ]; then
+    delete_output="$("$SCRIPT_DIR/cidre-app-helper-command" \
+      --operation apfs-delete-volume \
+      --target "$created_volume" \
+      --plan "$plan" \
+      --signature "$signature" \
+      --confirmation-file "$confirmation" \
+      --confirm "$token" \
+      --json 2>/dev/null || true)"
+  fi
+fi
+
+python3 - "$drill_dir" "$json_mode" "$create_output" "$delete_output" "$dry_run" "$target" "$volume_name" <<'PY'
+import json, os, sys
+drill_dir, json_mode, create_raw, delete_raw, dry_run, target, volume_name = sys.argv[1:]
+def parse(raw):
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+create = parse(create_raw)
+delete = parse(delete_raw)
+passed = create.get("status") in {"pass", "passed"} and (dry_run == "true" or delete.get("status") in {"pass", "passed"})
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-apfs-volume-drill",
+    "status": "passed" if passed else "blocked",
+    "summary": "APFS disposable volume drill completed." if passed else "APFS disposable volume drill did not pass helper validation.",
+    "exit_code": 0 if passed else 4,
+    "dry_run": dry_run == "true",
+    "target": target,
+    "volume_name": volume_name,
+    "create_result": create,
+    "delete_result": delete,
+}
+with open(os.path.join(drill_dir, "apfs-volume-drill.json"), "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+    handle.write("\n")
+print(json.dumps(payload, indent=2) if json_mode == "true" else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

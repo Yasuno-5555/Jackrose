@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+CURRENT_DIR="$REPO_ROOT/.local/state/cidre/live-drill/current"
+
+mode="status"
+level=""
+target=""
+json_mode=false
+dry_run=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --status) mode="status"; shift ;;
+    --plan) mode="plan"; shift ;;
+    --run) mode="run"; shift ;;
+    --report) mode="report"; shift ;;
+    --level) level="$2"; shift 2 ;;
+    --target) target="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-live-drill --status|--plan|--run|--report [--level 0|1|2|3] [--target diskXsY] [--dry-run] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+case "$mode" in
+  status)
+    if [ "$json_mode" = true ]; then
+      exec "$SCRIPT_DIR/cidre-app-live-drill-state" --status --json
+    fi
+    exec "$SCRIPT_DIR/cidre-app-live-drill-state" --status
+    ;;
+  plan)
+    [ -n "$level" ] || { echo "ERROR: --level is required for --plan" >&2; exit 2; }
+    if [ -n "$target" ]; then
+      if [ "$json_mode" = true ]; then
+        exec "$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level" --target "$target" --json
+      fi
+      exec "$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level" --target "$target"
+    fi
+    if [ "$json_mode" = true ]; then
+      exec "$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level" --json
+    fi
+    exec "$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level"
+    ;;
+  run)
+    [ -n "$level" ] || { echo "ERROR: --level is required for --run" >&2; exit 2; }
+    if [ -n "$target" ]; then
+      plan_json="$("$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level" --target "$target" --json)"
+    else
+      plan_json="$("$SCRIPT_DIR/cidre-app-live-drill-plan" --level "$level" --json)"
+    fi
+    plan_file="$(printf '%s\n' "$plan_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("plan_file",""))')"
+    [ -n "$plan_file" ] || { echo "ERROR: could not determine live drill plan file" >&2; exit 4; }
+    if [ "$dry_run" = true ]; then
+      if [ "$json_mode" = true ]; then
+        exec "$SCRIPT_DIR/cidre-app-live-drill-runner" --plan "$plan_file" --dry-run --json
+      fi
+      exec "$SCRIPT_DIR/cidre-app-live-drill-runner" --plan "$plan_file" --dry-run
+    fi
+    if [ "$json_mode" = true ]; then
+      exec "$SCRIPT_DIR/cidre-app-live-drill-runner" --plan "$plan_file" --json
+    fi
+    exec "$SCRIPT_DIR/cidre-app-live-drill-runner" --plan "$plan_file"
+    ;;
+  report)
+    if [ "$json_mode" = true ]; then
+      exec "$SCRIPT_DIR/cidre-app-live-drill-report" --json
+    fi
+    exec "$SCRIPT_DIR/cidre-app-live-drill-report" --markdown
+    ;;
+esac

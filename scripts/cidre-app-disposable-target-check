@@ -150,7 +150,7 @@ root_ids |= {
     for item in root_info.get("APFSPhysicalStores", [])
     if isinstance(item, dict) and item.get("APFSPhysicalStore")
 }
-container_ref = info.get("APFSContainerReference")
+container_ref = info.get("APFSContainerReference") or (identifier if "apfs container" in target_type else None)
 is_startup = identifier in root_ids or container_ref == startup_container or mount_point == "/"
 
 metadata = {
@@ -167,9 +167,9 @@ elif "apple_apfs_recovery" in target_type or "recovery" in volume_name:
     payload = failed_result(target, "target-is-apple-recovery", "The selected target is Apple_APFS_Recovery or another recovery partition.", metadata=metadata)
 elif "isc" in target_type or "iboot" in volume_name:
     payload = failed_result(target, "target-is-iboot-system-container", "The selected target is an iBoot system container.", metadata=metadata)
-elif "apple_" in target_type and "cidre" not in volume_name:
+elif "apple_" in target_type and "cidre" not in volume_name and "apfs container" not in target_type:
     payload = failed_result(target, "target-is-unknown-apple-partition", "The selected target is an Apple-managed partition and cannot be treated as disposable.", metadata=metadata)
-elif "cidre test" in volume_name or "cidre-test" in volume_name or "disposable" in volume_name:
+elif "cidre test" in volume_name or "cidre-test" in volume_name or "disposable" in volume_name or "cidrelivedrill" in volume_name or "apfs container" in target_type:
     payload = passed_result(target, "disposable", reasons=[
         {"id": "target-exists", "status": "passed"},
         {"id": "not-startup-disk", "status": "passed"},

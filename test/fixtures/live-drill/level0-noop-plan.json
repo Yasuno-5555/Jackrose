@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "drill_id": "live-drill-fixture-level0",
+  "level": 0,
+  "operation": "noop",
+  "target": null,
+  "requires_disposable_target": false,
+  "requires_confirmation": false,
+  "requires_test_mode": true,
+  "expected_disk_changes": [],
+  "helper_operation": "live-drill",
+  "plan_hash": "fixture-placeholder"
+}

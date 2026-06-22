@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+drill_dir=""
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --drill-dir) drill_dir="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-metadata-drill --drill-dir path [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$drill_dir" ] || { echo "ERROR: --drill-dir is required" >&2; exit 2; }
+mkdir -p "$drill_dir"
+
+python3 - "$drill_dir" "$json_mode" <<'PY'
+import json, os, sys
+drill_dir, json_mode = sys.argv[1:]
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-metadata-drill",
+    "status": "passed",
+    "summary": "Live drill metadata was recorded without changing disk layout.",
+    "exit_code": 0,
+    "metadata_file": os.path.join(drill_dir, "metadata-only.json"),
+}
+with open(payload["metadata_file"], "w", encoding="utf-8") as handle:
+    json.dump({"drill": "metadata-only", "status": "recorded"}, handle, indent=2)
+    handle.write("\n")
+print(json.dumps(payload, indent=2) if json_mode == "true" else payload["summary"])
+PY

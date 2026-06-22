@@ -1,0 +1,117 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/live-drill"
+CURRENT_DIR="$STATE_ROOT/current"
+
+level=""
+target=""
+drill_id=""
+json_mode=false
+
+usage() {
+  echo "Usage: cidre-app-live-drill-plan --level 0|1|2|3 [--target diskXsY] [--drill-id id] [--json]"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --level) level="$2"; shift 2 ;;
+    --target) target="$2"; shift 2 ;;
+    --drill-id) drill_id="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[ -n "$level" ] || { echo "ERROR: --level is required" >&2; exit 2; }
+mkdir -p "$CURRENT_DIR"
+
+python3 - "$CURRENT_DIR" "$level" "$target" "$drill_id" "$json_mode" <<'PY'
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+current_dir, level_raw, target, drill_id, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+try:
+    level = int(level_raw)
+except ValueError:
+    level = -1
+
+level_map = {
+    0: ("noop", False, False, []),
+    1: ("metadata-only", False, False, []),
+    2: ("disposable-marker", True, False, []),
+    3: ("apfs-volume-create-delete", True, True, ["apfs-volume-created", "apfs-volume-deleted"]),
+}
+
+if level not in level_map:
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-live-drill-plan",
+        "status": "blocked",
+        "summary": "Unsupported live drill level.",
+        "exit_code": 4,
+        "errors": [{"code": "invalid-level", "message": "Live drill level must be 0, 1, 2, or 3."}],
+    }
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(4)
+
+operation, requires_target, requires_confirmation, expected_changes = level_map[level]
+if requires_target and not target:
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-live-drill-plan",
+        "status": "blocked",
+        "summary": "This live drill level requires a disposable target.",
+        "exit_code": 4,
+        "errors": [{"code": "target-required", "message": "Provide --target for this live drill level."}],
+    }
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(4)
+
+if not drill_id:
+    digest = hashlib.sha256(f"{level}\n{target}\n{operation}".encode()).hexdigest()[:10]
+    drill_id = f"live-drill-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{digest}"
+
+plan = {
+    "schema_version": 1,
+    "drill_id": drill_id,
+    "level": level,
+    "operation": operation,
+    "target": target or None,
+    "requires_disposable_target": requires_target,
+    "requires_confirmation": requires_confirmation,
+    "requires_test_mode": True,
+    "expected_disk_changes": expected_changes,
+    "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    "helper_operation": "apfs-add-volume" if level == 3 else "live-drill",
+}
+plan_hash = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
+plan["plan_hash"] = plan_hash
+
+plan_file = os.path.join(current_dir, f"{drill_id}.plan.json")
+with open(plan_file, "w", encoding="utf-8") as handle:
+    json.dump(plan, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+with open(os.path.join(current_dir, "last-plan.json"), "w", encoding="utf-8") as handle:
+    json.dump(plan, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+
+payload = dict(plan)
+payload.update({
+    "command": "cidre-app-live-drill-plan",
+    "status": "passed",
+    "summary": "Live drill plan generated.",
+    "exit_code": 0,
+    "plan_file": plan_file,
+})
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+PY

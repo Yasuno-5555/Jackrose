@@ -45,6 +45,9 @@ MUTATION_TEST_MODE=false
 DISPOSABLE_TARGET_MODE=false
 MUTATION_PLAN_MODE=false
 MUTATION_VERIFICATION_MODE=false
+LIVE_DRILL_MODE=false
+LIVE_DRILL_FIXTURES_MODE=false
+LIVE_DRILL_STATE_MODE=false
 MACOS_RESTORE_MODE=false
 RECOVERY_SCREEN_MODE=false
 SAFE_MODE_MODE=false
@@ -114,6 +117,9 @@ show_help() {
   echo "  --disposable-target Inspect disposable target enforcement status"
   echo "  --mutation-plan     Inspect mutation plan signing and verification tooling"
   echo "  --mutation-verification Inspect mutation verification and reporting status"
+  echo "  --live-drill        Inspect live drill command status"
+  echo "  --live-drill-fixtures Inspect live drill fixture coverage"
+  echo "  --live-drill-state  Inspect latest live drill state"
   echo "  --help              Show this help message"
 }
 
@@ -168,6 +174,9 @@ while [ $# -gt 0 ]; do
     --disposable-target) DISPOSABLE_TARGET_MODE=true; shift ;;
     --mutation-plan) MUTATION_PLAN_MODE=true; shift ;;
     --mutation-verification) MUTATION_VERIFICATION_MODE=true; shift ;;
+    --live-drill) LIVE_DRILL_MODE=true; shift ;;
+    --live-drill-fixtures) LIVE_DRILL_FIXTURES_MODE=true; shift ;;
+    --live-drill-state) LIVE_DRILL_STATE_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -1308,6 +1317,30 @@ elif [ "$MUTATION_VERIFICATION_MODE" = true ]; then
     print_result OK "Mutation report command works"
   else
     print_result WARN "Mutation report currently has no complete state"
+  fi
+
+elif [ "$LIVE_DRILL_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-live-drill" --status --json >/dev/null 2>&1; then
+    print_result OK "Live drill status command works"
+  else
+    print_result WARN "Live drill status command is blocked or unavailable"
+  fi
+
+elif [ "$LIVE_DRILL_FIXTURES_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-live-drill-fixture-check" --json >/dev/null 2>&1; then
+    print_result OK "Live drill fixtures are present"
+  else
+    print_result FAIL "Live drill fixtures are incomplete"
+  fi
+
+elif [ "$LIVE_DRILL_STATE_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-live-drill-state" --status --json >/dev/null 2>&1; then
+    print_result OK "Live drill state command works"
+  else
+    print_result WARN "Live drill state command is unavailable"
   fi
 
 elif [ "$RECOVERY_SCREEN_MODE" = true ] || [ "$SAFE_MODE_MODE" = true ]; then

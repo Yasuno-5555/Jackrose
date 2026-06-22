@@ -18,8 +18,8 @@ enum DiskOperationService {
     static func execute(_ request: HelperProtocol) -> Result {
         guard request.schemaVersion == 1 else { return rejected("Unsupported helper request schema.") }
         guard HelperAuthorization.canExecute(request) else { return rejected("Confirmation token does not match the plan.") }
-        guard let target = request.target, matches(diskIdentifier, target) else {
-            return rejected("Target must be a partition or APFS container identifier such as disk3s2.")
+        guard let target = request.target else {
+            return rejected("Target is required.")
         }
         if request.operation == "partition-create" || request.operation == "partition-delete" || request.operation == "cidre-uninstall" {
             guard request.planID == expectedPlanID(for: request, target: target) else {
@@ -45,8 +45,18 @@ enum DiskOperationService {
             }
             guard resizeError.isEmpty else { return rejected(resizeError) }
             command = ["/usr/sbin/diskutil", "apfs", "resizeContainer", target, request.arguments[0], "APFS", request.arguments[1], request.arguments[2]]
+        case "apfs-add-volume":
+            guard request.arguments.count == 2,
+                  matches(containerIdentifier, target),
+                  validVolumeName(request.arguments[1]) else {
+                return rejected("apfs-add-volume requires a container target, filesystem, and volume name.")
+            }
+            guard !isProtectedForCreation(target) else { return rejected("The selected APFS container belongs to the startup system or another protected region.") }
+            command = ["/usr/sbin/diskutil", "apfs", "addVolume", target, request.arguments[0], request.arguments[1]]
         case "apfs-resize-container":
-            guard request.arguments.count == 1, matches(sizeValue, request.arguments[0]) else {
+            guard matches(containerIdentifier, target),
+                  request.arguments.count == 1,
+                  matches(sizeValue, request.arguments[0]) else {
                 return rejected("apfs-resize-container requires one validated size.")
             }
             guard let resizeError = validateResize(target: target, containerSize: request.arguments[0], partitionSize: nil) else {
@@ -55,11 +65,11 @@ enum DiskOperationService {
             guard resizeError.isEmpty else { return rejected(resizeError) }
             command = ["/usr/sbin/diskutil", "apfs", "resizeContainer", target, request.arguments[0]]
         case "apfs-delete-volume":
-            guard request.arguments.isEmpty else { return rejected("apfs-delete-volume accepts no extra arguments.") }
+            guard matches(diskIdentifier, target), request.arguments.isEmpty else { return rejected("apfs-delete-volume accepts no extra arguments.") }
             guard !isProtectedForDeletion(target) else { return rejected("The selected APFS volume is protected or belongs to the startup system.") }
             command = ["/usr/sbin/diskutil", "apfs", "deleteVolume", target]
         case "partition-delete":
-            guard request.arguments.isEmpty else { return rejected("partition-delete accepts no extra arguments.") }
+            guard matches(diskIdentifier, target), request.arguments.isEmpty else { return rejected("partition-delete accepts no extra arguments.") }
             guard !isProtectedForDeletion(target) else { return rejected("The selected partition is protected or belongs to the startup system.") }
             command = ["/usr/sbin/diskutil", "eraseVolume", "free", "CidreFreeSpace", target]
         default:
@@ -106,6 +116,20 @@ enum DiskOperationService {
 
     private static func validVolumeName(_ value: String) -> Bool {
         !value.isEmpty && value.count <= 64 && !value.contains("/") && !value.contains("\n")
+    }
+
+    private static func isProtectedForCreation(_ target: String) -> Bool {
+        guard let root = plist(["info", "-plist", "/"]) else { return true }
+        let startupContainer = root["APFSContainerReference"] as? String
+        let startupStores = Set((root["APFSPhysicalStores"] as? [[String: Any]] ?? []).compactMap { $0["APFSPhysicalStore"] as? String })
+        if target == startupContainer || startupStores.contains(target) {
+            return true
+        }
+        guard let containerList = plist(["apfs", "list", "-plist", target]) else { return true }
+        let containers = containerList["Containers"] as? [[String: Any]] ?? []
+        guard let container = containers.first(where: { ($0["ContainerReference"] as? String) == target }) else { return true }
+        let physicalStores = Set((container["PhysicalStores"] as? [[String: Any]] ?? []).compactMap { $0["DeviceIdentifier"] as? String })
+        return !physicalStores.isDisjoint(with: startupStores)
     }
 
     private static func expectedPlanID(for request: HelperProtocol, target: String) -> String? {

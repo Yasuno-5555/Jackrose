@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+CURRENT_DIR="$REPO_ROOT/.local/state/cidre/live-drill/current"
+
+mode="status"
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --status) mode="status"; shift ;;
+    --last) mode="last"; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-live-drill-state --status|--last [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$CURRENT_DIR" "$mode" "$json_mode" <<'PY'
+import json, os, sys
+current_dir, mode, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+os.makedirs(current_dir, exist_ok=True)
+state_file = os.path.join(current_dir, "last-state.json")
+plan_file = os.path.join(current_dir, "last-plan.json")
+def load(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-live-drill-state",
+    "status": "passed",
+    "summary": "Live drill state is available." if os.path.exists(state_file) or os.path.exists(plan_file) else "No live drill state recorded yet.",
+    "exit_code": 0,
+    "last_state": load(state_file),
+    "last_plan": load(plan_file),
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+PY

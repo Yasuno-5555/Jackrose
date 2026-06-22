@@ -29,7 +29,7 @@ while [ "$#" -gt 0 ]; do
     --dry-run) dry_run=true; shift ;;
     --json) json_mode=true; shift ;;
     --help|-h)
-      echo "Usage: cidre-app-helper-command --operation partition-create|partition-delete|apfs-delete-volume|apfs-resize-container --target diskNsM [--container-size 200G] [--volume-name Cidre] [--partition-size 80G] [--plan-id ID] --plan plan.json --signature plan.sig.json --confirmation-file confirmation.json [--confirm token] [--dry-run] [--json]"
+      echo "Usage: cidre-app-helper-command --operation partition-create|partition-delete|apfs-add-volume|apfs-delete-volume|apfs-resize-container --target diskN|diskNsM [--container-size 200G] [--volume-name Cidre] [--partition-size 80G] [--plan-id ID] --plan plan.json --signature plan.sig.json --confirmation-file confirmation.json [--confirm token] [--dry-run] [--json]"
       exit 0
       ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
@@ -51,8 +51,14 @@ mkdir -p "$STATE_DIR" "$MUTATION_STATE_DIR"
 request_file="$(mktemp /tmp/cidre-helper-request.XXXXXX.json)"
 trap 'rm -f "$request_file"' EXIT HUP INT TERM
 
-if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ]; then
-  helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation "$operation" --target "$target" --json 2>/dev/null || true)"
+if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ] || [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ]; then
+  gate_operation="$operation"
+  gate_level=""
+  if [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ]; then
+    gate_operation="live-drill"
+    gate_level="3"
+  fi
+  helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation "$gate_operation" ${gate_level:+--level "$gate_level"} --target "$target" --json 2>/dev/null || true)"
   helper_allowed="$(printf '%s\n' "$helper_gate_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
   if [ "$helper_allowed" != "true" ]; then
     if [ "$json_mode" = true ]; then
@@ -149,7 +155,7 @@ matches = (
     confirmation.get("status") == "passed"
     and confirmation.get("plan_hash") == expected_hash
     and plan.get("target") == target
-    and plan.get("helper_operation", "partition-create") == operation
+    and plan.get("helper_operation", "partition-create") in {operation, "live-drill"}
     and (dry_run == "true" or confirmation.get("confirmation_token") == provided_token)
 )
 print("true" if matches else "false")
@@ -183,6 +189,8 @@ import sys
 operation, container_size, volume_name, partition_size = sys.argv[1:]
 if operation == "partition-create":
     args = [container_size, volume_name, partition_size]
+elif operation == "apfs-add-volume":
+    args = ["APFS", volume_name]
 elif operation == "apfs-resize-container":
     args = [container_size]
 else:

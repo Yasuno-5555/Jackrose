@@ -24,6 +24,7 @@ struct DiskPlanningStepView: View {
                     .font(.callout)
 
                 MutationTestModeView(state: mutation.mutationTestMode)
+                LiveDrillDashboardView(state: mutation.liveDrillState, mutationMode: mutation.mutationTestMode, killSwitch: mutation.killSwitchState)
                 ProtectedPartitionGuardView(state: mutation.protectedPartitionState)
                 RecoverySurvivalView(state: mutation.recoverySurvivalState)
                 DiskSnapshotView(availability: mutation.snapshotAvailability)
@@ -154,6 +155,8 @@ struct DiskPlanningStepView: View {
                 MutationExecutionProgressView(result: mutation.execution == nil ? nil : MutationExecutionService.shared.report(repositoryPath: appVM.repositoryPath))
                 MutationVerificationView(result: mutation.mutationVerification)
                 MutationReportView(markdown: mutation.mutationReportMarkdown)
+                LiveDrillVerificationView(result: mutation.liveDrillVerification)
+                LiveDrillReportView(markdown: mutation.liveDrillReportMarkdown)
                 WizardResultView(execution: mutation.execution)
             }
         }

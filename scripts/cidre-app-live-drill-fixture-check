@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+FIXTURE_DIR="$REPO_ROOT/test/fixtures/live-drill"
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-live-drill-fixture-check [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$FIXTURE_DIR" "$json_mode" <<'PY'
+import json, os, sys
+fixture_dir, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+required = [
+    "level0-noop-plan.json",
+    "level1-metadata-plan.json",
+    "level2-marker-plan.json",
+    "level3-apfs-volume-plan.json",
+    "before-valid.json",
+    "after-noop-valid.json",
+    "after-marker-valid.json",
+    "after-apfs-volume-created.json",
+    "after-apfs-volume-deleted.json",
+    "after-protected-changed.json",
+    "report-passed.json",
+    "report-failed.json",
+]
+missing = [name for name in required if not os.path.exists(os.path.join(fixture_dir, name))]
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-live-drill-fixture-check",
+    "status": "passed" if not missing else "failed",
+    "summary": "Live drill fixtures are present." if not missing else "Live drill fixtures are missing.",
+    "exit_code": 0 if not missing else 8,
+    "missing": missing,
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

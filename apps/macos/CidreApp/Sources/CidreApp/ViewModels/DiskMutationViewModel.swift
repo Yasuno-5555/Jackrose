@@ -48,6 +48,10 @@ final class DiskMutationViewModel: ObservableObject {
     @Published var mutationConfirmation: MutationConfirmation?
     @Published var mutationVerification: MutationVerificationResult?
     @Published var mutationReportMarkdown = ""
+    @Published var liveDrillState: LiveDrillState?
+    @Published var liveDrillPlan: LiveDrillPlan?
+    @Published var liveDrillVerification: LiveDrillResult?
+    @Published var liveDrillReportMarkdown = ""
     @Published var requiredConfirmation: String?
     @Published var execution: CommandExecution?
     @Published var isRunning = false
@@ -146,6 +150,9 @@ final class DiskMutationViewModel: ObservableObject {
         helperGateDecision = HelperGateService.shared.evaluate(operation: "partition-create", repositoryPath: repositoryPath)
         mutationVerification = MutationVerificationService.shared.report(repositoryPath: repositoryPath)
         mutationReportMarkdown = MutationReportService.shared.markdown(repositoryPath: repositoryPath)
+        liveDrillState = LiveDrillService.shared.state(repositoryPath: repositoryPath)
+        liveDrillVerification = LiveDrillVerificationService.shared.result(repositoryPath: repositoryPath)
+        liveDrillReportMarkdown = LiveDrillReportService.shared.markdown(repositoryPath: repositoryPath)
     }
 
     func fetchLimits() {
