@@ -1,0 +1,190 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_DIR="$REPO_ROOT/.local/state/cidre/mutation/current"
+
+plan=""
+confirmation=""
+signature=""
+json_mode=false
+dry_run=false
+
+usage() {
+  echo "Usage: cidre-app-mutation-execute-test --plan plan.json --confirmation confirmation.json [--signature sig.json] [--dry-run] [--json]"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --confirmation) confirmation="$2"; shift 2 ;;
+    --signature) signature="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+[ -n "$confirmation" ] || { echo "ERROR: --confirmation is required" >&2; exit 2; }
+[ -n "$signature" ] || signature="$plan.sig.json"
+mkdir -p "$STATE_DIR"
+
+mutation_mode_json="$("$SCRIPT_DIR/cidre-app-mutation-test-mode" --status --json 2>/dev/null || true)"
+killswitch_json="$("$SCRIPT_DIR/cidre-app-installer-killswitch" --status --json 2>/dev/null || true)"
+plan_verify_json="$("$SCRIPT_DIR/cidre-app-mutation-plan-verify" --plan "$plan" --signature "$signature" --json 2>/dev/null || true)"
+
+target="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("target", ""))
+PY
+)"
+operation="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("operation", ""))
+PY
+)"
+container_size="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("container_size") or "")
+PY
+)"
+partition_size="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("partition_size") or "")
+PY
+)"
+volume_name="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("volume_name") or "Cidre")
+PY
+)"
+token="$(python3 - "$confirmation" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("confirmation_token", ""))
+PY
+)"
+
+disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation partition-create --target "$target" --json 2>/dev/null || true)"
+recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
+before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label mutation-before --json 2>/dev/null || true)"
+before_snapshot="$(printf '%s\n' "$before_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
+
+helper_args="--operation partition-create --target $target --container-size $container_size --partition-size $partition_size --volume-name $volume_name --plan $plan --signature $signature --confirmation-file $confirmation --confirm $token"
+if [ "$dry_run" = true ]; then
+  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --dry-run --json 2>/dev/null || true)"
+else
+  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --json 2>/dev/null || true)"
+fi
+
+after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label mutation-after --json 2>/dev/null || true)"
+after_snapshot="$(printf '%s\n' "$after_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
+verify_json=""
+if [ -n "$before_snapshot" ] && [ -n "$after_snapshot" ]; then
+  verify_json="$("$SCRIPT_DIR/cidre-app-mutation-verify" --before "$before_snapshot" --after "$after_snapshot" --plan "$plan" --json 2>/dev/null || true)"
+fi
+
+python3 - "$STATE_DIR" "$plan" "$signature" "$confirmation" "$json_mode" "$dry_run" "$mutation_mode_json" "$killswitch_json" "$plan_verify_json" "$disposable_json" "$helper_gate_json" "$recovery_json" "$before_result" "$after_result" "$helper_output" "$verify_json" <<'PY'
+import json
+import os
+import sys
+
+state_dir, plan_path, signature_path, confirmation_path, json_mode, dry_run, mutation_mode_raw, killswitch_raw, plan_verify_raw, disposable_raw, helper_gate_raw, recovery_raw, before_raw, after_raw, helper_raw, verify_raw = sys.argv[1:]
+json_mode = json_mode == "true"
+dry_run = dry_run == "true"
+
+def parse(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+mutation_mode = parse(mutation_mode_raw)
+killswitch = parse(killswitch_raw)
+plan_verify = parse(plan_verify_raw)
+disposable = parse(disposable_raw)
+helper_gate = parse(helper_gate_raw)
+recovery = parse(recovery_raw)
+before = parse(before_raw)
+after = parse(after_raw)
+helper = parse(helper_raw)
+verify = parse(verify_raw)
+
+with open(plan_path, "r", encoding="utf-8") as handle:
+    plan = json.load(handle)
+with open(signature_path, "r", encoding="utf-8") as handle:
+    signature = json.load(handle)
+with open(confirmation_path, "r", encoding="utf-8") as handle:
+    confirmation = json.load(handle)
+
+checks = []
+errors = []
+def add_check(identifier, passed, reason):
+    checks.append({"id": identifier, "status": "passed" if passed else "blocked", "reason": None if passed else reason})
+    if not passed:
+        errors.append({"code": identifier, "message": reason})
+
+add_check("mutation-test-mode-env", os.environ.get("CIDRE_MUTATION_TEST_MODE") == "1", "CIDRE_MUTATION_TEST_MODE=1 is required.")
+add_check("mutation-test-mode-enabled", mutation_mode.get("enabled") is True, mutation_mode.get("summary") or "Mutation test mode is disabled.")
+add_check("installer-killswitch-enabled", killswitch.get("destructive_install_allowed") is True, killswitch.get("summary") or "Installer test override is disabled.")
+add_check("disposable-target-check", disposable.get("status") == "passed", disposable.get("summary") or "Disposable target check failed.")
+add_check("plan-hash-verified", plan_verify.get("status") == "passed", plan_verify.get("summary") or "Plan hash verification failed.")
+add_check("confirmation-token-valid", confirmation.get("status") == "passed", confirmation.get("summary") or "Confirmation token is missing or invalid.")
+add_check("helper-gate", helper_gate.get("status") == "passed", helper_gate.get("summary") or "Helper gate blocked mutation.")
+add_check("pre-snapshot", bool(before.get("snapshot_file")), "Before snapshot was not captured.")
+add_check("recovery-survival", recovery.get("status") == "passed", recovery.get("summary") or "Recovery survival check failed.")
+
+status = "blocked" if errors else helper.get("status", "passed")
+summary = "Mutation test execution completed." if not errors else "Mutation test execution is blocked."
+if not errors and verify and verify.get("status") != "passed":
+    status = "failed"
+    summary = "Mutation test execution completed but verification failed."
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-mutation-execute-test",
+    "status": status,
+    "summary": summary,
+    "exit_code": 0 if status == "passed" else (8 if status == "failed" else 4),
+    "dry_run": dry_run,
+    "plan": plan,
+    "signature": signature,
+    "confirmation": confirmation,
+    "checks": checks,
+    "errors": errors,
+    "before_snapshot": before.get("snapshot_file"),
+    "after_snapshot": after.get("snapshot_file"),
+    "helper_result": helper,
+    "verification": verify,
+}
+
+os.makedirs(state_dir, exist_ok=True)
+for name, value in (
+    ("last-plan.json", plan),
+    ("last-signature.json", signature),
+    ("last-confirmation.json", confirmation),
+    ("last-execution.json", payload),
+):
+    with open(os.path.join(state_dir, name), "w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+if verify:
+    with open(os.path.join(state_dir, "last-verification.json"), "w", encoding="utf-8") as handle:
+        json.dump(verify, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

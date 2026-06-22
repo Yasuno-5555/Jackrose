@@ -17,11 +17,12 @@ done
 mkdir -p "$STATE_DIR"
 gate_json="$("$SCRIPT_DIR/cidre-app-boot-safety-gate" --json 2>/dev/null || true)"
 rollback_json="$("$SCRIPT_DIR/cidre-app-rollback-report-check" --json 2>/dev/null || true)"
-python3 - "$STATE_DIR/before-shutdown-gate.json" "$json_mode" "$gate_json" "$rollback_json" <<'PY'
+mutation_json="$("$SCRIPT_DIR/cidre-app-mutation-report" --json 2>/dev/null || true)"
+python3 - "$STATE_DIR/before-shutdown-gate.json" "$json_mode" "$gate_json" "$rollback_json" "$mutation_json" <<'PY'
 import json
 import sys
 
-state_file, json_mode, gate_raw, rollback_raw = sys.argv[1:]
+state_file, json_mode, gate_raw, rollback_raw, mutation_raw = sys.argv[1:]
 json_mode = json_mode == "true"
 
 try:
@@ -32,8 +33,12 @@ try:
     rollback = json.loads(rollback_raw)
 except Exception:
     rollback = {}
+try:
+    mutation = json.loads(mutation_raw)
+except Exception:
+    mutation = {}
 
-allowed = gate.get("status") == "passed" and rollback.get("status") == "passed"
+allowed = gate.get("status") == "passed" and rollback.get("status") == "passed" and mutation.get("status") != "failed"
 payload = {
     "schema_version": 1,
     "command": "cidre-app-before-shutdown-gate",
@@ -43,7 +48,7 @@ payload = {
     "stage": "before-shutdown-gate",
     "exit_code": 0 if allowed else 4,
     "warnings": [] if allowed else ["Do not offer Finish, Restart, or Shutdown from the installer yet."],
-    "errors": [] if allowed else [{"code": "boot-safety-not-verified", "message": gate.get("summary", "Boot safety gate blocked shutdown.")}],
+    "errors": [] if allowed else [{"code": "boot-safety-not-verified", "message": mutation.get("summary") if mutation.get("status") == "failed" else gate.get("summary", "Boot safety gate blocked shutdown.")}],
     "shutdown_allowed": allowed,
 }
 

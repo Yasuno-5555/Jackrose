@@ -1,0 +1,189 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+target=""
+fixture=""
+json_mode=false
+
+usage() {
+  echo "Usage: cidre-app-disposable-target-check (--target diskXsY | --fixture file.json) [--json]"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --fixture) fixture="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[ -n "$target$fixture" ] || { echo "ERROR: --target or --fixture is required" >&2; exit 2; }
+
+python3 - "$REPO_ROOT" "$target" "$fixture" "$json_mode" <<'PY'
+import json
+import os
+import plistlib
+import subprocess
+import sys
+
+repo_root, target, fixture, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+state_path = os.path.join(repo_root, ".local", "state", "cidre", "mutation", "current", "disposable-target.json")
+
+required_snapshot_dir = os.path.join(repo_root, ".local", "state", "cidre", "boot-safety", "snapshots")
+
+def passed_result(result_target, classification, reasons=None, metadata=None):
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-disposable-target-check",
+        "status": "passed",
+        "summary": "Selected target is disposable and allowed for mutation testing.",
+        "exit_code": 0,
+        "target": result_target,
+        "classification": classification,
+        "warnings": [],
+        "errors": [],
+        "checks": reasons or [],
+    }
+    if metadata:
+        payload["metadata"] = metadata
+    return payload
+
+def failed_result(result_target, code, summary, classification="protected", metadata=None):
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-disposable-target-check",
+        "status": "failed",
+        "summary": summary,
+        "exit_code": 8,
+        "target": result_target,
+        "classification": classification,
+        "warnings": [],
+        "errors": [{"code": code, "message": summary}],
+    }
+    if metadata:
+        payload["metadata"] = metadata
+    return payload
+
+def blocked_result(result_target, code, summary, classification="unknown", metadata=None):
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-disposable-target-check",
+        "status": "blocked",
+        "summary": summary,
+        "exit_code": 4,
+        "target": result_target,
+        "classification": classification,
+        "warnings": [],
+        "errors": [{"code": code, "message": summary}],
+    }
+    if metadata:
+        payload["metadata"] = metadata
+    return payload
+
+snapshot_available = any(name.endswith(".json") for name in os.listdir(required_snapshot_dir)) if os.path.isdir(required_snapshot_dir) else False
+
+if fixture:
+    with open(fixture, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    data.setdefault("schema_version", 1)
+    data.setdefault("command", "cidre-app-disposable-target-check")
+    data.setdefault("exit_code", 0 if data.get("status") == "passed" else 8)
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+        handle.write("\n")
+    print(json.dumps(data, indent=2) if json_mode else data["summary"])
+    sys.exit(data["exit_code"])
+
+if not snapshot_available:
+    payload = blocked_result(target, "current-disk-snapshot-missing", "A current disk snapshot is required before approving a disposable target.")
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(payload["exit_code"])
+
+if os.uname().sysname != "Darwin":
+    payload = blocked_result(target, "requires-macos", "Disposable target validation requires macOS diskutil inspection.")
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(payload["exit_code"])
+
+def run_plist(*args):
+    completed = subprocess.run(["/usr/sbin/diskutil", *args], check=True, capture_output=True)
+    return plistlib.loads(completed.stdout)
+
+try:
+    info = run_plist("info", "-plist", target)
+    root_info = run_plist("info", "-plist", "/")
+except Exception as error:
+    payload = failed_result(target, "target-not-found", f"Disposable target inspection failed: {error}", classification="missing")
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(payload["exit_code"])
+
+target_type = (info.get("Content") or info.get("FilesystemType") or "").lower()
+volume_name = (info.get("VolumeName") or info.get("MediaName") or "").lower()
+mount_point = info.get("MountPoint")
+identifier = info.get("DeviceIdentifier") or target
+startup_container = root_info.get("APFSContainerReference")
+root_ids = {
+    root_info.get("DeviceIdentifier"),
+    root_info.get("ParentWholeDisk"),
+    startup_container,
+}
+root_ids |= {
+    item.get("APFSPhysicalStore")
+    for item in root_info.get("APFSPhysicalStores", [])
+    if isinstance(item, dict) and item.get("APFSPhysicalStore")
+}
+container_ref = info.get("APFSContainerReference")
+is_startup = identifier in root_ids or container_ref == startup_container or mount_point == "/"
+
+metadata = {
+    "content": info.get("Content"),
+    "volume_name": info.get("VolumeName") or info.get("MediaName"),
+    "mount_point": mount_point,
+    "apfs_container_reference": container_ref,
+    "whole_disk": info.get("ParentWholeDisk"),
+}
+
+if is_startup:
+    payload = failed_result(target, "target-is-startup-disk", "The selected target is the current startup disk or startup container.", metadata=metadata)
+elif "apple_apfs_recovery" in target_type or "recovery" in volume_name:
+    payload = failed_result(target, "target-is-apple-recovery", "The selected target is Apple_APFS_Recovery or another recovery partition.", metadata=metadata)
+elif "isc" in target_type or "iboot" in volume_name:
+    payload = failed_result(target, "target-is-iboot-system-container", "The selected target is an iBoot system container.", metadata=metadata)
+elif "apple_" in target_type and "cidre" not in volume_name:
+    payload = failed_result(target, "target-is-unknown-apple-partition", "The selected target is an Apple-managed partition and cannot be treated as disposable.", metadata=metadata)
+elif "cidre test" in volume_name or "cidre-test" in volume_name or "disposable" in volume_name:
+    payload = passed_result(target, "disposable", reasons=[
+        {"id": "target-exists", "status": "passed"},
+        {"id": "not-startup-disk", "status": "passed"},
+        {"id": "disposable-marker", "status": "passed"},
+        {"id": "current-disk-snapshot-available", "status": "passed"},
+    ], metadata=metadata)
+else:
+    payload = blocked_result(target, "target-not-explicitly-disposable", "The selected target is not explicitly marked disposable.", metadata=metadata)
+
+os.makedirs(os.path.dirname(state_path), exist_ok=True)
+with open(state_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+    handle.write("\n")
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

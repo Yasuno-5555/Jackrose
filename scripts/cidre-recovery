@@ -87,6 +87,10 @@ show_help() {
   echo "  helper-gate-status  Show helper gate status"
   echo "  wizard-gate-status  Show wizard gate status"
   echo "  gate-report         Generate gate report"
+  echo "  mutation-test-status Show controlled mutation test mode status"
+  echo "  disposable-target-status Show disposable target policy guidance"
+  echo "  mutation-plan-status Show latest mutation plan status"
+  echo "  mutation-report     Show latest controlled mutation report"
 
   echo "  rescue-build         Build Rescue Slot overlay artifact"
   echo "  rescue-inspect       Inspect Rescue Slot overlay"
@@ -588,6 +592,22 @@ case "$CMD" in
     ;;
   gate-report)
     exec "$(dirname "$0")/cidre-app-gate-report" --json
+    ;;
+  mutation-test-status)
+    exec "$(dirname "$0")/cidre-app-mutation-test-mode" --status --json
+    ;;
+  disposable-target-status)
+    echo "Run: $(dirname "$0")/cidre-app-disposable-target-check --target <diskXsY> --json"
+    ;;
+  mutation-plan-status)
+    if [ -f ".local/state/cidre/mutation/current/last-plan.json" ]; then
+      cat ".local/state/cidre/mutation/current/last-plan.json"
+    else
+      echo "No mutation plan recorded yet."
+    fi
+    ;;
+  mutation-report)
+    exec "$(dirname "$0")/cidre-app-mutation-report" --markdown
     ;;
   boot-failure-report)
     exec "$(dirname "$0")/cidre-app-boot-failure-report" --incident DFU_RESTORE_001 --json

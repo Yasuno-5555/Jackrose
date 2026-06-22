@@ -1,0 +1,105 @@
+#!/bin/sh
+set -eu
+
+before=""
+after=""
+plan=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --before) before="$2"; shift 2 ;;
+    --after) after="$2"; shift 2 ;;
+    --plan) plan="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-mutation-verify --before before.json --after after.json --plan plan.json [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$before" ] || { echo "ERROR: --before is required" >&2; exit 2; }
+[ -n "$after" ] || { echo "ERROR: --after is required" >&2; exit 2; }
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+guard_json="$("$SCRIPT_DIR/cidre-app-protected-partition-guard" --before "$before" --after "$after" --json 2>/dev/null || true)"
+diff_json="$("$SCRIPT_DIR/cidre-app-prepost-disk-diff" --before "$before" --after "$after" --json 2>/dev/null || true)"
+recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
+
+python3 - "$before" "$after" "$plan" "$json_mode" "$guard_json" "$diff_json" "$recovery_json" <<'PY'
+import json
+import sys
+
+before_path, after_path, plan_path, json_mode, guard_raw, diff_raw, recovery_raw = sys.argv[1:]
+json_mode = json_mode == "true"
+
+def load(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+def parse(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+def part_map(snapshot):
+    items = snapshot.get("partitions") or [
+        partition
+        for disk in snapshot.get("disks", [])
+        for partition in disk.get("partitions", [])
+    ]
+    result = {}
+    for item in items:
+        identifier = item.get("device_identifier") or item.get("identifier")
+        if identifier:
+            result[identifier] = item
+    return result
+
+before = load(before_path)
+after = load(after_path)
+plan = load(plan_path)
+guard = parse(guard_raw)
+diff = parse(diff_raw)
+recovery = parse(recovery_raw)
+before_parts = part_map(before)
+after_parts = part_map(after)
+target = plan.get("target")
+
+target_changed = before_parts.get(target) != after_parts.get(target)
+allowed_changes = diff.get("allowed_target_changes") or []
+expected_target_observed = any(item.get("identifier") == target for item in allowed_changes) or target_changed
+errors = []
+checks = []
+
+def add_check(identifier, passed, reason):
+    checks.append({"id": identifier, "status": "passed" if passed else "failed", "reason": None if passed else reason})
+    if not passed:
+        errors.append({"code": identifier, "message": reason})
+
+add_check("planned-target-changed", expected_target_observed, "The planned disposable target did not change as expected.")
+add_check("protected-partitions-unchanged", guard.get("status") == "passed", guard.get("summary") or "Protected partition guard failed.")
+add_check("recovery-survival", recovery.get("status") == "passed", recovery.get("summary") or "Recovery survival check failed.")
+add_check("apple-recovery-present", "apple-recovery-missing" not in (diff.get("blocked_reasons") or []), "Apple_APFS_Recovery is missing after mutation.")
+add_check("startup-container-unchanged", "startup-container-changed" not in (diff.get("blocked_reasons") or []), "The startup container changed unexpectedly.")
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-mutation-verify",
+    "status": "passed" if not errors else "failed",
+    "summary": "Mutation verification passed." if not errors else "Mutation verification failed.",
+    "exit_code": 0 if not errors else 8,
+    "target": target,
+    "checks": checks,
+    "errors": errors,
+    "guard": guard,
+    "diff": diff,
+    "recovery_survival": recovery,
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

@@ -2,31 +2,35 @@
 set -eu
 
 operation=""
+target=""
 json_mode=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --operation) operation="$2"; shift 2 ;;
+    --target) target="$2"; shift 2 ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-helper-gate --operation <name> [--json]"; exit 0 ;;
+    --help|-h) echo "Usage: cidre-app-helper-gate --operation <name> [--target diskXsY] [--json]"; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 [ -n "$operation" ] || { echo "ERROR: --operation is required" >&2; exit 2; }
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-result="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope helper --json)"
-python3 - "$json_mode" "$operation" "$result" <<'PY'
+result="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope helper ${target:+--target "$target"} --json)"
+python3 - "$json_mode" "$operation" "$target" "$result" <<'PY'
 import json, sys
 json_mode = sys.argv[1] == "true"
 operation = sys.argv[2]
-gate = json.loads(sys.argv[3])
-allowed = gate.get("status") == "passed"
+target = sys.argv[3]
+gate = json.loads(sys.argv[4])
+allowed = gate.get("status") == "passed" and "disk-mutation-test" in gate.get("allowed_actions", [])
 payload = {
     "schema_version": 1,
     "command": "cidre-app-helper-gate",
     "status": "passed" if allowed else "blocked",
-    "summary": "Helper mutation is allowed." if allowed else "Helper mutation is blocked by boot safety enforcement.",
+    "summary": "Helper mutation is allowed for the signed disposable-target test plan." if allowed else "Helper mutation is blocked by boot safety and mutation test enforcement.",
     "operation": operation,
+    "target": target or None,
     "blocked_actions": [] if allowed else ["disk-mutation"],
     "checks": gate.get("checks", []),
     "exit_code": 0 if allowed else 8,

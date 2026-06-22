@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "partitions": [
+    {
+      "identifier": "disk0s2",
+      "device_identifier": "disk0s2",
+      "content": "Apple_APFS",
+      "volume_name": "Macintosh HD",
+      "role": "startup-container",
+      "protected": true
+    },
+    {
+      "identifier": "disk0s3",
+      "device_identifier": "disk0s3",
+      "content": "Apple_APFS_Recovery",
+      "volume_name": "Recovery",
+      "role": "system-recovery",
+      "protected": true
+    },
+    {
+      "identifier": "disk9s3",
+      "device_identifier": "disk9s3",
+      "content": "Linux Filesystem",
+      "volume_name": "Cidre Test",
+      "role": "cidre-target",
+      "protected": false
+    }
+  ],
+  "root_identifiers": ["disk0s2"]
+}

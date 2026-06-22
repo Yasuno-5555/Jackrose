@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+plan=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-mutation-plan-sign --plan plan.json [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+
+python3 - "$plan" "$json_mode" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+plan_path, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+with open(plan_path, "rb") as handle:
+    content = handle.read()
+plan = json.loads(content.decode("utf-8"))
+signature = {
+    "schema_version": 1,
+    "command": "cidre-app-mutation-plan-sign",
+    "status": "passed",
+    "summary": "Mutation plan hash generated.",
+    "exit_code": 0,
+    "plan_id": plan.get("plan_id"),
+    "plan_path": plan_path,
+    "plan_hash": hashlib.sha256(content).hexdigest(),
+}
+signature_path = f"{plan_path}.sig.json"
+with open(signature_path, "w", encoding="utf-8") as handle:
+    json.dump(signature, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+with open(f"{os.path.dirname(plan_path)}/last-signature.json", "w", encoding="utf-8") as handle:
+    json.dump(signature, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+signature["signature_file"] = signature_path
+print(json.dumps(signature, indent=2) if json_mode else signature["summary"])
+PY

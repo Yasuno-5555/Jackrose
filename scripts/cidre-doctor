@@ -41,6 +41,10 @@ GATE_ENFORCEMENT_MODE=false
 FINISH_GATE_MODE=false
 HELPER_GATE_MODE=false
 WIZARD_GATE_MODE=false
+MUTATION_TEST_MODE=false
+DISPOSABLE_TARGET_MODE=false
+MUTATION_PLAN_MODE=false
+MUTATION_VERIFICATION_MODE=false
 MACOS_RESTORE_MODE=false
 RECOVERY_SCREEN_MODE=false
 SAFE_MODE_MODE=false
@@ -106,6 +110,10 @@ show_help() {
   echo "  --finish-gate       Inspect finish gate readiness"
   echo "  --helper-gate       Inspect helper gate readiness"
   echo "  --wizard-gate       Inspect wizard gate readiness"
+  echo "  --mutation-test     Inspect controlled mutation test mode status"
+  echo "  --disposable-target Inspect disposable target enforcement status"
+  echo "  --mutation-plan     Inspect mutation plan signing and verification tooling"
+  echo "  --mutation-verification Inspect mutation verification and reporting status"
   echo "  --help              Show this help message"
 }
 
@@ -156,6 +164,10 @@ while [ $# -gt 0 ]; do
     --finish-gate) FINISH_GATE_MODE=true; shift ;;
     --helper-gate) HELPER_GATE_MODE=true; shift ;;
     --wizard-gate) WIZARD_GATE_MODE=true; shift ;;
+    --mutation-test) MUTATION_TEST_MODE=true; shift ;;
+    --disposable-target) DISPOSABLE_TARGET_MODE=true; shift ;;
+    --mutation-plan) MUTATION_PLAN_MODE=true; shift ;;
+    --mutation-verification) MUTATION_VERIFICATION_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -1264,6 +1276,38 @@ elif [ "$WIZARD_GATE_MODE" = true ]; then
     print_result OK "Wizard gate command works"
   else
     print_result WARN "Wizard gate currently blocks progression"
+  fi
+
+elif [ "$MUTATION_TEST_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-mutation-test-mode" --status --json >/dev/null 2>&1; then
+    print_result OK "Mutation test mode status command works"
+  else
+    print_result WARN "Mutation test mode command is blocked or unavailable"
+  fi
+
+elif [ "$DISPOSABLE_TARGET_MODE" = true ]; then
+  print_result OK "Use scripts/cidre-app-disposable-target-check --target <diskXsY> --json to validate a disposable target"
+
+elif [ "$MUTATION_PLAN_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  for file in \
+    "$REPO_ROOT/scripts/cidre-app-mutation-plan" \
+    "$REPO_ROOT/scripts/cidre-app-mutation-plan-sign" \
+    "$REPO_ROOT/scripts/cidre-app-mutation-plan-verify"; do
+    if [ -f "$file" ]; then
+      print_result OK "Mutation plan asset present: $(basename "$file")"
+    else
+      print_result FAIL "Mutation plan asset missing: $(basename "$file")"
+    fi
+  done
+
+elif [ "$MUTATION_VERIFICATION_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-mutation-report" --json >/dev/null 2>&1; then
+    print_result OK "Mutation report command works"
+  else
+    print_result WARN "Mutation report currently has no complete state"
   fi
 
 elif [ "$RECOVERY_SCREEN_MODE" = true ] || [ "$SAFE_MODE_MODE" = true ]; then

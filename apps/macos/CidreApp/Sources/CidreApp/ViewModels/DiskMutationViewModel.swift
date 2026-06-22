@@ -27,6 +27,8 @@ enum PartitionMode: String, CaseIterable {
 
 final class DiskMutationViewModel: ObservableObject {
     @Published var killSwitchState: InstallerKillSwitchState = .containmentDefault
+    @Published var mutationTestMode: MutationTestMode?
+    @Published var disposableTarget: DisposableTarget?
     @Published var snapshotAvailability = DiskSnapshotAvailability(beforeAvailable: false, afterAvailable: false, beforePath: nil, afterPath: nil)
     @Published var protectedPartitionState: ProtectedPartitionGuardState?
     @Published var diskDiffState: DiskDiffState?
@@ -40,6 +42,12 @@ final class DiskMutationViewModel: ObservableObject {
     @Published var volumeName = "Cidre"
     @Published var confirmation = ""
     @Published var planID: String?
+    @Published var planFile: String?
+    @Published var mutationPlan: MutationPlan?
+    @Published var planSignature: MutationPlanSignature?
+    @Published var mutationConfirmation: MutationConfirmation?
+    @Published var mutationVerification: MutationVerificationResult?
+    @Published var mutationReportMarkdown = ""
     @Published var requiredConfirmation: String?
     @Published var execution: CommandExecution?
     @Published var isRunning = false
@@ -49,6 +57,7 @@ final class DiskMutationViewModel: ObservableObject {
     var canPreview: Bool {
         killSwitchState.destructiveInstallAllowed
             && planID != nil
+            && planFile != nil
             && plannedInputSignature == inputSignature
             && !target.isEmpty
     }
@@ -57,14 +66,16 @@ final class DiskMutationViewModel: ObservableObject {
         killSwitchState.destructiveInstallAllowed
             && canPreview
             && helperGateDecision?.status == "passed"
-            && confirmation.trimmingCharacters(in: .whitespacesAndNewlines) == requiredConfirmation
+            && mutationConfirmation?.status == "passed"
     }
 
     var canCreatePlan: Bool {
         killSwitchState.destructiveInstallAllowed
+            && mutationTestMode?.enabled == true
             && snapshotAvailability.beforeAvailable
             && recoverySurvivalState?.status == "passed"
-            && protectedPartitionState != nil
+            && protectedPartitionState?.status == "passed"
+            && disposableTarget?.status == "passed"
             && !target.isEmpty
             && !isRunning
     }
@@ -122,6 +133,7 @@ final class DiskMutationViewModel: ObservableObject {
             return
         }
         killSwitchState = state
+        mutationTestMode = MutationTestModeService.shared.status(repositoryPath: repositoryPath)
     }
 
     func refreshSafetyStatus(repositoryPath: String) {
@@ -130,7 +142,10 @@ final class DiskMutationViewModel: ObservableObject {
         diskDiffState = DiskDiffService.shared.evaluate(repositoryPath: repositoryPath, snapshots: snapshotAvailability)
         recoverySurvivalState = RecoverySurvivalService.shared.evaluate(repositoryPath: repositoryPath)
         gateState = GateEvaluationService.shared.evaluate(scope: "install", repositoryPath: repositoryPath)
+        disposableTarget = DisposableTargetCheckService.shared.evaluate(target: target, repositoryPath: repositoryPath)
         helperGateDecision = HelperGateService.shared.evaluate(operation: "partition-create", repositoryPath: repositoryPath)
+        mutationVerification = MutationVerificationService.shared.report(repositoryPath: repositoryPath)
+        mutationReportMarkdown = MutationReportService.shared.markdown(repositoryPath: repositoryPath)
     }
 
     func fetchLimits() {
@@ -172,6 +187,7 @@ final class DiskMutationViewModel: ObservableObject {
             return
         }
         planID = object["plan_id"] as? String
+        planFile = object["plan_file"] as? String
         requiredConfirmation = object["required_confirmation"] as? String
         plannedInputSignature = inputSignature
         // Persist resolved sizes from non-custom modes so Validate Preview stays in sync
@@ -180,6 +196,12 @@ final class DiskMutationViewModel: ObservableObject {
             partitionSize = object["partition_size"] as? String ?? partitionSize
         }
         confirmation = ""
+        if let data = execution?.stdout.data(using: .utf8) {
+            mutationPlan = try? JSONDecoder().decode(MutationPlan.self, from: data)
+        }
+        if let planFile {
+            planSignature = MutationPlanService.shared.sign(planFile: planFile, repositoryPath: repositoryPath)
+        }
     }
 
     func preview(repositoryPath: String) {
@@ -188,8 +210,16 @@ final class DiskMutationViewModel: ObservableObject {
     }
 
     func execute(repositoryPath: String) {
-        guard let planID, confirmation.trimmingCharacters(in: .whitespacesAndNewlines) == requiredConfirmation else { return }
-        run(repositoryPath: repositoryPath, command: "scripts/cidre-app-helper-command", arguments: helperArguments(planID: planID, dryRun: false))
+        guard let planID, let planFile else { return }
+        mutationConfirmation = MutationPlanService.shared.confirm(
+            planFile: planFile,
+            phrase: confirmation.trimmingCharacters(in: .whitespacesAndNewlines),
+            repositoryPath: repositoryPath
+        )
+        guard mutationConfirmation?.status == "passed" else { return }
+        run(repositoryPath: repositoryPath, command: "scripts/cidre-app-mutation-execute-test", arguments: executionArguments(planID: planID))
+        mutationVerification = MutationVerificationService.shared.report(repositoryPath: repositoryPath)
+        mutationReportMarkdown = MutationReportService.shared.markdown(repositoryPath: repositoryPath)
     }
 
     private var planArguments: [String] {
@@ -207,6 +237,7 @@ final class DiskMutationViewModel: ObservableObject {
     }
 
     private func helperArguments(planID: String, dryRun: Bool) -> [String] {
+        guard let planFile else { return [] }
         var arguments = [
             "--operation", "partition-create",
             "--target", target,
@@ -214,14 +245,27 @@ final class DiskMutationViewModel: ObservableObject {
             "--partition-size", partitionSize,
             "--volume-name", volumeName,
             "--plan-id", planID,
+            "--plan", planFile,
+            "--signature", "\(planFile).sig.json",
+            "--confirmation-file", "\(planFile).confirmation.json",
         ]
         if dryRun {
             arguments.append("--dry-run")
         } else {
-            arguments.append(contentsOf: ["--confirm", confirmation.trimmingCharacters(in: .whitespacesAndNewlines)])
+            arguments.append(contentsOf: ["--confirm", mutationConfirmation?.confirmationToken ?? ""])
         }
         arguments.append("--json")
         return arguments
+    }
+
+    private func executionArguments(planID: String) -> [String] {
+        guard let planFile else { return [] }
+        return [
+            "--plan", planFile,
+            "--signature", "\(planFile).sig.json",
+            "--confirmation", "\(planFile).confirmation.json",
+            "--json",
+        ]
     }
 
     private func run(repositoryPath: String, command: String, arguments: [String]) {

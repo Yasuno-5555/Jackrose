@@ -7,7 +7,9 @@ container_size=""
 partition_size=""
 partition_mode="custom"   # max | min | auto | custom
 volume_name="Cidre"
+plan_id=""
 json_mode=false
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) mode="$2"; shift 2 ;;
@@ -16,15 +18,22 @@ while [ "$#" -gt 0 ]; do
     --partition-size) partition_size="$2"; shift 2 ;;
     --partition-mode) partition_mode="$2"; shift 2 ;;
     --volume-name) volume_name="$2"; shift 2 ;;
+    --plan-id) plan_id="$2"; shift 2 ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-disk-plan --mode install|uninstall --target diskNsM [--partition-mode max|min|auto|custom --container-size 200G --partition-size 80G --volume-name Cidre] [--json]"; exit 0 ;;
+    --help|-h) echo "Usage: cidre-app-disk-plan --mode install|uninstall --target diskNsM [--partition-mode max|min|auto|custom --container-size 200G --partition-size 80G --volume-name Cidre --plan-id id] [--json]"; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
-python3 - "$mode" "$target" "$container_size" "$partition_size" "$partition_mode" "$volume_name" "$json_mode" <<'PY'
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_DIR="$REPO_ROOT/.local/state/cidre/mutation/current"
+mkdir -p "$STATE_DIR"
+
+python3 - "$STATE_DIR" "$mode" "$target" "$container_size" "$partition_size" "$partition_mode" "$volume_name" "$plan_id" "$json_mode" <<'PY'
 import hashlib, json, math, platform, plistlib, re, subprocess, sys
-mode, target, container_size, partition_size, partition_mode, volume_name, json_mode = sys.argv[1:]
+
+state_dir, mode, target, container_size, partition_size, partition_mode, volume_name, plan_id, json_mode = sys.argv[1:]
 errors = []
 limits_info = {}
 
@@ -33,26 +42,10 @@ def run_diskutil(*args):
     return plistlib.loads(completed.stdout)
 
 def size_bytes(value):
-    """Parse '200G' -> int bytes. Accepts B K M G T P (SI units)."""
     scale = {"B":1,"K":1000,"M":1000**2,"G":1000**3,"T":1000**4,"P":1000**5}
     return int(value[:-1]) * scale[value[-1].upper()]
 
-def fmt_bytes_ceil(b):
-    """Format bytes rounding UP — used for container size to satisfy min_preferred."""
-    for unit, divisor in [("T",1000**4),("G",1000**3),("M",1000**2),("K",1000)]:
-        if b >= divisor:
-            return f"{math.ceil(b / divisor)}{unit}"
-    return f"{b}B"
-
-def fmt_bytes_floor(b):
-    """Format bytes rounding DOWN — used for partition size to avoid exceeding physical store."""
-    for unit, divisor in [("T",1000**4),("G",1000**3),("M",1000**2),("K",1000)]:
-        if b >= divisor:
-            return f"{math.floor(b / divisor)}{unit}"
-    return f"{b}B"
-
 def fmt_human(b):
-    """Human-readable label, e.g. '111.6 GB'."""
     for unit, divisor in [("TB",1e12),("GB",1e9),("MB",1e6),("KB",1e3)]:
         if b >= divisor:
             return f"{b/divisor:.1f} {unit}"
@@ -66,13 +59,12 @@ if not re.fullmatch(r"disk\d+s\d+", target):
 if mode == "install" and not errors and platform.system() == "Darwin":
     try:
         lim = run_diskutil("apfs", "resizeContainer", target, "limits", "-plist")
-        current       = lim["CurrentSize"]           # total physical store bytes
-        min_preferred = lim["MinimumSizePreferred"]  # macOS-recommended minimum for container
-        min_absolute  = lim.get("MinimumSizeRequired", 0)
-        max_partition = current - min_preferred       # leave container at preferred minimum
-        max_partition_abs = current - min_absolute    # leave container at hard minimum (risky)
-        # Reasonable "auto" default: 60 % of available space (preferred), rounded to nearest 10 G
-        auto_partition = max(10 * 1000**3, (round(max_partition * 0.6 / (10*1000**3))) * (10*1000**3))
+        current = lim["CurrentSize"]
+        min_preferred = lim["MinimumSizePreferred"]
+        min_absolute = lim.get("MinimumSizeRequired", 0)
+        max_partition = current - min_preferred
+        max_partition_abs = current - min_absolute
+        auto_partition = max(10 * 1000**3, (round(max_partition * 0.6 / (10 * 1000**3))) * (10 * 1000**3))
         auto_partition = min(auto_partition, max_partition)
         limits_info = {
             "current_bytes": current,
@@ -84,12 +76,10 @@ if mode == "install" and not errors and platform.system() == "Darwin":
             "max_partition_human": fmt_human(max_partition),
             "auto_partition_human": fmt_human(auto_partition),
         }
-        # Resolve partition_mode -> actual byte values
         if partition_mode == "max":
             resolved_partition = max_partition
             resolved_container = min_preferred
         elif partition_mode == "min":
-            # minimum useful Cidre partition: 20 GB
             min_cidre = 20 * 1000**3
             if max_partition < min_cidre:
                 errors.append(f"Not enough free space for a minimum Cidre partition. Need at least {fmt_human(min_cidre)}, only {fmt_human(max_partition)} available.")
@@ -101,22 +91,17 @@ if mode == "install" and not errors and platform.system() == "Darwin":
         elif partition_mode == "auto":
             resolved_partition = auto_partition
             resolved_container = current - resolved_partition
-        else:  # custom — fall through to manual validation below
+        else:
             resolved_partition = None
             resolved_container = None
 
         if partition_mode != "custom":
-            # Pass raw byte values to diskutil to eliminate all G-rounding errors.
-            # container_size must be >= min_preferred; partition fills the remainder exactly.
             if partition_mode == "min":
-                # Fix partition first, then container = current - partition.
                 container_size = f"{current - resolved_partition}B"
                 partition_size = f"{resolved_partition}B"
             else:
-                # Fix container first (at min_preferred or resolved), then partition = remainder.
                 container_size = f"{resolved_container}B"
                 partition_size = f"{current - resolved_container}B"
-
     except Exception as error:
         errors.append(f"could not read APFS resize limits: {error}")
 
@@ -133,18 +118,43 @@ if mode == "install":
         if requested < limits_info["min_preferred_bytes"]:
             errors.append(
                 f"container size ({fmt_human(requested)}) is below macOS recommended minimum "
-                f"({fmt_human(limits_info['min_preferred_bytes'])}). "
-                f"Use --partition-mode max to use the maximum safe partition size."
+                f"({fmt_human(limits_info['min_preferred_bytes'])})."
             )
         if requested + partition > limits_info["current_bytes"]:
             errors.append(
                 f"container ({fmt_human(requested)}) + partition ({fmt_human(partition)}) = "
-                f"{fmt_human(requested+partition)} exceeds physical store ({fmt_human(limits_info['current_bytes'])})."
+                f"{fmt_human(requested + partition)} exceeds physical store ({fmt_human(limits_info['current_bytes'])})."
             )
 
-operation = "partition-create" if mode == "install" else "partition-delete"
-canonical = "\n".join((mode, operation, target, container_size, partition_size, volume_name if mode == "install" else ""))
-plan_id = hashlib.sha256(canonical.encode()).hexdigest()[:16]
+helper_operation = "partition-create" if mode == "install" else "partition-delete"
+canonical = "\n".join((mode, helper_operation, target, container_size, partition_size, volume_name if mode == "install" else ""))
+plan_id = plan_id or hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+mutation_plan = {
+    "schema_version": 1,
+    "plan_id": plan_id,
+    "operation": "create-cidre-test-target" if mode == "install" else "delete-cidre-test-target",
+    "helper_operation": helper_operation,
+    "target": target,
+    "destructive": True,
+    "test_mode_required": True,
+    "disposable_target_required": True,
+    "required_checks": [
+        "protected-partition-guard",
+        "recovery-survival",
+        "pre-snapshot",
+        "confirmation",
+    ],
+    "container_size": container_size or None,
+    "partition_size": partition_size or None,
+    "volume_name": volume_name if mode == "install" else None,
+}
+plan_hash = hashlib.sha256(json.dumps(mutation_plan, sort_keys=True).encode()).hexdigest()
+mutation_plan["plan_hash"] = plan_hash
+plan_file = f"{state_dir}/{plan_id}.plan.json"
+with open(plan_file, "w", encoding="utf-8") as handle:
+    json.dump(mutation_plan, handle, indent=2, sort_keys=True)
+    handle.write("\n")
 
 summary_ok = (
     f"Ready: shrink macOS container to {fmt_human(size_bytes(container_size))}, "
@@ -164,10 +174,12 @@ payload = {
     "warnings": ["This operation changes the partition map. Keep a current backup and power connected."],
     "errors": [{"code":"invalid-plan","message":item} for item in errors],
     "plan_id": plan_id,
+    "plan_file": plan_file,
+    "plan_hash": plan_hash,
     "mode": mode,
-    "operation": operation,
-    "target": target,
+    "operation": helper_operation,
     "partition_mode": partition_mode,
+    "target": target,
     "container_size": container_size or None,
     "partition_size": partition_size or None,
     "volume_name": volume_name if mode == "install" else None,

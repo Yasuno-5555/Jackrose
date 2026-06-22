@@ -2,13 +2,15 @@
 set -eu
 
 scope="install"
+target=""
 json_mode=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --scope) scope="$2"; shift 2 ;;
+    --target) target="$2"; shift 2 ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard [--json]"; exit 0 ;;
+    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard [--target diskXsY] [--json]"; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -19,21 +21,26 @@ CURRENT_DIR="$REPO_ROOT/.local/state/cidre/boot-safety/current"
 mkdir -p "$CURRENT_DIR"
 
 killswitch_json="$("$SCRIPT_DIR/cidre-app-installer-killswitch" --status --json 2>/dev/null || true)"
+mutation_mode_json="$("$SCRIPT_DIR/cidre-app-mutation-test-mode" --status --json 2>/dev/null || true)"
 boot_json="$("$SCRIPT_DIR/cidre-app-boot-safety-gate" --json 2>/dev/null || true)"
 shutdown_json="$("$SCRIPT_DIR/cidre-app-before-shutdown-gate" --json 2>/dev/null || true)"
 rollback_json="$("$SCRIPT_DIR/cidre-app-rollback-report-check" --json 2>/dev/null || true)"
 recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
+disposable_json=""
+if [ -n "$target" ]; then
+  disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+fi
 guard_json=""
 latest_after="$(find "$REPO_ROOT/.local/state/cidre/boot-safety/snapshots" -type f -name '*after*.json' 2>/dev/null | sort | tail -n 1 || true)"
 if [ -n "$latest_after" ]; then
   guard_json="$("$SCRIPT_DIR/cidre-app-protected-partition-guard" --snapshot "$latest_after" --json 2>/dev/null || true)"
 fi
 
-python3 - "$scope" "$json_mode" "$killswitch_json" "$boot_json" "$shutdown_json" "$rollback_json" "$recovery_json" "$guard_json" "$CURRENT_DIR/gate-evaluate-${scope}.json" <<'PY'
+python3 - "$scope" "$target" "$json_mode" "$killswitch_json" "$mutation_mode_json" "$boot_json" "$shutdown_json" "$rollback_json" "$recovery_json" "$disposable_json" "$guard_json" "$CURRENT_DIR/gate-evaluate-${scope}.json" <<'PY'
 import json
 import sys
 
-scope, json_mode, killswitch_raw, boot_raw, shutdown_raw, rollback_raw, recovery_raw, guard_raw, state_file = sys.argv[1:]
+scope, target, json_mode, killswitch_raw, mutation_mode_raw, boot_raw, shutdown_raw, rollback_raw, recovery_raw, disposable_raw, guard_raw, state_file = sys.argv[1:]
 json_mode = json_mode == "true"
 
 def parse(raw):
@@ -46,10 +53,12 @@ def parse(raw):
         return {}
 
 killswitch = parse(killswitch_raw)
+mutation_mode = parse(mutation_mode_raw)
 boot = parse(boot_raw)
 shutdown = parse(shutdown_raw)
 rollback = parse(rollback_raw)
 recovery = parse(recovery_raw)
+disposable = parse(disposable_raw)
 guard = parse(guard_raw)
 
 checks = []
@@ -68,10 +77,17 @@ if not killswitch.get("destructive_install_allowed"):
 else:
     add_check("installer-killswitch", "passed")
 
+if mutation_mode.get("enabled") and mutation_mode.get("environment_enabled"):
+    add_check("mutation-test-mode", "passed")
+else:
+    add_check("mutation-test-mode", "blocked", mutation_mode.get("summary", "controlled mutation test mode disabled"))
+
 add_check("boot-safety-gate", boot.get("status", "unknown"), boot.get("summary"))
 add_check("before-shutdown-gate", shutdown.get("status", "unknown"), shutdown.get("summary"))
 add_check("rollback-report", rollback.get("status", "unknown"), rollback.get("summary"))
 add_check("recovery-survival", recovery.get("status", "unknown"), recovery.get("summary"))
+if target:
+    add_check("disposable-target", disposable.get("status", "unknown"), disposable.get("summary"))
 if guard:
     add_check("protected-partition-guard", guard.get("status", "unknown"), guard.get("summary"))
 else:
@@ -79,8 +95,14 @@ else:
 
 if scope == "helper":
     blocked_actions.update(["disk-mutation"])
-    if killswitch.get("destructive_install_allowed") and recovery.get("status") == "passed":
-        allowed_actions.add("dry-run-helper")
+    if (
+        killswitch.get("destructive_install_allowed")
+        and mutation_mode.get("enabled")
+        and mutation_mode.get("environment_enabled")
+        and recovery.get("status") == "passed"
+        and (not target or disposable.get("status") == "passed")
+    ):
+        allowed_actions.update(["dry-run-helper", "disk-mutation-test"])
 elif scope == "shutdown":
     blocked_actions.update(["finish", "restart", "shutdown"])
     if boot.get("status") == "passed" and rollback.get("status") == "passed":
@@ -95,8 +117,14 @@ elif scope == "finish":
         allowed_actions.add("finish")
 else:
     blocked_actions.update(["finish", "restart", "shutdown", "disk-mutation"])
-    if killswitch.get("destructive_install_allowed") and recovery.get("status") == "passed" and guard.get("status") == "passed":
-        allowed_actions.add("install-execution")
+    if (
+        killswitch.get("destructive_install_allowed")
+        and mutation_mode.get("enabled")
+        and mutation_mode.get("environment_enabled")
+        and recovery.get("status") == "passed"
+        and guard.get("status") == "passed"
+    ):
+        allowed_actions.add("install-execution-test")
     if boot.get("status") == "passed" and rollback.get("status") == "passed":
         allowed_actions.add("finish")
 
@@ -109,6 +137,7 @@ payload = {
     "allowed_actions": sorted(allowed_actions),
     "blocked_actions": sorted(blocked_actions if status != "passed" else []),
     "scope": scope,
+    "target": target or None,
     "exit_code": 0 if status == "passed" else 8,
 }
 with open(state_file, "w", encoding="utf-8") as handle:

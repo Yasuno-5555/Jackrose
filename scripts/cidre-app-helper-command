@@ -7,6 +7,9 @@ container_size=""
 volume_name="Cidre"
 partition_size=""
 plan_id=""
+plan_path=""
+signature_path=""
+confirmation_file=""
 confirmation=""
 dry_run=false
 json_mode=false
@@ -19,11 +22,14 @@ while [ "$#" -gt 0 ]; do
     --volume-name) volume_name="$2"; shift 2 ;;
     --partition-size) partition_size="$2"; shift 2 ;;
     --plan-id) plan_id="$2"; shift 2 ;;
+    --plan) plan_path="$2"; shift 2 ;;
+    --signature) signature_path="$2"; shift 2 ;;
+    --confirmation-file) confirmation_file="$2"; shift 2 ;;
     --confirm) confirmation="$2"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     --json) json_mode=true; shift ;;
     --help|-h)
-      echo "Usage: cidre-app-helper-command --operation partition-create|partition-delete|apfs-delete-volume|apfs-resize-container --target diskNsM [--container-size 200G] [--volume-name Cidre] [--partition-size 80G] --plan-id ID [--confirm 'CIDRE EXECUTE ID'] [--dry-run] [--json]"
+      echo "Usage: cidre-app-helper-command --operation partition-create|partition-delete|apfs-delete-volume|apfs-resize-container --target diskNsM [--container-size 200G] [--volume-name Cidre] [--partition-size 80G] [--plan-id ID] --plan plan.json --signature plan.sig.json --confirmation-file confirmation.json [--confirm token] [--dry-run] [--json]"
       exit 0
       ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
@@ -33,18 +39,20 @@ done
 [ -n "$operation" ] || { echo "ERROR: --operation is required" >&2; exit 2; }
 [ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
 [ -n "$plan_id" ] || plan_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+[ -n "$signature_path" ] || [ -z "$plan_path" ] || signature_path="${plan_path}.sig.json"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 HELPER_PACKAGE="$REPO_ROOT/apps/macos/CidreApp/Helper/CidrePrivilegedHelper"
 PACKAGED_HELPER="$REPO_ROOT/libexec/CidrePrivilegedHelper"
 STATE_DIR="${CIDRE_STATE_DIR:-$HOME/Library/Application Support/Cidre/state/app-wizard/current}"
-mkdir -p "$STATE_DIR"
+MUTATION_STATE_DIR="$REPO_ROOT/.local/state/cidre/mutation/current"
+mkdir -p "$STATE_DIR" "$MUTATION_STATE_DIR"
 request_file="$(mktemp /tmp/cidre-helper-request.XXXXXX.json)"
 trap 'rm -f "$request_file"' EXIT HUP INT TERM
 
 if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ]; then
-  helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation "$operation" --json 2>/dev/null || true)"
+  helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation "$operation" --target "$target" --json 2>/dev/null || true)"
   helper_allowed="$(printf '%s\n' "$helper_gate_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
   if [ "$helper_allowed" != "true" ]; then
     if [ "$json_mode" = true ]; then
@@ -54,6 +62,7 @@ if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-contai
     fi
     exit 8
   fi
+
   killswitch_json="$("$SCRIPT_DIR/cidre-app-installer-killswitch" --status --json)"
   destructive_allowed="$(printf '%s\n' "$killswitch_json" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("destructive_install_allowed", False)).lower())')"
   if [ "$destructive_allowed" != "true" ]; then
@@ -68,8 +77,98 @@ payload = {
     "phase": "disk",
     "stage": "execute",
     "exit_code": 4,
-    "warnings": ["Enable the installer test override only after implementing and validating the full boot safety gate pack."],
+    "warnings": ["Enable the installer test override only after validating the controlled mutation test flow."],
     "errors": [{"code": "installer-killswitch-disabled", "message": "Disk-changing install is disabled by DFU incident containment."}],
+}
+print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
+sys.exit(4)
+PY
+  fi
+
+  mutation_mode_json="$("$SCRIPT_DIR/cidre-app-mutation-test-mode" --status --json)"
+  mutation_enabled="$(printf '%s\n' "$mutation_mode_json" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("true" if data.get("enabled") and data.get("environment_enabled") else "false")' 2>/dev/null || printf false)"
+  if [ "$mutation_enabled" != "true" ]; then
+    python3 - "$json_mode" <<'PY'
+import json
+import sys
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-helper-command",
+    "status": "blocked",
+    "summary": "Controlled mutation test mode is not fully enabled.",
+    "phase": "disk",
+    "stage": "execute",
+    "exit_code": 4,
+    "warnings": [],
+    "errors": [{"code": "mutation-test-mode-disabled", "message": "Enable CIDRE_MUTATION_TEST_MODE=1 and cidre-app-mutation-test-mode before helper mutation."}],
+}
+print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
+sys.exit(4)
+PY
+  fi
+
+  disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+  disposable_allowed="$(printf '%s\n' "$disposable_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
+  if [ "$disposable_allowed" != "true" ]; then
+    if [ "$json_mode" = true ]; then
+      printf '%s\n' "$disposable_json"
+    else
+      printf '%s\n' "$disposable_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("summary","Disposable target check failed."))'
+    fi
+    exit 8
+  fi
+
+  [ -n "$plan_path" ] || { echo "ERROR: --plan is required for destructive helper mutation" >&2; exit 4; }
+  [ -n "$signature_path" ] || { echo "ERROR: --signature is required for destructive helper mutation" >&2; exit 4; }
+  [ -n "$confirmation_file" ] || { echo "ERROR: --confirmation-file is required for destructive helper mutation" >&2; exit 4; }
+
+  plan_verify_json="$("$SCRIPT_DIR/cidre-app-mutation-plan-verify" --plan "$plan_path" --signature "$signature_path" --json 2>/dev/null || true)"
+  plan_allowed="$(printf '%s\n' "$plan_verify_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
+  if [ "$plan_allowed" != "true" ]; then
+    if [ "$json_mode" = true ]; then
+      printf '%s\n' "$plan_verify_json"
+    else
+      printf '%s\n' "$plan_verify_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("summary","Mutation plan verification failed."))'
+    fi
+    exit 8
+  fi
+
+  confirmation_valid="$(python3 - "$plan_path" "$confirmation_file" "$confirmation" "$dry_run" "$operation" "$target" <<'PY'
+import hashlib
+import json
+import sys
+
+plan_path, confirmation_file, provided_token, dry_run, operation, target = sys.argv[1:]
+with open(plan_path, "rb") as handle:
+    plan_bytes = handle.read()
+with open(confirmation_file, "r", encoding="utf-8") as handle:
+    confirmation = json.load(handle)
+plan = json.loads(plan_bytes.decode("utf-8"))
+expected_hash = hashlib.sha256(plan_bytes).hexdigest()
+matches = (
+    confirmation.get("status") == "passed"
+    and confirmation.get("plan_hash") == expected_hash
+    and plan.get("target") == target
+    and plan.get("helper_operation", "partition-create") == operation
+    and (dry_run == "true" or confirmation.get("confirmation_token") == provided_token)
+)
+print("true" if matches else "false")
+PY
+)"
+  if [ "$confirmation_valid" != "true" ]; then
+    python3 - "$json_mode" <<'PY'
+import json
+import sys
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-helper-command",
+    "status": "blocked",
+    "summary": "Mutation confirmation token is invalid.",
+    "phase": "disk",
+    "stage": "execute",
+    "exit_code": 4,
+    "warnings": [],
+    "errors": [{"code": "confirmation-token-invalid", "message": "The helper refused to trust the provided confirmation token."}],
 }
 print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
 sys.exit(4)
@@ -78,7 +177,9 @@ PY
 fi
 
 arguments_json="$(python3 - "$operation" "$container_size" "$volume_name" "$partition_size" <<'PY'
-import json, sys
+import json
+import sys
+
 operation, container_size, volume_name, partition_size = sys.argv[1:]
 if operation == "partition-create":
     args = [container_size, volume_name, partition_size]
@@ -90,9 +191,11 @@ print(json.dumps(args))
 PY
 )"
 
-python3 - "$request_file" "$operation" "$target" "$dry_run" "$confirmation" "$plan_id" "$STATE_DIR/helper-audit.log" "$arguments_json" <<'PY'
-import json, sys
-path, operation, target, dry_run, confirmation, plan_id, audit_path, arguments = sys.argv[1:]
+python3 - "$request_file" "$operation" "$target" "$dry_run" "$confirmation" "$plan_id" "$STATE_DIR/helper-audit.log" "$arguments_json" "$plan_path" "$signature_path" "$confirmation_file" <<'PY'
+import json
+import sys
+
+path, operation, target, dry_run, confirmation, plan_id, audit_path, arguments, plan_path, signature_path, confirmation_file = sys.argv[1:]
 payload = {
     "schema_version": 1,
     "operation": operation,
@@ -100,6 +203,9 @@ payload = {
     "dry_run": dry_run == "true",
     "confirmation_token": confirmation or None,
     "plan_id": plan_id,
+    "plan_path": plan_path or None,
+    "signature_path": signature_path or None,
+    "confirmation_file": confirmation_file or None,
     "audit_log_path": audit_path,
     "arguments": json.loads(arguments),
 }
@@ -110,7 +216,8 @@ chmod 600 "$request_file"
 
 if [ "$(uname -s)" != "Darwin" ]; then
   python3 - "$json_mode" <<'PY'
-import json, sys
+import json
+import sys
 payload = {"schema_version":1,"command":"cidre-app-helper-command","status":"blocked","summary":"Privileged disk operations require macOS.","phase":"disk","stage":"execute","exit_code":4,"warnings":[],"errors":[{"code":"requires-macos","message":"Privileged disk operations require macOS."}]}
 print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
 PY
@@ -130,12 +237,13 @@ fi
 if [ "$dry_run" = true ]; then
   output="$($helper "$request_file" || true)"
 else
-  [ "$confirmation" = "CIDRE EXECUTE $plan_id" ] || {
+  [ -n "$confirmation_file" ] || [ "$confirmation" = "CIDRE EXECUTE $plan_id" ] || {
     echo "ERROR: confirmation must be exactly: CIDRE EXECUTE $plan_id" >&2
     exit 4
   }
   elevated_command="$(python3 - "$helper" "$request_file" <<'PY'
-import shlex, sys
+import shlex
+import sys
 print(f"{shlex.quote(sys.argv[1])} {shlex.quote(sys.argv[2])} || true")
 PY
 )"
@@ -147,6 +255,16 @@ PY
 fi
 
 printf '%s\n' "$output" >> "$STATE_DIR/helper-results.jsonl"
+printf '%s\n' "$output" | python3 - "$MUTATION_STATE_DIR/last-helper-output.json" <<'PY'
+import json
+import sys
+
+payload = json.load(sys.stdin)
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+    handle.write("\n")
+PY
+
 if [ "$json_mode" = true ]; then
   printf '%s\n' "$output"
 else

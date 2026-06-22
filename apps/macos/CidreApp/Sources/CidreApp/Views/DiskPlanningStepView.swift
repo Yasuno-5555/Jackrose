@@ -23,6 +23,7 @@ struct DiskPlanningStepView: View {
                     .foregroundColor(.orange)
                     .font(.callout)
 
+                MutationTestModeView(state: mutation.mutationTestMode)
                 ProtectedPartitionGuardView(state: mutation.protectedPartitionState)
                 RecoverySurvivalView(state: mutation.recoverySurvivalState)
                 DiskSnapshotView(availability: mutation.snapshotAvailability)
@@ -41,7 +42,10 @@ struct DiskPlanningStepView: View {
                     HStack {
                         TextField("e.g. disk0s2", text: $mutation.target)
                             .frame(maxWidth: 160)
-                            .onChange(of: mutation.target) { _ in mutation.fetchLimits() }
+                            .onChange(of: mutation.target) { _ in
+                                mutation.fetchLimits()
+                                mutation.refreshSafetyStatus(repositoryPath: appVM.repositoryPath)
+                            }
                         if let limits = mutation.limitsInfo,
                            let currentBytes = limits["current_bytes"] as? Int {
                             Text("Current: \(formatGB(currentBytes))")
@@ -50,6 +54,8 @@ struct DiskPlanningStepView: View {
                         }
                     }
                 }
+
+                DisposableTargetReviewView(state: mutation.disposableTarget)
 
                 Divider()
 
@@ -125,6 +131,8 @@ struct DiskPlanningStepView: View {
                     .disabled(!mutation.canPreview || mutation.isRunning)
                 }
 
+                MutationPlanPreviewView(plan: mutation.mutationPlan, signature: mutation.planSignature)
+
                 if mutation.gateState?.status != "passed" {
                     Text("Disk changes: Disabled")
                         .font(.headline)
@@ -134,15 +142,18 @@ struct DiskPlanningStepView: View {
                 }
 
                 // ── Confirmation & Execute ────────────────────────────────
-                if let phrase = mutation.requiredConfirmation {
+                if mutation.requiredConfirmation != nil {
                     Divider()
-                    WizardConfirmationView(prompt: "Type exactly: \(phrase)", text: $mutation.confirmation)
+                    MutationConfirmationView(requiredPhrase: "I understand this can destroy the selected disposable target.", text: $mutation.confirmation)
                     Button("Authenticate and Modify Disk", role: .destructive) {
                         mutation.execute(repositoryPath: appVM.repositoryPath)
                     }
                     .disabled(!mutation.canExecute || mutation.isRunning)
                 }
 
+                MutationExecutionProgressView(result: mutation.execution == nil ? nil : MutationExecutionService.shared.report(repositoryPath: appVM.repositoryPath))
+                MutationVerificationView(result: mutation.mutationVerification)
+                MutationReportView(markdown: mutation.mutationReportMarkdown)
                 WizardResultView(execution: mutation.execution)
             }
         }

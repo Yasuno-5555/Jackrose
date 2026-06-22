@@ -1,0 +1,155 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_DIR="$REPO_ROOT/.local/state/cidre/mutation/current"
+STATE_FILE="$STATE_DIR/test-mode.json"
+
+mode="status"
+json_mode=false
+phrase=""
+required_phrase="I understand this can destroy the selected disposable target."
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cidre-app-mutation-test-mode --status [--json]
+  cidre-app-mutation-test-mode --enable [--phrase "<required phrase>"] [--json]
+  cidre-app-mutation-test-mode --disable [--json]
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --status) mode="status"; shift ;;
+    --enable) mode="enable"; shift ;;
+    --disable) mode="disable"; shift ;;
+    --phrase)
+      [ "$#" -ge 2 ] || { echo "ERROR: --phrase requires a value" >&2; exit 2; }
+      phrase="$2"
+      shift 2
+      ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+mkdir -p "$STATE_DIR"
+
+python3 - "$REPO_ROOT" "$STATE_FILE" "$mode" "$phrase" "$required_phrase" "$json_mode" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+repo_root, state_file, mode, phrase, required_phrase, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+prerequisites = {
+    "readme": os.path.join(repo_root, "README.md"),
+    "installer_killswitch": os.path.join(repo_root, "scripts", "cidre-app-installer-killswitch"),
+    "gate_enforcement": os.path.join(repo_root, "scripts", "cidre-app-gate-evaluate"),
+    "disk_snapshot": os.path.join(repo_root, "scripts", "cidre-app-disk-snapshot"),
+    "protected_partition_guard": os.path.join(repo_root, "scripts", "cidre-app-protected-partition-guard"),
+}
+
+default_state = {
+    "schema_version": 1,
+    "command": "cidre-app-mutation-test-mode",
+    "mode": "disabled",
+    "enabled": False,
+    "required_phrase": required_phrase,
+    "updated_at": None,
+}
+
+def now():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+def load_state():
+    if not os.path.exists(state_file):
+        return dict(default_state)
+    try:
+        with open(state_file, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except Exception:
+        return dict(default_state)
+    merged = dict(default_state)
+    merged.update(loaded)
+    merged["enabled"] = merged.get("mode") == "enabled"
+    return merged
+
+def save_state(state):
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    with open(state_file, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, indent=2)
+        handle.write("\n")
+
+missing = {name: path for name, path in prerequisites.items() if not os.path.exists(path)}
+state = load_state()
+status = "passed"
+summary = "Controlled mutation test mode is disabled."
+errors = []
+exit_code = 0
+
+if mode == "enable":
+    if missing:
+        status = "blocked"
+        exit_code = 4
+        summary = "Controlled mutation test mode prerequisites are incomplete."
+        errors = [{"code": "missing-prerequisite", "message": f"{name}:{path}"} for name, path in missing.items()]
+    elif phrase != required_phrase:
+        status = "blocked"
+        exit_code = 4
+        summary = "Explicit destructive test confirmation is required."
+        errors = [{"code": "explicit-confirmation-required", "message": "The destructive mutation test phrase did not match."}]
+    else:
+        state.update({
+            "mode": "enabled",
+            "enabled": True,
+            "updated_at": now(),
+        })
+        save_state(state)
+        summary = "Controlled mutation test mode is enabled for development-only validation."
+elif mode == "disable":
+    state.update({
+        "mode": "disabled",
+        "enabled": False,
+        "updated_at": now(),
+    })
+    save_state(state)
+    summary = "Controlled mutation test mode is disabled."
+else:
+    summary = "Controlled mutation test mode is enabled." if state.get("enabled") else "Controlled mutation test mode is disabled."
+
+payload = dict(state)
+payload.update({
+    "schema_version": 1,
+    "command": "cidre-app-mutation-test-mode",
+    "status": status,
+    "summary": summary,
+    "mode": state.get("mode", "disabled"),
+    "enabled": bool(state.get("enabled")),
+    "required_phrase": required_phrase,
+    "environment_enabled": os.environ.get("CIDRE_MUTATION_TEST_MODE") == "1",
+    "prerequisites": {name: {"path": path, "present": os.path.exists(path)} for name, path in prerequisites.items()},
+    "warnings": [] if state.get("enabled") else ["Disk mutation remains blocked until both test mode and installer test override are enabled."],
+    "errors": errors,
+    "exit_code": exit_code,
+    "state_file": state_file,
+})
+
+if not os.path.exists(state_file):
+    save_state({
+        "schema_version": 1,
+        "command": "cidre-app-mutation-test-mode",
+        "mode": payload["mode"],
+        "enabled": payload["enabled"],
+        "required_phrase": required_phrase,
+        "updated_at": payload.get("updated_at"),
+    })
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(exit_code)
+PY
