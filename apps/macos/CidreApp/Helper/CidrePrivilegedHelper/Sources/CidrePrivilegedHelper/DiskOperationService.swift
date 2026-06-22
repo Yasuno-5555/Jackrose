@@ -12,7 +12,7 @@ enum DiskOperationService {
     }
 
     private static let diskIdentifier = try! NSRegularExpression(pattern: #"^disk[0-9]+s[0-9]+$"#)
-    private static let containerIdentifier = try! NSRegularExpression(pattern: #"^disk[0-9]+s[0-9]+$"#)
+    private static let containerIdentifier = try! NSRegularExpression(pattern: #"^disk[0-9]+$"#)
     private static let sizeValue = try! NSRegularExpression(pattern: #"^(0|[1-9][0-9]*(B|K|M|G|T|P))$"#, options: .caseInsensitive)
 
     static func execute(_ request: HelperProtocol) -> Result {
@@ -21,10 +21,13 @@ enum DiskOperationService {
         guard let target = request.target, matches(diskIdentifier, target) else {
             return rejected("Target must be a partition or APFS container identifier such as disk3s2.")
         }
-        if request.operation == "partition-create" || request.operation == "partition-delete" {
+        if request.operation == "partition-create" || request.operation == "partition-delete" || request.operation == "cidre-uninstall" {
             guard request.planID == expectedPlanID(for: request, target: target) else {
                 return rejected("Plan ID does not match the requested disk operation.")
             }
+        }
+        if request.operation == "cidre-uninstall" {
+            return executeCidreUninstall(request, stubTarget: target)
         }
 
         let command: [String]
@@ -106,6 +109,11 @@ enum DiskOperationService {
     }
 
     private static func expectedPlanID(for request: HelperProtocol, target: String) -> String? {
+        if request.operation == "cidre-uninstall" {
+            let canonical = (["uninstall", request.operation, target] + request.arguments).joined(separator: "\n")
+            let digest = SHA256.hash(data: Data(canonical.utf8))
+            return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        }
         let mode = request.operation == "partition-create" ? "install" : "uninstall"
         let containerSize = request.arguments.indices.contains(0) && request.operation == "partition-create" ? request.arguments[0] : ""
         let volumeName = request.arguments.indices.contains(1) && request.operation == "partition-create" ? request.arguments[1] : ""
@@ -113,6 +121,131 @@ enum DiskOperationService {
         let canonical = [mode, request.operation, target, containerSize, partitionSize, volumeName].joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func executeCidreUninstall(_ request: HelperProtocol, stubTarget: String) -> Result {
+        guard request.arguments.count == 4 else { return rejected("Cidre uninstall requires EFI, Linux, Recovery, and startup APFS targets.") }
+        let efiTarget = request.arguments[0]
+        let linuxTarget = request.arguments[1]
+        let recoveryTarget = request.arguments[2]
+        let growTarget = request.arguments[3]
+        guard [efiTarget, linuxTarget, recoveryTarget].allSatisfy({ matches(diskIdentifier, $0) }),
+              matches(containerIdentifier, growTarget) else {
+            return rejected("Uninstall requires partition identifiers plus a startup APFS container reference.")
+        }
+        guard let stub = plist(["info", "-plist", stubTarget]),
+              let efi = plist(["info", "-plist", efiTarget]),
+              let linux = plist(["info", "-plist", linuxTarget]),
+              let recovery = plist(["info", "-plist", recoveryTarget]),
+              let root = plist(["info", "-plist", "/"]),
+              let rootStore = root["APFSPhysicalStores"] as? [[String: Any]],
+              let startupPhysicalStore = rootStore.first?["APFSPhysicalStore"] as? String,
+              let grow = plist(["apfs", "list", "-plist", growTarget]) else {
+            return rejected("One or more uninstall targets disappeared before execution.")
+        }
+        let dictionaries = [plist(["info", "-plist", startupPhysicalStore]), stub, efi, linux, recovery].compactMap { $0 }
+        let parents = Set(dictionaries.compactMap { $0["ParentWholeDisk"] as? String })
+        guard parents.count == 1 else { return rejected("Uninstall targets are not on the same physical disk.") }
+        guard growTarget == root["APFSContainerReference"] as? String,
+              grow["Containers"] as? [[String: Any]] != nil,
+              identifiers(in: root).contains(startupPhysicalStore) else {
+            return rejected("The grow target is not the current macOS startup APFS container.")
+        }
+        guard let startupInfo = dictionaries.first,
+              startupInfo["Content"] as? String == "Apple_APFS" else {
+            return rejected("The startup physical store is not a resizable APFS partition.")
+        }
+        guard stub["Content"] as? String == "Apple_APFS",
+              let stubContainer = stub["APFSContainerReference"] as? String,
+              let containerInfo = plist(["apfs", "list", "-plist", stubContainer]),
+              containsCidreVolume(containerInfo) else {
+            return rejected("The first target is not a Cidre APFS stub container.")
+        }
+        let efiName = (efi["VolumeName"] as? String ?? "").uppercased()
+        guard efi["Content"] as? String == "EFI", efiName.contains("CIDRE") else {
+            return rejected("The EFI target is not labeled for Cidre.")
+        }
+        guard linux["Content"] as? String == "Linux Filesystem" else {
+            return rejected("The selected Linux target has an unexpected partition type.")
+        }
+        guard recovery["Content"] as? String == "Apple_APFS_Recovery" else {
+            return rejected("The selected recovery target is not the old installation recovery partition.")
+        }
+        guard partitionsAreContiguous(dictionaries) else {
+            return rejected("Cidre partitions are not contiguous with the macOS container.")
+        }
+        // deleteContainer requires an APFS Container Reference (e.g. disk3), not a physical
+        // partition slice (e.g. disk0s6). Resolve the container reference from each physical
+        // store partition before building the command list.
+        // Note: diskutil info for Apple_APFS_Recovery partitions does not include
+        // APFSContainerReference, so we look it up from the global APFS container list.
+        let recoveryContainer = (recovery["APFSContainerReference"] as? String)
+            ?? apfsContainerReference(forPhysicalStore: recoveryTarget)
+        guard let recoveryContainer else {
+            return rejected("Could not resolve APFS container reference for the recovery partition.")
+        }
+
+        let commands = [
+            ["/usr/sbin/diskutil", "apfs", "deleteContainer", recoveryContainer],
+            ["/usr/sbin/diskutil", "eraseVolume", "free", "free", linuxTarget],
+            ["/usr/sbin/diskutil", "eraseVolume", "free", "free", efiTarget],
+            ["/usr/sbin/diskutil", "apfs", "deleteContainer", stubContainer],
+            ["/usr/sbin/diskutil", "apfs", "resizeContainer", growTarget, "0"],
+        ]
+        let preview = commands.map { $0.joined(separator: " ") }
+        if request.dryRun {
+            return Result(status: "pass", summary: "Validated complete Cidre uninstall preview.", exitCode: 0, command: preview, stdout: preview.joined(separator: "\n"), stderr: "")
+        }
+        var output = ""
+        for command in commands {
+            let result = run(command)
+            output += result.output
+            if result.status != 0 {
+                return Result(status: "fail", summary: "Cidre uninstall stopped because diskutil failed.", exitCode: result.status, command: preview, stdout: output, stderr: result.error)
+            }
+        }
+        return Result(status: "pass", summary: "Old Cidre partitions were removed and macOS space was restored.", exitCode: 0, command: preview, stdout: output, stderr: "")
+    }
+
+    private static func containsCidreVolume(_ value: Any) -> Bool {
+        if let dictionary = value as? [String: Any] {
+            if let name = dictionary["Name"] as? String, name.lowercased().contains("cidre") { return true }
+            return dictionary.values.contains(where: containsCidreVolume)
+        }
+        if let values = value as? [Any] { return values.contains(where: containsCidreVolume) }
+        return false
+    }
+
+    private static func partitionsAreContiguous(_ dictionaries: [[String: Any]]) -> Bool {
+        var previousEnd: Int64?
+        for dictionary in dictionaries {
+            guard let offset = (dictionary["PartitionMapPartitionOffset"] as? NSNumber)?.int64Value,
+                  let size = (dictionary["Size"] as? NSNumber)?.int64Value else { return false }
+            if let previousEnd, offset < previousEnd || offset - previousEnd > 1_048_576 { return false }
+            previousEnd = offset + size
+        }
+        return true
+    }
+
+    private static func run(_ command: [String]) -> (status: Int32, output: String, error: String) {
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: command[0])
+        process.arguments = Array(command.dropFirst())
+        process.standardOutput = stdout
+        process.standardError = stderr
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return (
+                process.terminationStatus,
+                String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+                String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            )
+        } catch {
+            return (1, "", error.localizedDescription)
+        }
     }
 
     private static func validateResize(target: String, containerSize: String, partitionSize: String?) -> String? {
@@ -208,5 +341,22 @@ enum DiskOperationService {
         } catch {
             return (1, Data())
         }
+    }
+
+    /// Looks up the APFS container reference (e.g. "disk3") whose physical store matches
+    /// the given partition slice (e.g. "disk0s6"). This is necessary because
+    /// `diskutil info` does not populate `APFSContainerReference` for every partition type
+    /// (e.g. Apple_APFS_Recovery slices).
+    private static func apfsContainerReference(forPhysicalStore physicalStore: String) -> String? {
+        guard let allContainers = plist(["apfs", "list", "-plist"]),
+              let containers = allContainers["Containers"] as? [[String: Any]] else { return nil }
+        for container in containers {
+            guard let ref = container["ContainerReference"] as? String,
+                  let stores = container["PhysicalStores"] as? [[String: Any]] else { continue }
+            if stores.contains(where: { ($0["DeviceIdentifier"] as? String) == physicalStore }) {
+                return ref
+            }
+        }
+        return nil
     }
 }
