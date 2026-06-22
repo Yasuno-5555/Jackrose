@@ -1,0 +1,101 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+target=""
+fixture=""
+json_mode=false
+
+usage() {
+  echo "Usage: cidre-app-install-target-check (--target diskXsY | --fixture file.json) [--json]"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --fixture) fixture="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[ -n "$target$fixture" ] || { echo "ERROR: --target or --fixture is required" >&2; exit 2; }
+
+python3 - "$REPO_ROOT" "$target" "$fixture" "$json_mode" <<'PY'
+import json
+import os
+import plistlib
+import subprocess
+import sys
+
+repo_root, target, fixture, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+state_path = os.path.join(repo_root, ".local", "state", "cidre", "install", "current", "install-target.json")
+
+def print_result(payload):
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+    sys.exit(payload["exit_code"])
+
+if fixture:
+    try:
+        with open(fixture, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        print_result(data)
+    except Exception as e:
+        print_result({
+            "schema_version": 1,
+            "command": "cidre-app-install-target-check",
+            "status": "failed",
+            "summary": f"Failed to read fixture: {e}",
+            "exit_code": 8,
+            "target": None,
+            "classification": "unknown",
+            "errors": [{"code": "fixture-read-error", "message": str(e)}]
+        })
+
+# Call the disposable target check to reuse classification
+check_cmd = [os.path.join(repo_root, "scripts", "cidre-app-disposable-target-check"), "--target", target, "--json"]
+res = subprocess.run(check_cmd, capture_output=True, text=True)
+
+try:
+    disposable_data = json.loads(res.stdout)
+except Exception:
+    disposable_data = {}
+
+if res.returncode != 0 or disposable_data.get("status") != "passed":
+    code = "target-invalid"
+    summary = "Selected target is invalid for installation."
+    if disposable_data.get("errors"):
+        code = disposable_data["errors"][0].get("code", code)
+        summary = disposable_data["errors"][0].get("message", summary)
+    
+    print_result({
+        "schema_version": 1,
+        "command": "cidre-app-install-target-check",
+        "status": "failed",
+        "summary": summary,
+        "exit_code": 8,
+        "target": target,
+        "classification": disposable_data.get("classification", "protected"),
+        "errors": [{"code": code, "message": summary}]
+    })
+
+# If it passed disposable target check, it passes install target policy check
+print_result({
+    "schema_version": 1,
+    "command": "cidre-app-install-target-check",
+    "status": "passed",
+    "summary": "Selected target is valid for controlled installation.",
+    "exit_code": 0,
+    "target": target,
+    "classification": "disposable",
+    "errors": []
+})
+PY

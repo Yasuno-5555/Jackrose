@@ -94,6 +94,12 @@ show_help() {
   echo "  live-drill-status   Show latest live drill status"
   echo "  live-drill-report   Show latest live drill report"
   echo "  live-drill-clean    Clean old live drill state"
+  echo "  controlled-install-status Show latest controlled install status"
+  echo "  install-target-status Show latest install target check status"
+  echo "  no-default-boot-status Show latest no-default-boot check status"
+  echo "  manual-boot-guide   Show manual boot instructions"
+  echo "  install-report      Show latest controlled install report"
+
 
   echo "  rescue-build         Build Rescue Slot overlay artifact"
   echo "  rescue-inspect       Inspect Rescue Slot overlay"
@@ -620,6 +626,21 @@ case "$CMD" in
     ;;
   live-drill-clean)
     exec "$(dirname "$0")/cidre-app-live-drill-clean" --keep-latest 5 --json
+    ;;
+  controlled-install-status)
+    exec "$(dirname "$0")/cidre-app-controlled-install" --status --json
+    ;;
+  install-target-status)
+    exec "$(dirname "$0")/cidre-app-install-target-check" --fixture "$(dirname "$0")/../test/fixtures/controlled-install/install-target-valid.json" --json
+    ;;
+  no-default-boot-status)
+    exec "$(dirname "$0")/cidre-app-no-default-boot-check" --fixture "$(dirname "$0")/../test/fixtures/controlled-install/no-default-boot-valid.json" --json
+    ;;
+  manual-boot-guide)
+    exec "$(dirname "$0")/cidre-app-manual-boot-guide" --markdown
+    ;;
+  install-report)
+    exec "$(dirname "$0")/cidre-app-install-report" --markdown
     ;;
   boot-failure-report)
     exec "$(dirname "$0")/cidre-app-boot-failure-report" --incident DFU_RESTORE_001 --json

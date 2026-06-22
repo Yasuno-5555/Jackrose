@@ -25,6 +25,16 @@ struct DiskPlanningStepView: View {
 
                 MutationTestModeView(state: mutation.mutationTestMode)
                 LiveDrillDashboardView(state: mutation.liveDrillState, mutationMode: mutation.mutationTestMode, killSwitch: mutation.killSwitchState)
+
+                // Controlled manual-boot install (v0.35.6)
+                ControlledInstallDashboardView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
+                InstallTargetReviewView(targetCheck: InstallTargetCheckService.shared.check(repositoryPath: appVM.repositoryPath))
+                InstallPlanPreviewView(plan: InstallPlanService.shared.lastPlan(repositoryPath: appVM.repositoryPath))
+                InstallPayloadProgressView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
+                InstallVerificationView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
+                ManualBootGuideView(guide: ManualBootGuideService.shared.guide(repositoryPath: appVM.repositoryPath))
+                NoDefaultBootPolicyView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
+
                 ProtectedPartitionGuardView(state: mutation.protectedPartitionState)
                 RecoverySurvivalView(state: mutation.recoverySurvivalState)
                 DiskSnapshotView(availability: mutation.snapshotAvailability)

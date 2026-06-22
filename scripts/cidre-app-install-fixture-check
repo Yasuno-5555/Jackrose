@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+FIXTURE_DIR="$REPO_ROOT/test/fixtures/controlled-install"
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-fixture-check [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$FIXTURE_DIR" "$json_mode" <<'PY'
+import json, os, sys
+fixture_dir, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+required = [
+    "install-target-valid.json",
+    "install-target-startup-disk.json",
+    "install-target-apple-recovery.json",
+    "install-plan-valid.json",
+    "install-plan-tampered.json",
+    "payload-manifest-valid.json",
+    "payload-manifest-missing-rootfs.json",
+    "before-install-valid.json",
+    "after-install-safe.json",
+    "after-install-protected-changed.json",
+    "no-default-boot-valid.json",
+    "no-default-boot-mutated.json",
+]
+
+missing = [name for name in required if not os.path.exists(os.path.join(fixture_dir, name))]
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-fixture-check",
+    "status": "passed" if not missing else "failed",
+    "summary": "Controlled install fixtures are present." if not missing else "Controlled install fixtures are missing.",
+    "exit_code": 0 if not missing else 8,
+    "missing": missing,
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

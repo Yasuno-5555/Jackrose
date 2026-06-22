@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "command": "cidre-app-disposable-target-check",
+  "status": "failed",
+  "summary": "The selected target is the current startup disk or startup container.",
+  "exit_code": 8,
+  "target": "disk0s2",
+  "classification": "protected",
+  "warnings": [],
+  "errors": [
+    {"code": "target-is-startup-disk", "message": "The selected target is the current startup disk or startup container."}
+  ]
+}

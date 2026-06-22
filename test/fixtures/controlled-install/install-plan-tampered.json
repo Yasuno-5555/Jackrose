@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "plan_id": "install-fixture-plan",
+  "mode": "controlled-manual-boot",
+  "target": "disk9s3",
+  "profile": "developer",
+  "manual_boot_only": true,
+  "default_boot_mutation": true,
+  "startup_disk_mutation": false,
+  "boot_policy_mutation": false,
+  "automatic_restart": false,
+  "operations": [
+    "stage-payload",
+    "write-install-metadata",
+    "verify-payload",
+    "generate-manual-boot-guide"
+  ],
+  "required_checks": [
+    "install-target-check",
+    "protected-partition-guard",
+    "recovery-survival",
+    "pre-snapshot",
+    "post-snapshot",
+    "no-default-boot-check",
+    "install-report"
+  ],
+  "plan_hash": "fixture-placeholder"
+}

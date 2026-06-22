@@ -12,7 +12,7 @@ while [ "$#" -gt 0 ]; do
     --target) target="$2"; shift 2 ;;
     --level) level="$2"; shift 2 ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard|live-drill [--level 0|1|2|3] [--target diskXsY] [--json]"; exit 0 ;;
+    --help|-h) echo "Usage: cidre-app-gate-evaluate --scope install|shutdown|helper|finish|wizard|live-drill|controlled-install [--level 0|1|2|3] [--target diskXsY] [--json]"; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -132,6 +132,19 @@ elif scope == "live-drill":
         status = "passed"
         blocked_actions.clear()
         allowed_actions.add("live-drill-execution")
+elif scope == "controlled-install":
+    blocked_actions.update(["controlled-install-execution"])
+    gate_ready = (
+        killswitch.get("destructive_install_allowed")
+        and mutation_mode.get("enabled")
+        and mutation_mode.get("environment_enabled")
+        and recovery.get("status") == "passed"
+        and (not target or disposable.get("status") == "passed")
+    )
+    if gate_ready:
+        status = "passed"
+        blocked_actions.clear()
+        allowed_actions.add("controlled-install-execution")
 else:
     blocked_actions.update(["finish", "restart", "shutdown", "disk-mutation"])
     if (

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.35.6] - 2026-06-22
+
+### Added
+
+- Added controlled manual-boot install planning.
+- Added install target validation.
+- Added no-default-boot mutation policy checks.
+- Added payload staging and verification tools.
+- Added manual boot guide generation.
+- Added SwiftUI controlled install views.
+
+### Changed
+
+- Install flow now explicitly separates payload placement from boot registration.
+- Cidre does not set itself as the default startup disk.
+
+### Notes
+
+This release does not implement automatic boot registration, default boot changes,
+or automatic reboot into Cidre.
+
 ## [0.35.3] - 2026-06-22
 
 ### Added

@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+
+target=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-metadata-write --target /path [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
+
+python3 - "$target" "$json_mode" <<'PY'
+import json
+import os
+import sys
+
+target_path, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+try:
+    install_dir = os.path.join(target_path, "cidre", "install")
+    os.makedirs(install_dir, exist_ok=True)
+    
+    # 1. manifest.json
+    manifest = {
+        "schema_version": 1,
+        "files": [
+            {"path": "cidre/install/manifest.json", "sha256": "placeholder-hash"},
+            {"path": "cidre/install/profile.json", "sha256": "placeholder-hash"},
+            {"path": "cidre/install/seed.tar.gz", "sha256": "placeholder-hash"},
+            {"path": "cidre/install/handoff.txt", "sha256": "placeholder-hash"}
+        ]
+    }
+    with open(os.path.join(install_dir, "manifest.json"), "w", encoding="utf-8") as h:
+        json.dump(manifest, h, indent=2)
+        h.write("\n")
+        
+    # 2. manual-boot.json
+    manual_boot = {
+        "manual_boot_only": True
+    }
+    with open(os.path.join(install_dir, "manual-boot.json"), "w", encoding="utf-8") as h:
+        json.dump(manual_boot, h, indent=2)
+        h.write("\n")
+        
+    # 3. no-default-boot-policy.json
+    policy = {
+        "manual_boot_only": True,
+        "default_boot_mutation": False,
+        "startup_disk_mutation": False,
+        "boot_policy_mutation": False,
+        "automatic_restart": False
+    }
+    with open(os.path.join(install_dir, "no-default-boot-policy.json"), "w", encoding="utf-8") as h:
+        json.dump(policy, h, indent=2)
+        h.write("\n")
+        
+    passed = True
+    errors = []
+except Exception as e:
+    passed = False
+    errors = [{"code": "write-exception", "message": str(e)}]
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-metadata-write",
+    "status": "passed" if passed else "failed",
+    "summary": "Metadata files written successfully." if passed else "Failed to write metadata.",
+    "exit_code": 0 if passed else 8,
+    "errors": errors
+}
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

@@ -55,6 +55,10 @@ RESCUE_MODE=false
 RESCUE_BOOT_MODE=false
 MACOS_RESCUE_MODE=false
 RESCUE_CREATE_MODE=false
+CONTROLLED_INSTALL_MODE=false
+INSTALL_TARGET_MODE=false
+NO_DEFAULT_BOOT_MODE=false
+MANUAL_BOOT_GUIDE_MODE=false
 
 STATE_DIR="${HOME}/.local/state/cidre"
 DOCTOR_DIR="${STATE_DIR}/doctor"
@@ -177,6 +181,10 @@ while [ $# -gt 0 ]; do
     --live-drill) LIVE_DRILL_MODE=true; shift ;;
     --live-drill-fixtures) LIVE_DRILL_FIXTURES_MODE=true; shift ;;
     --live-drill-state) LIVE_DRILL_STATE_MODE=true; shift ;;
+    --controlled-install) CONTROLLED_INSTALL_MODE=true; shift ;;
+    --install-target) INSTALL_TARGET_MODE=true; shift ;;
+    --no-default-boot) NO_DEFAULT_BOOT_MODE=true; shift ;;
+    --manual-boot-guide) MANUAL_BOOT_GUIDE_MODE=true; shift ;;
     --base-readiness) BASE_READINESS_MODE=true; shift ;;
     --seed) SEED_MODE=true; shift ;;
     --resume) RESUME_MODE=true; shift ;;
@@ -1343,6 +1351,38 @@ elif [ "$LIVE_DRILL_STATE_MODE" = true ]; then
     print_result WARN "Live drill state command is unavailable"
   fi
 
+elif [ "$CONTROLLED_INSTALL_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-controlled-install" --status --json >/dev/null 2>&1; then
+    print_result OK "Controlled install status command works"
+  else
+    print_result WARN "Controlled install status command is blocked or unavailable"
+  fi
+
+elif [ "$INSTALL_TARGET_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-install-fixture-check" --json >/dev/null 2>&1; then
+    print_result OK "Controlled install fixtures are present"
+  else
+    print_result FAIL "Controlled install fixtures are incomplete"
+  fi
+
+elif [ "$NO_DEFAULT_BOOT_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-no-default-boot-check" --fixture "$REPO_ROOT/test/fixtures/controlled-install/no-default-boot-valid.json" --json >/dev/null 2>&1; then
+    print_result OK "No default boot check command works"
+  else
+    print_result FAIL "No default boot check command failed"
+  fi
+
+elif [ "$MANUAL_BOOT_GUIDE_MODE" = true ]; then
+  REPO_ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
+  if "$REPO_ROOT/scripts/cidre-app-manual-boot-guide" --json >/dev/null 2>&1; then
+    print_result OK "Manual boot guide command works"
+  else
+    print_result FAIL "Manual boot guide command failed"
+  fi
+
 elif [ "$RECOVERY_SCREEN_MODE" = true ] || [ "$SAFE_MODE_MODE" = true ]; then
   RECOVERY_STATE_DIR="${HOME}/.local/state/cidre/recovery-screen/current"
 
@@ -1766,7 +1806,20 @@ elif [ "$RC_READINESS_MODE" = true ]; then
       scripts/cidre-app-runtime-clean \
       scripts/cidre-app-runtime-fixture \
       scripts/cidre-app-runtime-log-collect \
-      scripts/cidre-app-runtime-result; do
+      scripts/cidre-app-runtime-result \
+      scripts/cidre-app-controlled-install \
+      scripts/cidre-app-install-target-check \
+      scripts/cidre-app-install-plan \
+      scripts/cidre-app-install-plan-sign \
+      scripts/cidre-app-install-plan-verify \
+      scripts/cidre-app-install-confirmation \
+      scripts/cidre-app-install-payload-stage \
+      scripts/cidre-app-install-payload-verify \
+      scripts/cidre-app-install-metadata-write \
+      scripts/cidre-app-install-report \
+      scripts/cidre-app-manual-boot-guide \
+      scripts/cidre-app-no-default-boot-check \
+      scripts/cidre-app-install-fixture-check; do
       if [ -f "${REPO_ROOT}/${cmd}" ] && [ -x "${REPO_ROOT}/${cmd}" ]; then
         print_result OK "App prototype/UI script present: ${cmd}"
       else
@@ -1776,7 +1829,7 @@ elif [ "$RC_READINESS_MODE" = true ]; then
 
 
     # Verify documentation files are present
-    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v0.18.0-builder-integration.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md docs/builder-integration.md docs/alarm-builder-notes.md docs/builder-artifacts.md docs/real-image-build.md docs/builder-runbook.md docs/image-register-verify.md docs/build-failure-report.md docs/v0.19.0-real-image-build.md docs/firstboot-fixup.md docs/firstboot-service-ordering.md docs/firstboot-retry-repair.md docs/v0.21.0-firstboot-fixup.md docs/user-phase-handoff.md docs/user-phase-state.md docs/first-login.md docs/install-resume-validation.md docs/uninstall.md docs/exit-path.md docs/state-export.md docs/partition-audit.md docs/macos-restore-guide.md docs/uninstall-threat-model.md docs/macos-restore-assistant.md docs/macos-partition-audit.md docs/macos-startup-disk.md docs/macos-uninstall-guide.md docs/recovery-screen.md docs/safe-mode.md docs/failure-levels.md docs/tty-recovery.md docs/recovery-shortcuts.md docs/rescue-slot.md docs/rescue-profile.md docs/rescue-image.md docs/rescue-mount.md docs/rescue-kernel-repair.md docs/rescue-threat-model.md docs/rescue-boot-integration.md docs/rescue-slot-layout.md docs/rescue-boot-metadata.md docs/rescue-boot-validation.md docs/macos-rescue-slot.md docs/rescue-boot-threat-model.md docs/rescue-create.md docs/rescue-target-selection.md docs/rescue-create-safety.md docs/rescue-rootfs-deployment.md docs/macos-rescue-create.md docs/rescue-create-threat-model.md docs/v0.28.0-guided-rescue-slot-creation.md docs/v0.27.0-rescue-boot-integration.md docs/v0.26.0-rescue-slot-foundation.md docs/v0.25.0-recovery-screen-safe-mode.md docs/v0.24.0-macos-restore-assistant.md docs/v0.23.0-uninstall-exit-path.md docs/v0.22.0-user-phase-handoff.md docs/cidre-app-guided-action-ui.md docs/cidre-app-command-execution.md docs/cidre-app-repository-selection.md docs/cidre-app-execution-log.md docs/cidre-app-read-only-policy.md docs/cidre-app-runtime-validation.md docs/cidre-app-build-validation.md docs/cidre-app-launch-validation.md docs/cidre-app-runtime-report.md docs/cidre-app-runtime-known-issues.md docs/v0.33.0-cidre-app-guided-action-ui.md docs/v0.34.0-cidre-app-runtime-validation.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
+    for doc in README.md CHANGELOG.md docs/commands.md docs/profiles.md docs/packages.md docs/managed-files.md docs/validation-matrix.md docs/known-limitations.md docs/macos-install.md docs/macos-to-cidre-flow.md docs/installer-threat-model.md docs/seed-resume.md docs/downstream-strategy.md docs/alarm-fork-strategy.md docs/cidre-image-plan.md docs/cidre-image-prototype.md docs/installer-integration.md docs/image-build-notes.md docs/image-build-validation.md docs/firstboot-oobe.md docs/firstboot-security.md docs/firstboot-root-login-problem.md docs/image-boot-validation.md docs/rootfs-inspection.md docs/boot-log-collection.md docs/v0.12.0-macos-bootstrap.md docs/v0.13.0-seed-resume.md docs/v0.14.0-downstream-foundation.md docs/v0.15.0-cidre-image-prototype.md docs/v0.16.0-firstboot-oobe.md docs/v0.17.0-image-boot-validation.md docs/v0.18.0-builder-integration.md docs/v1.0.0-clean-install-test-plan.md docs/v0.9.0-rc-readiness.md docs/builder-integration.md docs/alarm-builder-notes.md docs/builder-artifacts.md docs/real-image-build.md docs/builder-runbook.md docs/image-register-verify.md docs/build-failure-report.md docs/v0.19.0-real-image-build.md docs/firstboot-fixup.md docs/firstboot-service-ordering.md docs/firstboot-retry-repair.md docs/v0.21.0-firstboot-fixup.md docs/user-phase-handoff.md docs/user-phase-state.md docs/first-login.md docs/install-resume-validation.md docs/uninstall.md docs/exit-path.md docs/state-export.md docs/partition-audit.md docs/macos-restore-guide.md docs/uninstall-threat-model.md docs/macos-restore-assistant.md docs/macos-partition-audit.md docs/macos-startup-disk.md docs/macos-uninstall-guide.md docs/recovery-screen.md docs/safe-mode.md docs/failure-levels.md docs/tty-recovery.md docs/recovery-shortcuts.md docs/rescue-slot.md docs/rescue-profile.md docs/rescue-image.md docs/rescue-mount.md docs/rescue-kernel-repair.md docs/rescue-threat-model.md docs/rescue-boot-integration.md docs/rescue-slot-layout.md docs/rescue-boot-metadata.md docs/rescue-boot-validation.md docs/macos-rescue-slot.md docs/rescue-boot-threat-model.md docs/rescue-create.md docs/rescue-target-selection.md docs/rescue-create-safety.md docs/rescue-rootfs-deployment.md docs/macos-rescue-create.md docs/rescue-create-threat-model.md docs/v0.28.0-guided-rescue-slot-creation.md docs/v0.27.0-rescue-boot-integration.md docs/v0.26.0-rescue-slot-foundation.md docs/v0.25.0-recovery-screen-safe-mode.md docs/v0.24.0-macos-restore-assistant.md docs/v0.23.0-uninstall-exit-path.md docs/v0.22.0-user-phase-handoff.md docs/cidre-app-guided-action-ui.md docs/cidre-app-command-execution.md docs/cidre-app-repository-selection.md docs/cidre-app-execution-log.md docs/cidre-app-read-only-policy.md docs/cidre-app-runtime-validation.md docs/cidre-app-build-validation.md docs/cidre-app-launch-validation.md docs/cidre-app-runtime-report.md docs/cidre-app-runtime-known-issues.md docs/v0.33.0-cidre-app-guided-action-ui.md docs/v0.34.0-cidre-app-runtime-validation.md docs/controlled-manual-boot-install.md docs/no-default-boot-mutation-policy.md docs/manual-boot-guide.md docs/install-target-policy.md docs/install-payload-layout.md docs/install-verification.md docs/v0.35.6-controlled-manual-boot-install.md downstream/image-build/README.md downstream/image-build/build-config.example downstream/image-build/artifact-layout.md; do
 
       if [ -f "${REPO_ROOT}/${doc}" ]; then
         print_result OK "Documentation file '${doc}' is present."

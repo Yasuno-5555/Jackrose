@@ -51,7 +51,7 @@ mkdir -p "$STATE_DIR" "$MUTATION_STATE_DIR"
 request_file="$(mktemp /tmp/cidre-helper-request.XXXXXX.json)"
 trap 'rm -f "$request_file"' EXIT HUP INT TERM
 
-if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ] || [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ]; then
+if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ] || [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ] || [ "$operation" = "controlled-install" ]; then
   gate_operation="$operation"
   gate_level=""
   if [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ]; then
@@ -113,7 +113,11 @@ sys.exit(4)
 PY
   fi
 
-  disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+  if [ "$operation" = "controlled-install" ]; then
+    disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json 2>/dev/null || true)"
+  else
+    disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+  fi
   disposable_allowed="$(printf '%s\n' "$disposable_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
   if [ "$disposable_allowed" != "true" ]; then
     if [ "$json_mode" = true ]; then
@@ -128,7 +132,11 @@ PY
   [ -n "$signature_path" ] || { echo "ERROR: --signature is required for destructive helper mutation" >&2; exit 4; }
   [ -n "$confirmation_file" ] || { echo "ERROR: --confirmation-file is required for destructive helper mutation" >&2; exit 4; }
 
-  plan_verify_json="$("$SCRIPT_DIR/cidre-app-mutation-plan-verify" --plan "$plan_path" --signature "$signature_path" --json 2>/dev/null || true)"
+  if [ "$operation" = "controlled-install" ]; then
+    plan_verify_json="$("$SCRIPT_DIR/cidre-app-install-plan-verify" --plan "$plan_path" --signature "$signature_path" --json 2>/dev/null || true)"
+  else
+    plan_verify_json="$("$SCRIPT_DIR/cidre-app-mutation-plan-verify" --plan "$plan_path" --signature "$signature_path" --json 2>/dev/null || true)"
+  fi
   plan_allowed="$(printf '%s\n' "$plan_verify_json" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("status") == "passed" else "false")' 2>/dev/null || printf false)"
   if [ "$plan_allowed" != "true" ]; then
     if [ "$json_mode" = true ]; then
@@ -155,7 +163,7 @@ matches = (
     confirmation.get("status") == "passed"
     and confirmation.get("plan_hash") == expected_hash
     and plan.get("target") == target
-    and plan.get("helper_operation", "partition-create") in {operation, "live-drill"}
+    and (plan.get("helper_operation") == operation or plan.get("operation") == operation or plan.get("mode") == "controlled-manual-boot" or plan.get("helper_operation") == "live-drill")
     and (dry_run == "true" or confirmation.get("confirmation_token") == provided_token)
 )
 print("true" if matches else "false")

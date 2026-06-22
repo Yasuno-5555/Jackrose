@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "files": [
+    {"path": "cidre/install/manifest.json", "sha256": "placeholder-hash"},
+    {"path": "cidre/install/seed.tar.gz", "sha256": "placeholder-hash"}
+  ],
+  "missing_rootfs": true
+}

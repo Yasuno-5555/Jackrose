@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+plan=""
+signature=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --signature) signature="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-plan-verify --plan plan.json --signature sig.json [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+[ -n "$signature" ] || { echo "ERROR: --signature is required" >&2; exit 2; }
+
+python3 - "$plan" "$signature" "$json_mode" <<'PY'
+import hashlib
+import json
+import sys
+
+plan_path, signature_path, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+try:
+    with open(plan_path, "rb") as handle:
+        plan_bytes = handle.read()
+    with open(signature_path, "r", encoding="utf-8") as handle:
+        signature = json.load(handle)
+    plan = json.loads(plan_bytes.decode("utf-8"))
+    
+    calculated_hash = hashlib.sha256(plan_bytes).hexdigest()
+    expected_hash = signature.get("plan_hash")
+    hash_passed = calculated_hash == expected_hash
+    
+    # Verify policy rules
+    policy_passed = (
+        plan.get("manual_boot_only") == True and
+        plan.get("default_boot_mutation") == False and
+        plan.get("startup_disk_mutation") == False and
+        plan.get("boot_policy_mutation") == False
+    )
+    passed = hash_passed and policy_passed
+except Exception as e:
+    calculated_hash = ""
+    expected_hash = ""
+    passed = False
+    plan = {}
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-plan-verify",
+    "status": "passed" if passed else "failed",
+    "summary": "Install plan verified." if passed else "Install plan verification failed.",
+    "exit_code": 0 if passed else 8,
+    "plan_id": plan.get("plan_id"),
+    "target": plan.get("target"),
+    "plan_hash": calculated_hash,
+    "expected_hash": expected_hash,
+    "errors": [] if passed else [{"code": "plan-verification-failed", "message": "The plan content is tampered, policy is violated, or signature mismatch."}],
+}
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

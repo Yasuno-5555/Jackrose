@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "command": "cidre-app-no-default-boot-check",
+  "status": "passed",
+  "summary": "No default boot mutations detected.",
+  "exit_code": 0,
+  "checks": [
+    {"id": "plan-no-boot-mutation", "status": "passed"},
+    {"id": "no-startup-disk-mutation-op", "status": "passed"},
+    {"id": "no-boot-policy-mutation-op", "status": "passed"},
+    {"id": "no-automatic-restart-op", "status": "passed"}
+  ]
+}

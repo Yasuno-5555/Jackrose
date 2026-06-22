@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+format="json"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) format="json"; shift ;;
+    --markdown) format="markdown"; shift ;;
+    --help|-h) echo "Usage: cidre-app-manual-boot-guide [--json|--markdown]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$format" <<'PY'
+import json, sys
+fmt = sys.argv[1]
+
+guide_text = """Cidre was installed in manual boot mode.
+
+To boot Cidre:
+  1. Shut down your Mac.
+  2. Press and hold the power button until Startup Options appears.
+  3. Select the Cidre boot target.
+  4. If Cidre does not boot, select Macintosh HD next time.
+
+Cidre did not change your default startup disk."""
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-manual-boot-guide",
+    "status": "passed",
+    "summary": "Manual boot guide generated.",
+    "exit_code": 0,
+    "guide": guide_text
+}
+
+if fmt == "markdown":
+    print(guide_text)
+else:
+    print(json.dumps(payload, indent=2))
+PY

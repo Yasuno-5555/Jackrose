@@ -169,7 +169,7 @@ elif "isc" in target_type or "iboot" in volume_name:
     payload = failed_result(target, "target-is-iboot-system-container", "The selected target is an iBoot system container.", metadata=metadata)
 elif "apple_" in target_type and "cidre" not in volume_name and "apfs container" not in target_type:
     payload = failed_result(target, "target-is-unknown-apple-partition", "The selected target is an Apple-managed partition and cannot be treated as disposable.", metadata=metadata)
-elif "cidre test" in volume_name or "cidre-test" in volume_name or "disposable" in volume_name or "cidrelivedrill" in volume_name or "apfs container" in target_type:
+elif "cidre test" in volume_name or "cidre-test" in volume_name or "disposable" in volume_name or "cidrelivedrill" in volume_name or "apfs container" in target_type or "cidretarget" in volume_name or "cidre-target" in volume_name:
     payload = passed_result(target, "disposable", reasons=[
         {"id": "target-exists", "status": "passed"},
         {"id": "not-startup-disk", "status": "passed"},

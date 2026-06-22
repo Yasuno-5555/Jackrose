@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "command": "cidre-app-no-default-boot-check",
+  "status": "failed",
+  "summary": "Default boot mutations detected.",
+  "exit_code": 8,
+  "errors": [
+    {"code": "boot-mutation-detected", "message": "Default boot mutation operation was found in the execution plan."}
+  ]
+}

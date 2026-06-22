@@ -1,0 +1,97 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/install"
+CURRENT_DIR="$STATE_ROOT/current"
+
+target=""
+profile="developer"
+manual_boot_only=false
+json_mode=false
+
+usage() {
+  echo "Usage: cidre-app-install-plan --target diskXsY [--profile name] [--manual-boot-only] [--json]"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --profile) profile="$2"; shift 2 ;;
+    --manual-boot-only) manual_boot_only=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
+mkdir -p "$CURRENT_DIR"
+
+python3 - "$CURRENT_DIR" "$target" "$profile" "$manual_boot_only" "$json_mode" <<'PY'
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+current_dir, target, profile, manual_boot_only, json_mode = sys.argv[1:]
+manual_boot_only = manual_boot_only == "true"
+json_mode = json_mode == "true"
+
+digest = hashlib.sha256(f"{target}\n{profile}\n{manual_boot_only}".encode()).hexdigest()[:10]
+plan_id = f"install-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{digest}"
+
+plan = {
+    "schema_version": 1,
+    "plan_id": plan_id,
+    "mode": "controlled-manual-boot",
+    "target": target,
+    "profile": profile,
+    "manual_boot_only": manual_boot_only,
+    "default_boot_mutation": False,
+    "startup_disk_mutation": False,
+    "boot_policy_mutation": False,
+    "automatic_restart": False,
+    "operations": [
+        "stage-payload",
+        "write-install-metadata",
+        "verify-payload",
+        "generate-manual-boot-guide"
+    ],
+    "required_checks": [
+        "install-target-check",
+        "protected-partition-guard",
+        "recovery-survival",
+        "pre-snapshot",
+        "post-snapshot",
+        "no-default-boot-check",
+        "install-report"
+    ],
+    "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+}
+
+# Calculate hash of plan without plan_hash key
+plan_hash = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
+plan["plan_hash"] = plan_hash
+
+plan_file = os.path.join(current_dir, f"{plan_id}.plan.json")
+with open(plan_file, "w", encoding="utf-8") as handle:
+    json.dump(plan, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+with open(os.path.join(current_dir, "last-plan.json"), "w", encoding="utf-8") as handle:
+    json.dump(plan, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+
+payload = dict(plan)
+payload.update({
+    "command": "cidre-app-install-plan",
+    "status": "passed",
+    "summary": "Controlled manual-boot install plan generated.",
+    "exit_code": 0,
+    "plan_file": plan_file,
+})
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+PY

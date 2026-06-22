@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/install"
+CURRENT_DIR="$STATE_ROOT/current"
+
+format="json"
+plan_id=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) format="json"; shift ;;
+    --markdown) format="markdown"; shift ;;
+    --plan-id) plan_id="$2"; shift 2 ;;
+    --help|-h) echo "Usage: cidre-app-install-report [--plan-id id] [--json|--markdown]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$STATE_ROOT" "$CURRENT_DIR" "$plan_id" "$format" <<'PY'
+import json, os, sys
+state_root, current_dir, plan_id, fmt = sys.argv[1:]
+base = os.path.join(state_root, plan_id) if plan_id else current_dir
+def load(name):
+    path = os.path.join(base, name)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        try:
+            return json.load(handle)
+        except Exception:
+            return None
+report = {
+    "plan": load("last-plan.json"),
+    "result": load("last-result.json"),
+    "verification": load("last-verification.json"),
+    "state": load("last-state.json"),
+}
+status = ((report["result"] or {}).get("status")
+          or (report["verification"] or {}).get("status")
+          or "blocked")
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-report",
+    "status": status,
+    "summary": "Controlled manual-boot install report generated.",
+    "exit_code": 0,
+    "report": report,
+}
+markdown = "\n".join([
+    "# Controlled Manual-Boot Install Report",
+    "",
+    f"- Status: {status}",
+    f"- Plan ID: {((report['plan'] or {}).get('plan_id', 'unknown'))}",
+    f"- Target: {((report['plan'] or {}).get('target', 'none'))}",
+    f"- Profile: {((report['plan'] or {}).get('profile', 'none'))}",
+    f"- Manual Boot Only: {((report['plan'] or {}).get('manual_boot_only', 'unknown'))}",
+    f"- Default Boot Mutation: {((report['plan'] or {}).get('default_boot_mutation', 'unknown'))}",
+    f"- Verification: {((report['verification'] or {}).get('status', 'unknown'))}",
+])
+print(markdown if fmt == "markdown" else json.dumps(payload, indent=2))
+PY

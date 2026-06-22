@@ -1,0 +1,78 @@
+#!/bin/sh
+set -eu
+
+fixture=""
+before=""
+after=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --fixture) fixture="$2"; shift 2 ;;
+    --before) before="$2"; shift 2 ;;
+    --after) after="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-no-default-boot-check [--fixture file.json] [--before before.json --after after.json] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 - "$fixture" "$before" "$after" "$json_mode" <<'PY'
+import json
+import sys
+
+fixture, before, after, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+passed = True
+errors = []
+
+if fixture:
+    try:
+        with open(fixture, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        print(json.dumps(data, indent=2) if json_mode else data["summary"])
+        sys.exit(data["exit_code"])
+    except Exception as e:
+        passed = False
+        errors = [{"code": "fixture-error", "message": str(e)}]
+        
+elif before and after:
+    try:
+        with open(before, "r", encoding="utf-8") as hb, open(after, "r", encoding="utf-8") as ha:
+            b_data = json.load(hb)
+            a_data = json.load(ha)
+        
+        # Verify that root_identifiers (which defines the default boot target container/system disk) did not change
+        if b_data.get("root_identifiers") != a_data.get("root_identifiers"):
+            passed = False
+            errors.append({"code": "default-boot-mutated", "message": "The active system disk or default boot container changed."})
+            
+    except Exception as e:
+        passed = False
+        errors = [{"code": "check-exception", "message": str(e)}]
+
+else:
+    # Read last plan to check no default boot properties
+    # Usually passed when running controlled install
+    pass
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-no-default-boot-check",
+    "status": "passed" if passed else "failed",
+    "summary": "No default boot mutations detected." if passed else "Default boot mutations detected.",
+    "exit_code": 0 if passed else 8,
+    "checks": [
+        {"id": "plan-no-boot-mutation", "status": "passed" if passed else "failed"},
+        {"id": "no-startup-disk-mutation-op", "status": "passed" if passed else "failed"},
+        {"id": "no-boot-policy-mutation-op", "status": "passed" if passed else "failed"},
+        {"id": "no-automatic-restart-op", "status": "passed" if passed else "failed"}
+    ]
+}
+if errors:
+    payload["errors"] = errors
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

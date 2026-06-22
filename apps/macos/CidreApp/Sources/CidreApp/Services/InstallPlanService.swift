@@ -4,7 +4,10 @@ final class InstallPlanService {
     static let shared = InstallPlanService()
     private init() {}
 
-    func command() -> String {
-        "scripts/cidre-app-wizard-plan --mode install --json"
+    func lastPlan(repositoryPath: String) -> ControlledInstallPlan? {
+        let path = URL(fileURLWithPath: repositoryPath)
+            .appendingPathComponent(".local/state/cidre/install/current/last-plan.json")
+        guard let data = try? Data(contentsOf: path) else { return nil }
+        return try? JSONDecoder().decode(ControlledInstallPlan.self, from: data)
     }
 }

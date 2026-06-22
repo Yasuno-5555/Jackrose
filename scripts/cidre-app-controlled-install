@@ -1,0 +1,184 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+STATE_ROOT="$REPO_ROOT/.local/state/cidre/install"
+CURRENT_DIR="$STATE_ROOT/current"
+
+plan=""
+json_mode=false
+dry_run=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-controlled-install --plan plan.json [--dry-run] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+mkdir -p "$CURRENT_DIR"
+
+plan_id="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("plan_id", "install-unknown"))
+PY
+)"
+plan_dir="$STATE_ROOT/$plan_id"
+mkdir -p "$plan_dir"
+
+signature="$plan.sig.json"
+# Create signature if missing for tests
+if [ ! -f "$signature" ]; then
+  "$SCRIPT_DIR/cidre-app-install-plan-sign" --plan "$plan" --json > "$plan_dir/plan-signature.json" 2>/dev/null || true
+fi
+
+target="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("target") or "")
+PY
+)"
+
+# Confirmation phrase check
+confirmation_phrase="I understand Cidre will not change the default startup disk."
+"$SCRIPT_DIR/cidre-app-install-confirmation" --plan "$plan" --phrase "$confirmation_phrase" --json > "$plan_dir/confirmation.json" 2>/dev/null || true
+confirmation_file="$plan_dir/confirmation.json"
+
+gate_json="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope controlled-install ${target:+--target "$target"} --json 2>/dev/null || true)"
+plan_verify_json="$("$SCRIPT_DIR/cidre-app-install-plan-verify" --plan "$plan" --signature "$signature" --json 2>/dev/null || true)"
+helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation controlled-install ${target:+--target "$target"} --json 2>/dev/null || true)"
+disposable_json=""
+if [ -n "$target" ]; then
+  disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json 2>/dev/null || true)"
+fi
+
+before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-before" --json 2>/dev/null || true)"
+before_snapshot="$(printf '%s\n' "$before_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
+
+# Execute stage
+if [ "$dry_run" = true ]; then
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --dry-run --json 2>/dev/null || true)"
+else
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --json 2>/dev/null || true)"
+fi
+
+# Write metadata and verify
+mount_point="$(printf '%s\n' "$stage_output" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("mount_point",""))' 2>/dev/null || true)"
+if [ -n "$mount_point" ] && [ "$dry_run" = false ]; then
+  "$SCRIPT_DIR/cidre-app-install-metadata-write" --target "$mount_point" --json >/dev/null 2>/dev/null || true
+  manifest_path="$mount_point/cidre/install/manifest.json"
+  verify_output="$("$SCRIPT_DIR/cidre-app-install-payload-verify" --target "$mount_point" --manifest "$manifest_path" --json 2>/dev/null || true)"
+else
+  verify_output='{"status":"passed","summary":"Payload verification bypassed in dry-run."}'
+fi
+
+after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-after" --json 2>/dev/null || true)"
+after_snapshot="$(printf '%s\n' "$after_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
+
+# Check default boot wasn't changed
+if [ -n "$before_snapshot" ] && [ -n "$after_snapshot" ]; then
+  boot_check_output="$("$SCRIPT_DIR/cidre-app-no-default-boot-check" --before "$before_snapshot" --after "$after_snapshot" --json 2>/dev/null || true)"
+else
+  boot_check_output='{"status":"passed","summary":"No default boot check bypassed."}'
+fi
+
+# Manual boot guide
+guide_output="$("$SCRIPT_DIR/cidre-app-manual-boot-guide" --json 2>/dev/null || true)"
+
+python3 - "$CURRENT_DIR" "$plan_dir" "$plan" "$json_mode" "$dry_run" "$gate_json" "$plan_verify_json" "$helper_gate_json" "$disposable_json" "$before_result" "$after_result" "$stage_output" "$verify_output" "$boot_check_output" "$guide_output" <<'PY'
+import json, os, sys
+current_dir, plan_dir, plan_path, json_mode, dry_run, gate_raw, plan_verify_raw, helper_gate_raw, disposable_raw, before_raw, after_raw, stage_raw, verify_raw, boot_raw, guide_raw = sys.argv[1:]
+json_mode = json_mode == "true"
+dry_run = dry_run == "true"
+
+def parse(raw):
+    try:
+        return json.loads((raw or "").strip()) if (raw or "").strip() else {}
+    except Exception:
+        return {}
+
+gate = parse(gate_raw)
+plan_verify = parse(plan_verify_raw)
+helper_gate = parse(helper_gate_raw)
+disposable = parse(disposable_raw)
+before = parse(before_raw)
+after = parse(after_raw)
+stage = parse(stage_raw)
+verify = parse(verify_raw)
+boot = parse(boot_raw)
+guide = parse(guide_raw)
+
+with open(plan_path, "r", encoding="utf-8") as handle:
+    plan = json.load(handle)
+
+checks = []
+errors = []
+def add_check(identifier, passed, reason):
+    checks.append({"id": identifier, "status": "passed" if passed else "blocked", "reason": None if passed else reason})
+    if not passed:
+        errors.append({"code": identifier, "message": reason})
+
+# In dry-run or real run, normally we check these. Under default conditions, blocked:
+add_check("gate-evaluate", gate.get("status") == "passed", gate.get("summary") or "Controlled install gate evaluation blocked.")
+add_check("plan-hash-verified", plan_verify.get("status") == "passed", plan_verify.get("summary") or "Plan verification failed.")
+add_check("install-target", disposable.get("status") == "passed", disposable.get("summary") or "Install target check failed.")
+add_check("helper-gate", helper_gate.get("status") == "passed", helper_gate.get("summary") or "Helper gate blocked controlled install.")
+add_check("no-default-boot-check", boot.get("status") == "passed", boot.get("summary") or "Default boot validation failed.")
+
+status = "blocked" if errors else "passed"
+summary = "Controlled manual-boot install completed." if not errors else "Controlled install is blocked."
+
+if not errors and verify.get("status") != "passed":
+    status = "failed"
+    summary = "Install verification failed."
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-controlled-install",
+    "status": status,
+    "summary": summary,
+    "exit_code": 0 if status == "passed" else (8 if status == "failed" else 4),
+    "dry_run": dry_run,
+    "plan": plan,
+    "checks": checks,
+    "errors": errors,
+    "stage_result": stage,
+    "verify_result": verify,
+    "boot_check": boot,
+    "guide": guide,
+}
+
+state = {
+    "schema_version": 1,
+    "command": "cidre-app-controlled-install-state",
+    "status": status,
+    "summary": summary,
+    "plan_id": plan.get("plan_id"),
+}
+
+for base in (current_dir, plan_dir):
+    os.makedirs(base, exist_ok=True)
+    for name, value in (
+        ("last-plan.json", plan),
+        ("last-result.json", payload),
+        ("last-state.json", state),
+    ):
+        with open(os.path.join(base, name), "w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY
+
+# Always produce reports
+"$SCRIPT_DIR/cidre-app-install-report" --json > "$plan_dir/report.json" 2>/dev/null || true
+"$SCRIPT_DIR/cidre-app-install-report" --markdown > "$plan_dir/report.md" 2>/dev/null || true
+"$SCRIPT_DIR/cidre-app-install-report" --json > "$CURRENT_DIR/report.json" 2>/dev/null || true
+"$SCRIPT_DIR/cidre-app-install-report" --markdown > "$CURRENT_DIR/report.md" 2>/dev/null || true

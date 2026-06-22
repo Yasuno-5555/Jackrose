@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+target=""
+manifest=""
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift 2 ;;
+    --manifest) manifest="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-payload-verify --target /path --manifest manifest.json [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
+[ -n "$manifest" ] || { echo "ERROR: --manifest is required" >&2; exit 2; }
+
+python3 - "$target" "$manifest" "$json_mode" <<'PY'
+import json
+import os
+import sys
+
+target_path, manifest_path, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+try:
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    
+    passed = True
+    errors = []
+    
+    # We verify that files listed in the manifest actually exist in the target_path
+    for f in manifest.get("files", []):
+        file_path = os.path.join(target_path, f["path"])
+        if not os.path.exists(file_path):
+            passed = False
+            errors.append({"code": "missing-file", "message": f"Expected file {f['path']} is missing."})
+            
+    # Manifest verification conditions
+    if manifest.get("missing_rootfs"):
+        passed = False
+        errors.append({"code": "missing-rootfs", "message": "Rootfs file missing from manifest."})
+
+except Exception as e:
+    passed = False
+    errors = [{"code": "verification-exception", "message": str(e)}]
+
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-payload-verify",
+    "status": "passed" if passed else "failed",
+    "summary": "Payload verification passed." if passed else "Payload verification failed.",
+    "exit_code": 0 if passed else 8,
+    "errors": errors
+}
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY

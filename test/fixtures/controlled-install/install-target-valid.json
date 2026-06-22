@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "command": "cidre-app-disposable-target-check",
+  "status": "passed",
+  "summary": "Selected target is disposable and allowed for mutation testing.",
+  "exit_code": 0,
+  "target": "disk9s3",
+  "classification": "disposable",
+  "warnings": [],
+  "errors": [],
+  "checks": [
+    {"id": "target-exists", "status": "passed"},
+    {"id": "not-startup-disk", "status": "passed"},
+    {"id": "disposable-marker", "status": "passed"},
+    {"id": "current-disk-snapshot-available", "status": "passed"}
+  ]
+}

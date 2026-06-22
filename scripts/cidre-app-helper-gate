@@ -20,6 +20,7 @@ done
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 scope="helper"
 [ "$operation" = "live-drill" ] && scope="live-drill"
+[ "$operation" = "controlled-install" ] && scope="controlled-install"
 result="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope "$scope" ${target:+--target "$target"} ${level:+--level "$level"} --json)"
 python3 - "$json_mode" "$operation" "$target" "$level" "$result" <<'PY'
 import json, sys
@@ -30,6 +31,8 @@ level = sys.argv[4]
 gate = json.loads(sys.argv[5])
 if operation == "live-drill":
     allowed = gate.get("status") == "passed" and "live-drill-execution" in gate.get("allowed_actions", [])
+elif operation == "controlled-install":
+    allowed = gate.get("status") == "passed" and "controlled-install-execution" in gate.get("allowed_actions", [])
 else:
     allowed = gate.get("status") == "passed" and "disk-mutation-test" in gate.get("allowed_actions", [])
 payload = {

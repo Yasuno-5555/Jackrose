@@ -1,0 +1,76 @@
+#!/bin/sh
+set -eu
+
+plan=""
+phrase=""
+json_mode=false
+required_phrase="I understand Cidre will not change the default startup disk."
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plan) plan="$2"; shift 2 ;;
+    --phrase) phrase="$2"; shift 2 ;;
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-confirmation --plan plan.json --phrase '<phrase>' [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$plan" ] || { echo "ERROR: --plan is required" >&2; exit 2; }
+
+python3 - "$plan" "$phrase" "$required_phrase" "$json_mode" <<'PY'
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+
+plan_path, phrase, required_phrase, json_mode = sys.argv[1:]
+json_mode = json_mode == "true"
+
+try:
+    with open(plan_path, "rb") as handle:
+        plan_bytes = handle.read()
+    plan = json.loads(plan_bytes.decode("utf-8"))
+    plan_hash = hashlib.sha256(plan_bytes).hexdigest()
+except Exception as e:
+    plan = {}
+    plan_hash = ""
+
+if phrase != required_phrase:
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-install-confirmation",
+        "status": "blocked",
+        "summary": "Explicit install confirmation phrase did not match.",
+        "exit_code": 4,
+        "required_phrase": required_phrase,
+        "errors": [{"code": "wrong-confirmation-phrase", "message": "The install confirmation phrase must be typed exactly."}],
+    }
+else:
+    expires_at = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=30)
+    token_source = f"{plan.get('plan_id')}|{plan_hash}|{required_phrase}|{expires_at.isoformat()}"
+    payload = {
+        "schema_version": 1,
+        "command": "cidre-app-install-confirmation",
+        "status": "passed",
+        "summary": "Install confirmation token generated.",
+        "exit_code": 0,
+        "plan_id": plan.get("plan_id"),
+        "plan_hash": plan_hash,
+        "confirmation_phrase": required_phrase,
+        "confirmation_token": hashlib.sha256(token_source.encode()).hexdigest(),
+        "expires_at": expires_at.isoformat(),
+    }
+    confirmation_path = f"{plan_path}.confirmation.json"
+    with open(confirmation_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    with open(f"{os.path.dirname(plan_path)}/last-confirmation.json", "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    payload["confirmation_file"] = confirmation_path
+
+print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(payload["exit_code"])
+PY
