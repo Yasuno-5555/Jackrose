@@ -6,15 +6,18 @@ struct WizardStepContainerView<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            Text(bodyText)
-                .foregroundColor(.secondary)
-            content
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(title)
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Text(bodyText)
+                    .foregroundColor(.secondary)
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding()
         }
-        .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
