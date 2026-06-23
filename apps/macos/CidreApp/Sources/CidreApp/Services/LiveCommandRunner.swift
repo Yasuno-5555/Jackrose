@@ -45,6 +45,7 @@ class LiveCommandRunner {
         process.executableURL = URL(fileURLWithPath: resolvedPath)
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: workingDir)
+        process.environment = resolvedEnvironment(for: workingDir)
         
         do {
             try process.run()
@@ -101,6 +102,21 @@ class LiveCommandRunner {
                 parseError: nil
             )
         }
+    }
+
+    private func resolvedEnvironment(for workingDir: String) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let testModePath = URL(fileURLWithPath: workingDir)
+            .appendingPathComponent(".local/state/cidre/mutation/current/test-mode.json")
+
+        guard let data = try? Data(contentsOf: testModePath),
+              let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              (json["mode"] as? String) == "enabled" || (json["enabled"] as? Bool) == true else {
+            return environment
+        }
+
+        environment["CIDRE_MUTATION_TEST_MODE"] = "1"
+        return environment
     }
     
     private func mockResult(for command: String, arguments: [String], workingDir: String) -> CommandResult {

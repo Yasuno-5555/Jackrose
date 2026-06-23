@@ -13,6 +13,7 @@ struct BootSafetyGateEnforcementView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             GateFailureReasonView(gateState: gateState)
+            BootSafetyNextStepsView(gateState: gateState)
         }
     }
 

@@ -73,7 +73,17 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
 PY
 )"
 
-disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+uses_install_target="$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print("true" if json.load(handle).get("install_target_required") else "false")
+PY
+)"
+if [ "$uses_install_target" = "true" ]; then
+  disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json 2>/dev/null || true)"
+else
+  disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"
+fi
 helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation partition-create --target "$target" --json 2>/dev/null || true)"
 recovery_json="$("$SCRIPT_DIR/cidre-app-recovery-survival-check" --json 2>/dev/null || true)"
 before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label mutation-before --json 2>/dev/null || true)"

@@ -34,7 +34,7 @@ enum DiskOperationService {
         switch request.operation {
         case "partition-create":
             guard request.arguments.count == 3,
-                  matches(containerIdentifier, target),
+                  (matches(containerIdentifier, target) || matches(diskIdentifier, target)),
                   matches(sizeValue, request.arguments[0]),
                   validVolumeName(request.arguments[1]),
                   matches(sizeValue, request.arguments[2]) else {
@@ -44,6 +44,9 @@ enum DiskOperationService {
                 return rejected("Could not read APFS resize limits for the selected target.")
             }
             guard resizeError.isEmpty else { return rejected(resizeError) }
+            guard isValidInstallCreationTarget(target) else {
+                return rejected("The selected target is not the current startup APFS container or startup physical store.")
+            }
             command = ["/usr/sbin/diskutil", "apfs", "resizeContainer", target, request.arguments[0], "APFS", request.arguments[1], request.arguments[2]]
         case "apfs-add-volume":
             guard request.arguments.count == 2,
@@ -130,6 +133,19 @@ enum DiskOperationService {
         guard let container = containers.first(where: { ($0["ContainerReference"] as? String) == target }) else { return true }
         let physicalStores = Set((container["PhysicalStores"] as? [[String: Any]] ?? []).compactMap { $0["DeviceIdentifier"] as? String })
         return !physicalStores.isDisjoint(with: startupStores)
+    }
+
+    private static func isValidInstallCreationTarget(_ target: String) -> Bool {
+        guard let root = plist(["info", "-plist", "/"]),
+              let targetInfo = plist(["info", "-plist", target]) else { return false }
+        let startupContainer = root["APFSContainerReference"] as? String
+        let startupStores = Set((root["APFSPhysicalStores"] as? [[String: Any]] ?? []).compactMap { $0["APFSPhysicalStore"] as? String })
+        let identifier = targetInfo["DeviceIdentifier"] as? String ?? target
+        let content = ((targetInfo["Content"] as? String) ?? (targetInfo["FilesystemType"] as? String) ?? "").lowercased()
+        if identifier == startupContainer {
+            return true
+        }
+        return startupStores.contains(identifier) && content.contains("apple_apfs")
     }
 
     private static func expectedPlanID(for request: HelperProtocol, target: String) -> String? {

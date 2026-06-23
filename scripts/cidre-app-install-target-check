@@ -27,7 +27,6 @@ done
 python3 - "$REPO_ROOT" "$target" "$fixture" "$json_mode" <<'PY'
 import json
 import os
-import plistlib
 import subprocess
 import sys
 
@@ -60,42 +59,105 @@ if fixture:
             "errors": [{"code": "fixture-read-error", "message": str(e)}]
         })
 
-# Call the disposable target check to reuse classification
-check_cmd = [os.path.join(repo_root, "scripts", "cidre-app-disposable-target-check"), "--target", target, "--json"]
-res = subprocess.run(check_cmd, capture_output=True, text=True)
+def run_plist(*args):
+    completed = subprocess.run(["/usr/sbin/diskutil", *args], check=True, capture_output=True)
+    import plistlib
+    return plistlib.loads(completed.stdout)
+
+if os.uname().sysname != "Darwin":
+    print_result({
+        "schema_version": 1,
+        "command": "cidre-app-install-target-check",
+        "status": "blocked",
+        "summary": "Install target validation requires macOS disk inspection.",
+        "exit_code": 4,
+        "target": target,
+        "classification": "unknown",
+        "errors": [{"code": "requires-macos", "message": "Install target validation requires macOS disk inspection."}]
+    })
 
 try:
-    disposable_data = json.loads(res.stdout)
-except Exception:
-    disposable_data = {}
-
-if res.returncode != 0 or disposable_data.get("status") != "passed":
-    code = "target-invalid"
-    summary = "Selected target is invalid for installation."
-    if disposable_data.get("errors"):
-        code = disposable_data["errors"][0].get("code", code)
-        summary = disposable_data["errors"][0].get("message", summary)
-    
+    info = run_plist("info", "-plist", target)
+    root = run_plist("info", "-plist", "/")
+except Exception as e:
     print_result({
         "schema_version": 1,
         "command": "cidre-app-install-target-check",
         "status": "failed",
-        "summary": summary,
+        "summary": f"Install target inspection failed: {e}",
         "exit_code": 8,
         "target": target,
-        "classification": disposable_data.get("classification", "protected"),
-        "errors": [{"code": code, "message": summary}]
+        "classification": "missing",
+        "errors": [{"code": "target-not-found", "message": f"Install target inspection failed: {e}"}]
     })
 
-# If it passed disposable target check, it passes install target policy check
+identifier = info.get("DeviceIdentifier") or target
+content = (info.get("Content") or info.get("FilesystemType") or "").lower()
+mount_point = info.get("MountPoint")
+startup_container = root.get("APFSContainerReference")
+startup_stores = {
+    item.get("APFSPhysicalStore")
+    for item in root.get("APFSPhysicalStores", [])
+    if isinstance(item, dict) and item.get("APFSPhysicalStore")
+}
+metadata = {
+    "content": info.get("Content"),
+    "volume_name": info.get("VolumeName") or info.get("MediaName"),
+    "mount_point": mount_point,
+    "apfs_container_reference": info.get("APFSContainerReference"),
+    "startup_container_reference": startup_container,
+    "startup_physical_stores": sorted(startup_stores),
+    "whole_disk": info.get("ParentWholeDisk"),
+}
+
+if identifier == startup_container:
+    print_result({
+        "schema_version": 1,
+        "command": "cidre-app-install-target-check",
+        "status": "passed",
+        "summary": "Selected target is the current startup APFS container and may be resized for controlled install.",
+        "exit_code": 0,
+        "target": target,
+        "classification": "startup-container",
+        "errors": [],
+        "metadata": metadata,
+    })
+
+if identifier in startup_stores and "apple_apfs" in content:
+    print_result({
+        "schema_version": 1,
+        "command": "cidre-app-install-target-check",
+        "status": "passed",
+        "summary": "Selected target is the current startup APFS physical store and may be resized for controlled install.",
+        "exit_code": 0,
+        "target": target,
+        "classification": "startup-physical-store",
+        "errors": [],
+        "metadata": metadata,
+    })
+
+if mount_point == "/":
+    code = "target-is-mounted-system-volume"
+    summary = "Select the startup APFS physical store or startup container, not the mounted system volume."
+elif "recovery" in content:
+    code = "target-is-recovery"
+    summary = "Recovery partitions cannot be used as the install resize target."
+elif identifier.startswith("disk") and "guid_partition_scheme" in content:
+    code = "target-is-whole-disk"
+    summary = "Select the startup APFS physical store, not the whole disk."
+else:
+    code = "target-is-not-startup-apfs-store"
+    summary = "Selected target is not the current startup APFS container or its physical store."
+
 print_result({
     "schema_version": 1,
     "command": "cidre-app-install-target-check",
-    "status": "passed",
-    "summary": "Selected target is valid for controlled installation.",
-    "exit_code": 0,
+    "status": "failed",
+    "summary": summary,
+    "exit_code": 8,
     "target": target,
-    "classification": "disposable",
-    "errors": []
+    "classification": "invalid-install-target",
+    "errors": [{"code": code, "message": summary}],
+    "metadata": metadata,
 })
 PY

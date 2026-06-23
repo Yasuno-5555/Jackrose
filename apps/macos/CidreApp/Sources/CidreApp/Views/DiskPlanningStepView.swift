@@ -3,6 +3,7 @@ import SwiftUI
 struct DiskPlanningStepView: View {
     @EnvironmentObject private var appVM: AppViewModel
     @StateObject private var mutation = DiskMutationViewModel()
+    private let autoRefreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         WizardStepContainerView(
@@ -19,21 +20,86 @@ struct DiskPlanningStepView: View {
                     .font(.callout)
                     .foregroundColor(.secondary)
 
+                DiskPlanningGuidedActionsView(
+                    mutationTestModeEnabled: mutation.mutationTestMode?.enabled == true,
+                    installerOverrideEnabled: mutation.killSwitchState.destructiveInstallAllowed,
+                    beforeSnapshotAvailable: mutation.snapshotAvailability.beforeAvailable,
+                    afterSnapshotAvailable: mutation.snapshotAvailability.afterAvailable,
+                    isRunning: mutation.isRunning,
+                    lastExecution: mutation.guidedActionExecution,
+                    enableMutationTestMode: {
+                        mutation.enableMutationTestMode(repositoryPath: appVM.repositoryPath)
+                    },
+                    enableInstallerTestOverride: {
+                        mutation.enableInstallerTestOverride(repositoryPath: appVM.repositoryPath)
+                    },
+                    captureBeforeSnapshot: {
+                        mutation.captureSnapshot(label: "manual-before", repositoryPath: appVM.repositoryPath)
+                    },
+                    captureAfterSnapshot: {
+                        mutation.captureSnapshot(label: "manual-after", repositoryPath: appVM.repositoryPath)
+                    },
+                    generateRollbackReport: {
+                        mutation.generateRollbackReport(repositoryPath: appVM.repositoryPath)
+                    },
+                    refreshBootSafety: {
+                        mutation.refreshBootSafety(repositoryPath: appVM.repositoryPath)
+                    }
+                )
+
                 Label("Keep a current backup and connect power before continuing.", systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .font(.callout)
 
                 MutationTestModeView(state: mutation.mutationTestMode)
                 LiveDrillDashboardView(state: mutation.liveDrillState, mutationMode: mutation.mutationTestMode, killSwitch: mutation.killSwitchState)
+                DiskPlanningLinearGuideView(
+                    step: mutation.guideStep,
+                    currentTarget: mutation.target,
+                    candidateTargets: mutation.candidateTargets,
+                    disposableSummary: mutation.installTarget?.summary ?? mutation.disposableTarget?.summary,
+                    scanSummary: mutation.diskScanResult?.summary,
+                    requiredConfirmation: mutation.requiredConfirmation,
+                    confirmation: $mutation.confirmation,
+                    isRunning: mutation.isRunning,
+                    onRefreshTargets: {
+                        mutation.refreshSafetyStatus(repositoryPath: appVM.repositoryPath)
+                    },
+                    onSelectTarget: { selected in
+                        mutation.selectTarget(selected, repositoryPath: appVM.repositoryPath)
+                    },
+                    onEnableMutationTestMode: {
+                        mutation.enableMutationTestMode(repositoryPath: appVM.repositoryPath)
+                    },
+                    onEnableInstallerOverride: {
+                        mutation.enableInstallerTestOverride(repositoryPath: appVM.repositoryPath)
+                    },
+                    onCapturePreSnapshot: {
+                        mutation.captureSnapshot(label: "manual-before", repositoryPath: appVM.repositoryPath)
+                    },
+                    onCreatePlan: {
+                        mutation.createPlan(repositoryPath: appVM.repositoryPath)
+                    },
+                    onValidatePreview: {
+                        mutation.preview(repositoryPath: appVM.repositoryPath)
+                    },
+                    onExecute: {
+                        mutation.execute(repositoryPath: appVM.repositoryPath)
+                    }
+                )
 
                 // Controlled manual-boot install (v0.35.6)
-                ControlledInstallDashboardView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
-                InstallTargetReviewView(targetCheck: InstallTargetCheckService.shared.check(repositoryPath: appVM.repositoryPath))
-                InstallPlanPreviewView(plan: InstallPlanService.shared.lastPlan(repositoryPath: appVM.repositoryPath))
-                InstallPayloadProgressView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
-                InstallVerificationView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
-                ManualBootGuideView(guide: ManualBootGuideService.shared.guide(repositoryPath: appVM.repositoryPath))
-                NoDefaultBootPolicyView(lastResult: ControlledInstallService.shared.lastResult(repositoryPath: appVM.repositoryPath))
+                ControlledInstallDashboardView(lastResult: mutation.controlledInstallLastResult)
+                InstallTargetReviewView(
+                    targetCheck: mutation.installTarget,
+                    disposableTarget: mutation.disposableTarget,
+                    currentTarget: mutation.target
+                )
+                InstallPlanPreviewView(plan: mutation.controlledInstallPlan)
+                InstallPayloadProgressView(lastResult: mutation.controlledInstallLastResult)
+                InstallVerificationView(lastResult: mutation.controlledInstallLastResult)
+                ManualBootGuideView(guide: mutation.manualBootGuide)
+                NoDefaultBootPolicyView(lastResult: mutation.controlledInstallLastResult)
 
                 ProtectedPartitionGuardView(state: mutation.protectedPartitionState)
                 RecoverySurvivalView(state: mutation.recoverySurvivalState)
@@ -54,6 +120,7 @@ struct DiskPlanningStepView: View {
                         TextField("e.g. disk0s2", text: $mutation.target)
                             .frame(maxWidth: 160)
                             .onChange(of: mutation.target) { _ in
+                                mutation.purgeStaleTargetState(repositoryPath: appVM.repositoryPath)
                                 mutation.fetchLimits()
                                 mutation.refreshSafetyStatus(repositoryPath: appVM.repositoryPath)
                             }
@@ -64,6 +131,17 @@ struct DiskPlanningStepView: View {
                                 .font(.callout)
                         }
                     }
+                }
+
+                DisclosureGroup("Advanced Target Picker") {
+                    DiskTargetPickerView(
+                        selectedTarget: mutation.target,
+                        candidateTargets: mutation.candidateTargets,
+                        protectedTargets: mutation.protectedTargets,
+                        onSelect: { selected in
+                            mutation.selectTarget(selected, repositoryPath: appVM.repositoryPath)
+                        }
+                    )
                 }
 
                 DisposableTargetReviewView(state: mutation.disposableTarget)
@@ -117,7 +195,7 @@ struct DiskPlanningStepView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("New Cidre partition size")
                                     .font(.caption).foregroundColor(.secondary)
-                                TextField("e.g. 80G", text: $mutation.partitionSize)
+                                TextField("e.g. 80G or max", text: $mutation.partitionSize)
                             }
                         }
                         VStack(alignment: .leading, spacing: 2) {
@@ -130,16 +208,44 @@ struct DiskPlanningStepView: View {
                 }
 
                 // ── Actions ───────────────────────────────────────────────
-                HStack(spacing: 8) {
-                    Button("Create Plan") {
-                        mutation.createPlan(repositoryPath: appVM.repositoryPath)
-                    }
-                    .disabled(!mutation.canCreatePlan)
+                DisclosureGroup("Advanced Plan Controls") {
+                    HStack(spacing: 8) {
+                        Button("Create Plan") {
+                            mutation.createPlan(repositoryPath: appVM.repositoryPath)
+                        }
+                        .disabled(!mutation.canCreatePlan)
 
-                    Button("Validate Preview") {
-                        mutation.preview(repositoryPath: appVM.repositoryPath)
+                        Button("Validate Preview") {
+                            mutation.preview(repositoryPath: appVM.repositoryPath)
+                        }
+                        .disabled(!mutation.canPreview || mutation.isRunning)
                     }
-                    .disabled(!mutation.canPreview || mutation.isRunning)
+
+                    if !mutation.canCreatePlan || !mutation.canPreview {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if !mutation.canCreatePlan {
+                                Text("Create Plan is disabled because:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                ForEach(mutation.createPlanBlockers, id: \.self) { blocker in
+                                    Text("• \(blocker)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            if !mutation.canPreview {
+                                Text("Validate Preview is disabled because:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                ForEach(mutation.validatePreviewBlockers, id: \.self) { blocker in
+                                    Text("• \(blocker)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 MutationPlanPreviewView(plan: mutation.mutationPlan, signature: mutation.planSignature)
@@ -155,14 +261,16 @@ struct DiskPlanningStepView: View {
                 // ── Confirmation & Execute ────────────────────────────────
                 if mutation.requiredConfirmation != nil {
                     Divider()
-                    MutationConfirmationView(requiredPhrase: "I understand this can destroy the selected disposable target.", text: $mutation.confirmation)
-                    Button("Authenticate and Modify Disk", role: .destructive) {
-                        mutation.execute(repositoryPath: appVM.repositoryPath)
+                    DisclosureGroup("Advanced Execution Controls") {
+                        MutationConfirmationView(requiredPhrase: "I understand this can destroy the selected disposable target.", text: $mutation.confirmation)
+                        Button("Authenticate and Modify Disk", role: .destructive) {
+                            mutation.execute(repositoryPath: appVM.repositoryPath)
+                        }
+                        .disabled(!mutation.canExecute || mutation.isRunning)
                     }
-                    .disabled(!mutation.canExecute || mutation.isRunning)
                 }
 
-                MutationExecutionProgressView(result: mutation.execution == nil ? nil : MutationExecutionService.shared.report(repositoryPath: appVM.repositoryPath))
+                MutationExecutionProgressView(result: mutation.mutationExecutionResult)
                 MutationVerificationView(result: mutation.mutationVerification)
                 MutationReportView(markdown: mutation.mutationReportMarkdown)
                 LiveDrillVerificationView(result: mutation.liveDrillVerification)
@@ -173,7 +281,12 @@ struct DiskPlanningStepView: View {
         .onAppear {
             mutation.refreshKillSwitch(repositoryPath: appVM.repositoryPath)
             mutation.refreshSafetyStatus(repositoryPath: appVM.repositoryPath)
-            mutation.detectStartupStore()
+            mutation.detectStartupStore(repositoryPath: appVM.repositoryPath)
+        }
+        .onReceive(autoRefreshTimer) { _ in
+            if mutation.guideStep == .noCandidateTargets && !mutation.isRunning {
+                mutation.refreshSafetyStatus(repositoryPath: appVM.repositoryPath)
+            }
         }
     }
 

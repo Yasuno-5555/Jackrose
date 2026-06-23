@@ -24,6 +24,8 @@ json_mode = json_mode == "true"
 candidates = [
     os.path.join(repo_root, ".local/state/cidre/boot-safety/current/gate-report.md"),
     os.path.join(repo_root, ".local/state/cidre/incidents/latest/report.md"),
+    os.path.join(repo_root, ".local/state/cidre/incidents/DFU_RESTORE_001/report.md"),
+    os.path.join(repo_root, ".local/state/cidre/macos-restore/current/restore-report.md"),
     os.path.join(repo_root, ".local/state/cidre/app-wizard/current/setup-report.md"),
 ]
 existing = [path for path in candidates if os.path.exists(path)]

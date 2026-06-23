@@ -113,7 +113,20 @@ sys.exit(4)
 PY
   fi
 
+  use_install_target_check=false
   if [ "$operation" = "controlled-install" ]; then
+    use_install_target_check=true
+  elif [ -n "$plan_path" ] && [ -f "$plan_path" ]; then
+    use_install_target_check="$(python3 - "$plan_path" <<'PY'
+import json
+import sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    plan = json.load(handle)
+print("true" if plan.get("install_target_required") else "false")
+PY
+)"
+  fi
+  if [ "$use_install_target_check" = "true" ]; then
     disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json 2>/dev/null || true)"
   else
     disposable_json="$("$SCRIPT_DIR/cidre-app-disposable-target-check" --target "$target" --json 2>/dev/null || true)"

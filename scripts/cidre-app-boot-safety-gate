@@ -79,11 +79,26 @@ add_check("recovery-survival", "failed" if recovery.get("status") == "failed" el
 add_check("protected-partition-guard", "failed" if guard.get("status") == "failed" else "blocked", guard.get("status") == "passed", guard.get("summary") or "Protected partition guard has not passed.")
 add_check("prepost-disk-diff", "failed" if diff.get("status") == "failed" else "blocked", diff.get("status") == "passed", diff.get("summary") or "Disk diff has not passed.")
 if mutation_report:
-    add_check("mutation-report", "blocked" if mutation_report.get("status") in {"blocked", "failed"} else "passed", mutation_report.get("summary") or "Mutation report unavailable.")
+    add_check(
+        "mutation-report",
+        "blocked",
+        True,
+        mutation_report.get("summary") or "Mutation report unavailable."
+    )
 if live_drill_report:
-    add_check("live-drill-report", "blocked" if live_drill_report.get("status") in {"blocked", "failed"} else "passed", live_drill_report.get("summary") or "Live drill report unavailable.")
+    add_check(
+        "live-drill-report",
+        "blocked",
+        True,
+        live_drill_report.get("summary") or "Live drill report unavailable."
+    )
 if install_report:
-    add_check("install-report", "blocked" if install_report.get("status") in {"blocked", "failed"} else "passed", install_report.get("summary") or "Install report unavailable.")
+    add_check(
+        "install-report",
+        "blocked",
+        True,
+        install_report.get("summary") or "Install report unavailable."
+    )
 
 errors = failed + blocked
 status = "passed" if not errors else ("failed" if failed else "blocked")

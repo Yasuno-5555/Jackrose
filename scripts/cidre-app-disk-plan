@@ -95,6 +95,17 @@ if mode == "install" and not errors and platform.system() == "Darwin":
             resolved_partition = None
             resolved_container = None
 
+        if partition_mode == "custom" and re.fullmatch(r"max", partition_size, re.I):
+            if re.fullmatch(r"[1-9]\d*(?:B|K|M|G|T|P)", container_size, re.I):
+                requested_container = size_bytes(container_size)
+                resolved_partition = current - requested_container
+                if resolved_partition <= 0:
+                    errors.append("partition size 'max' leaves no space for the new Cidre partition.")
+                else:
+                    partition_size = f"{resolved_partition}B"
+            else:
+                errors.append("partition size 'max' requires a valid explicit container size.")
+
         if partition_mode != "custom":
             if partition_mode == "min":
                 container_size = f"{current - resolved_partition}B"
@@ -138,8 +149,13 @@ mutation_plan = {
     "target": target,
     "destructive": True,
     "test_mode_required": True,
-    "disposable_target_required": True,
+    "install_target_required": True,
+    "allowed_target_classes": [
+        "startup-physical-store",
+        "startup-container",
+    ],
     "required_checks": [
+        "install-target-check",
         "protected-partition-guard",
         "recovery-survival",
         "pre-snapshot",
