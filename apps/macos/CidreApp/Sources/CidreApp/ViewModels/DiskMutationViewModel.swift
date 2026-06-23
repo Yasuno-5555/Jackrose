@@ -616,6 +616,7 @@ final class DiskMutationViewModel: ObservableObject {
         mutationConfirmation = MutationPlanService.shared.confirm(
             planFile: planFile,
             phrase: confirmation.trimmingCharacters(in: .whitespacesAndNewlines),
+            requiredPhrase: requiredConfirmation,
             repositoryPath: repositoryPath
         )
         guard mutationConfirmation?.status == "passed" else { return }

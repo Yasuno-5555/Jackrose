@@ -15,10 +15,15 @@ final class MutationPlanService {
         return try? JSONDecoder().decode(MutationPlanSignature.self, from: data)
     }
 
-    func confirm(planFile: String, phrase: String, repositoryPath: String) -> MutationConfirmation? {
+    func confirm(planFile: String, phrase: String, requiredPhrase: String?, repositoryPath: String) -> MutationConfirmation? {
+        var arguments = ["--plan", planFile, "--phrase", phrase]
+        if let requiredPhrase, !requiredPhrase.isEmpty {
+            arguments.append(contentsOf: ["--required-phrase", requiredPhrase])
+        }
+        arguments.append("--json")
         let result = LiveCommandRunner.shared.run(
             "scripts/cidre-app-mutation-confirmation",
-            arguments: ["--plan", planFile, "--phrase", phrase, "--json"],
+            arguments: arguments,
             repositoryPath: repositoryPath,
             isMockMode: false
         )

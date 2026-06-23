@@ -91,9 +91,19 @@ before_snapshot="$(printf '%s\n' "$before_result" | python3 -c 'import json,sys;
 
 helper_args="--operation partition-create --target $target --container-size $container_size --partition-size $partition_size --volume-name $volume_name --plan $plan --signature $signature --confirmation-file $confirmation --confirm $token"
 if [ "$dry_run" = true ]; then
-  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --dry-run --json 2>/dev/null || true)"
+  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan-id "$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    print(json.load(handle).get('plan_id', ''))
+PY
+)" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --dry-run --json 2>/dev/null || true)"
 else
-  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --json 2>/dev/null || true)"
+  helper_output="$("$SCRIPT_DIR/cidre-app-helper-command" --operation partition-create --target "$target" --container-size "$container_size" --partition-size "$partition_size" --volume-name "$volume_name" --plan-id "$(python3 - "$plan" <<'PY'
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    print(json.load(handle).get('plan_id', ''))
+PY
+)" --plan "$plan" --signature "$signature" --confirmation-file "$confirmation" --confirm "$token" --json 2>/dev/null || true)"
 fi
 
 after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label mutation-after --json 2>/dev/null || true)"

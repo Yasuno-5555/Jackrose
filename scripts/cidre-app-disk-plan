@@ -164,6 +164,7 @@ mutation_plan = {
     "container_size": container_size or None,
     "partition_size": partition_size or None,
     "volume_name": volume_name if mode == "install" else None,
+    "required_confirmation": f"CIDRE EXECUTE {plan_id}",
 }
 plan_hash = hashlib.sha256(json.dumps(mutation_plan, sort_keys=True).encode()).hexdigest()
 mutation_plan["plan_hash"] = plan_hash
@@ -200,7 +201,7 @@ payload = {
     "partition_size": partition_size or None,
     "volume_name": volume_name if mode == "install" else None,
     "helper_required": True,
-    "required_confirmation": f"CIDRE EXECUTE {plan_id}",
+    "required_confirmation": mutation_plan["required_confirmation"],
     "limits": limits_info or None,
 }
 print(json.dumps(payload, indent=2) if json_mode == "true" else payload["summary"])

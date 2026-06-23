@@ -38,7 +38,6 @@ done
 
 [ -n "$operation" ] || { echo "ERROR: --operation is required" >&2; exit 2; }
 [ -n "$target" ] || { echo "ERROR: --target is required" >&2; exit 2; }
-[ -n "$plan_id" ] || plan_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 [ -n "$signature_path" ] || [ -z "$plan_path" ] || signature_path="${plan_path}.sig.json"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -50,6 +49,17 @@ MUTATION_STATE_DIR="$REPO_ROOT/.local/state/cidre/mutation/current"
 mkdir -p "$STATE_DIR" "$MUTATION_STATE_DIR"
 request_file="$(mktemp /tmp/cidre-helper-request.XXXXXX.json)"
 trap 'rm -f "$request_file"' EXIT HUP INT TERM
+
+if [ -z "$plan_id" ] && [ -n "$plan_path" ] && [ -f "$plan_path" ]; then
+  plan_id="$(python3 - "$plan_path" <<'PY'
+import json
+import sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("plan_id", ""))
+PY
+)"
+fi
+[ -n "$plan_id" ] || plan_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
 if [ "$operation" = "partition-create" ] || [ "$operation" = "apfs-resize-container" ] || [ "$operation" = "apfs-add-volume" ] || [ "$operation" = "apfs-delete-volume" ] || [ "$operation" = "controlled-install" ]; then
   gate_operation="$operation"
