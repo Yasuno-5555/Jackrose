@@ -34,7 +34,10 @@ try:
             {"path": "cidre/install/manifest.json", "sha256": "placeholder-hash"},
             {"path": "cidre/install/profile.json", "sha256": "placeholder-hash"},
             {"path": "cidre/install/seed.tar.gz", "sha256": "placeholder-hash"},
-            {"path": "cidre/install/handoff.txt", "sha256": "placeholder-hash"}
+            {"path": "cidre/install/handoff.txt", "sha256": "placeholder-hash"},
+            {"path": "cidre/rootfs/rootfs_placeholder.txt", "sha256": "placeholder-hash"},
+            {"path": "System/Library/CoreServices/boot.efi", "sha256": "placeholder-hash"},
+            {"path": "System/Library/CoreServices/SystemVersion.plist", "sha256": "placeholder-hash"}
         ]
     }
     with open(os.path.join(install_dir, "manifest.json"), "w", encoding="utf-8") as h:

@@ -78,6 +78,28 @@ else
   verify_output='{"status":"passed","summary":"Payload verification bypassed in dry-run."}'
 fi
 
+# Prepare boot assets in Preboot volume
+if [ -n "$target" ]; then
+  if [ "$dry_run" = true ]; then
+    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --dry-run --json 2>/dev/null || true)"
+  else
+    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --json 2>/dev/null || true)"
+  fi
+else
+  preboot_output='{"status":"passed","summary":"Preboot staging bypassed (no target specified)."}'
+fi
+
+# Integrate Cidre Rescue boot volume
+if [ -n "$target" ]; then
+  if [ "$dry_run" = true ]; then
+    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --dry-run --json 2>/dev/null || true)"
+  else
+    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --json 2>/dev/null || true)"
+  fi
+else
+  rescue_output='{"status":"passed","summary":"Cidre Rescue integration bypassed (no target specified)."}'
+fi
+
 after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-after" --json 2>/dev/null || true)"
 after_snapshot="$(printf '%s\n' "$after_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
 
@@ -92,9 +114,9 @@ fi
 guide_output="$("$SCRIPT_DIR/cidre-app-manual-boot-guide" --json 2>/dev/null || true)"
 
 set +e
-python3 - "$CURRENT_DIR" "$plan_dir" "$plan" "$json_mode" "$dry_run" "$gate_json" "$plan_verify_json" "$helper_gate_json" "$disposable_json" "$before_result" "$after_result" "$stage_output" "$verify_output" "$boot_check_output" "$guide_output" <<'PY'
+python3 - "$CURRENT_DIR" "$plan_dir" "$plan" "$json_mode" "$dry_run" "$gate_json" "$plan_verify_json" "$helper_gate_json" "$disposable_json" "$before_result" "$after_result" "$stage_output" "$verify_output" "$preboot_output" "$rescue_output" "$boot_check_output" "$guide_output" <<'PY'
 import json, os, sys
-current_dir, plan_dir, plan_path, json_mode, dry_run, gate_raw, plan_verify_raw, helper_gate_raw, disposable_raw, before_raw, after_raw, stage_raw, verify_raw, boot_raw, guide_raw = sys.argv[1:]
+current_dir, plan_dir, plan_path, json_mode, dry_run, gate_raw, plan_verify_raw, helper_gate_raw, disposable_raw, before_raw, after_raw, stage_raw, verify_raw, preboot_raw, rescue_raw, boot_raw, guide_raw = sys.argv[1:]
 json_mode = json_mode == "true"
 dry_run = dry_run == "true"
 
@@ -112,6 +134,8 @@ before = parse(before_raw)
 after = parse(after_raw)
 stage = parse(stage_raw)
 verify = parse(verify_raw)
+preboot = parse(preboot_raw)
+rescue = parse(rescue_raw)
 boot = parse(boot_raw)
 guide = parse(guide_raw)
 
@@ -130,6 +154,8 @@ add_check("gate-evaluate", gate.get("status") == "passed", gate.get("summary") o
 add_check("plan-hash-verified", plan_verify.get("status") == "passed", plan_verify.get("summary") or "Plan verification failed.")
 add_check("install-target", disposable.get("status") == "passed", disposable.get("summary") or "Install target check failed.")
 add_check("helper-gate", helper_gate.get("status") == "passed", helper_gate.get("summary") or "Helper gate blocked controlled install.")
+add_check("boot-asset-prepare", preboot.get("status") == "passed", preboot.get("summary") or "Boot asset preparation failed.")
+add_check("rescue-boot-integrate", rescue.get("status") == "passed", rescue.get("summary") or "Rescue boot integration failed.")
 add_check("no-default-boot-check", boot.get("status") == "passed", boot.get("summary") or "Default boot validation failed.")
 
 status = "blocked" if errors else "passed"
@@ -151,6 +177,8 @@ payload = {
     "errors": errors,
     "stage_result": stage,
     "verify_result": verify,
+    "preboot_result": preboot,
+    "rescue_result": rescue,
     "boot_check": boot,
     "guide": guide,
 }

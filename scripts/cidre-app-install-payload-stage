@@ -81,9 +81,12 @@ if not dry_run:
     install_dir = os.path.join(mount_point, "cidre", "install")
     rootfs_dir = os.path.join(mount_point, "cidre", "rootfs")
     state_dir = os.path.join(mount_point, "cidre", "state")
+    core_services_dir = os.path.join(mount_point, "System", "Library", "CoreServices")
+    
     os.makedirs(install_dir, exist_ok=True)
     os.makedirs(rootfs_dir, exist_ok=True)
     os.makedirs(state_dir, exist_ok=True)
+    os.makedirs(core_services_dir, exist_ok=True)
     
     # Write files
     for name, content in [
@@ -102,6 +105,37 @@ if not dry_run:
         handle.write("staged placeholder rootfs\n")
     payload_files.append(os.path.relpath(rootfs_placeholder, mount_point))
 
+    # Write bootloader dummy and SystemVersion.plist
+    boot_efi = os.path.join(core_services_dir, "boot.efi")
+    with open(boot_efi, "w", encoding="utf-8") as handle:
+        handle.write("Cidre Bootloader Bootstrap Wrapper Placeholder\n")
+    payload_files.append(os.path.relpath(boot_efi, mount_point))
+
+    system_version_plist = os.path.join(core_services_dir, "SystemVersion.plist")
+    os_name = "Cidre Rescue" if plan.get("profile") == "recovery" else "Cidre"
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.apple.SystemVersion</string>
+    <key>ProductBuildVersion</key>
+    <string>1</string>
+    <key>ProductCopyright</key>
+    <string>Cidre Project</string>
+    <key>ProductName</key>
+    <string>{os_name}</string>
+    <key>ProductUserVisibleVersion</key>
+    <string>1.0</string>
+    <key>ProductVersion</key>
+    <string>1.0</string>
+</dict>
+</plist>
+"""
+    with open(system_version_plist, "w", encoding="utf-8") as handle:
+        handle.write(plist_content)
+    payload_files.append(os.path.relpath(system_version_plist, mount_point))
+
 else:
     # Dry run mock files
     payload_files = [
@@ -109,6 +143,8 @@ else:
         "cidre/install/profile.json",
         "cidre/install/seed.tar.gz",
         "cidre/rootfs/rootfs_placeholder.txt",
+        "System/Library/CoreServices/boot.efi",
+        "System/Library/CoreServices/SystemVersion.plist",
     ]
 
 payload = {
