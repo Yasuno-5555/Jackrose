@@ -40,12 +40,30 @@ except Exception as e:
     conf = {}
 
 target = plan.get("target", "unknown-target")
+volume_name = plan.get("volume_name") or "Cidre"
 
 # Determine stage path:
 # In test mode or dry-run, we stage to /tmp/cidre-staged-install or a mocked mount
 mount_point = f"/tmp/cidre-staged-{target}"
-if os.uname().sysname == "Darwin" and target.startswith("disk"):
-    # Try diskutil info to find mount point
+if os.uname().sysname == "Darwin":
+    try:
+        import plistlib
+        # Prefer the dedicated Cidre APFS volume created during partition mutation.
+        apfs = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True).stdout)
+        for container in apfs.get("Containers", []):
+            for volume in container.get("Volumes", []):
+                name = volume.get("Name") or volume.get("VolumeName")
+                mount = volume.get("MountPoint")
+                if name == volume_name and mount:
+                    mount_point = mount
+                    raise StopIteration
+    except StopIteration:
+        pass
+    except Exception:
+        pass
+
+if os.uname().sysname == "Darwin" and mount_point.startswith("/tmp/") and target.startswith("disk"):
+    # Fallback only when no dedicated Cidre mount point was found.
     try:
         completed = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", target], capture_output=True, check=True)
         import plistlib

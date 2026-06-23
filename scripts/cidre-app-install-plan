@@ -48,6 +48,7 @@ plan = {
     "plan_id": plan_id,
     "mode": "controlled-manual-boot",
     "target": target,
+    "volume_name": "Cidre",
     "profile": profile,
     "manual_boot_only": manual_boot_only,
     "default_boot_mutation": False,

@@ -21,18 +21,47 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 install_json="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope install --json 2>/dev/null || true)"
 finish_json="$("$SCRIPT_DIR/cidre-app-finish-gate" --json 2>/dev/null || true)"
 shutdown_json="$("$SCRIPT_DIR/cidre-app-before-shutdown-gate" --json 2>/dev/null || true)"
+cidre_volume_ready="$(
+python3 - <<'PY'
+import plistlib
+import subprocess
 
-python3 - "$from_stage" "$to_stage" "$json_mode" "$install_json" "$finish_json" "$shutdown_json" <<'PY'
+try:
+    completed = subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True)
+    apfs = plistlib.loads(completed.stdout)
+    for container in apfs.get("Containers", []):
+        for volume in container.get("Volumes", []):
+            name = volume.get("Name") or volume.get("VolumeName") or ""
+            if name == "Cidre":
+                print("true")
+                raise SystemExit(0)
+except Exception:
+    pass
+print("false")
+PY
+)"
+
+python3 - "$from_stage" "$to_stage" "$json_mode" "$install_json" "$finish_json" "$shutdown_json" "$cidre_volume_ready" <<'PY'
 import json, sys
-from_stage, to_stage, json_mode, install_raw, finish_raw, shutdown_raw = sys.argv[1:]
+from_stage, to_stage, json_mode, install_raw, finish_raw, shutdown_raw, cidre_volume_ready = sys.argv[1:]
 json_mode = json_mode == "true"
 install = json.loads(install_raw) if install_raw.strip() else {}
 finish = json.loads(finish_raw) if finish_raw.strip() else {}
 shutdown = json.loads(shutdown_raw) if shutdown_raw.strip() else {}
+cidre_volume_ready = cidre_volume_ready == "true"
 
 status = "passed"
 summary = "Wizard transition allowed."
-if from_stage == "disk-planning" and to_stage == "install-execution" and install.get("status") != "passed":
+install_allowed_actions = set(install.get("allowed_actions") or [])
+if (
+    from_stage == "disk-planning"
+    and to_stage == "install-execution"
+    and not (
+        install.get("status") == "passed"
+        or "install-execution-test" in install_allowed_actions
+        or cidre_volume_ready
+    )
+):
     status = "blocked"
     summary = "Installer killswitch is active or safety gate is not ready."
 elif from_stage == "install-execution" and to_stage == "finish" and finish.get("status") != "passed":

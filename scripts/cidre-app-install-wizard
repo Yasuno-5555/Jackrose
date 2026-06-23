@@ -1,3 +1,54 @@
 #!/bin/sh
 set -eu
-python3 -c 'import json; print(json.dumps({"schema_version":1,"command":"cidre-app-install-wizard","status":"pass","summary":"Install wizard external-stage tracking is ready.","phase":"app-wizard","stage":"install-execution","exit_code":0,"warnings":[],"errors":[]}, indent=2))'
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+INSTALL_DIR="$REPO_ROOT/.local/state/cidre/install/current"
+
+json_mode=false
+dry_run=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) json_mode=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-wizard [--dry-run] [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "$INSTALL_DIR"
+
+plan_json="$("$SCRIPT_DIR/cidre-app-install-plan-current" --json 2>/dev/null || true)"
+plan_status="$(printf '%s\n' "$plan_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status","blocked"))' 2>/dev/null || printf blocked)"
+if [ "$plan_status" != "passed" ]; then
+  if [ "$json_mode" = true ]; then
+    printf '%s\n' "$plan_json"
+  else
+    printf '%s\n' "$plan_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("summary","Install plan generation failed."))'
+  fi
+  exit 8
+fi
+plan_file="$(printf '%s\n' "$plan_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("plan_file",""))' 2>/dev/null || true)"
+
+[ -n "$plan_file" ] || {
+  python3 - "$json_mode" <<'PY'
+import json
+import sys
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-wizard",
+    "status": "blocked",
+    "summary": "No controlled install plan is available.",
+    "exit_code": 4,
+    "errors": [{"code": "missing-install-plan", "message": "Generate the controlled install plan before running install execution."}],
+}
+print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
+sys.exit(4)
+PY
+}
+
+if [ "$dry_run" = true ]; then
+  exec "$SCRIPT_DIR/cidre-app-controlled-install" --plan "$plan_file" --dry-run --json
+else
+  exec "$SCRIPT_DIR/cidre-app-controlled-install" --plan "$plan_file" --json
+fi

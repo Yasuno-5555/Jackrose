@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+TARGET_FILE="$REPO_ROOT/.local/state/cidre/install/current/install-target.json"
+
+json_mode=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) json_mode=true; shift ;;
+    --help|-h) echo "Usage: cidre-app-install-plan-current [--json]"; exit 0 ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+target=""
+if [ -f "$TARGET_FILE" ]; then
+  target="$(python3 - "$TARGET_FILE" <<'PY'
+import json
+import sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle).get("target", ""))
+PY
+)"
+fi
+
+[ -n "$target" ] || {
+  python3 - "$json_mode" <<'PY'
+import json
+import sys
+payload = {
+    "schema_version": 1,
+    "command": "cidre-app-install-plan-current",
+    "status": "blocked",
+    "summary": "Install target is missing. Complete Disk Plan before generating the install payload plan.",
+    "exit_code": 4,
+    "errors": [{"code": "missing-install-target", "message": "No install target is recorded."}],
+}
+print(json.dumps(payload, indent=2) if sys.argv[1] == "true" else payload["summary"])
+sys.exit(4)
+PY
+}
+
+exec "$SCRIPT_DIR/cidre-app-install-plan" --target "$target" --manual-boot-only --json
