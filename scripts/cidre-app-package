@@ -23,6 +23,10 @@ cp -R "$REPO_ROOT/scripts" "$BACKEND/scripts"
 cp -R "$REPO_ROOT/interface" "$BACKEND/interface"
 cp -R "$REPO_ROOT/docs" "$BACKEND/docs"
 cp "$REPO_ROOT/README.md" "$BACKEND/README.md"
+mkdir -p "$BACKEND/.local/state/cidre"
+if [ -d "$REPO_ROOT/.local/state/cidre/incidents" ]; then
+  cp -R "$REPO_ROOT/.local/state/cidre/incidents" "$BACKEND/.local/state/cidre/incidents"
+fi
 touch "$BACKEND/.cidre-backend"
 
 cp "$APP_PACKAGE/Resources/Info.plist" "$CONTENTS/Info.plist"
