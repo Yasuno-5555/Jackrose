@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "plan_id": "install-fixture-plan",
+  "plan_id": "install-plan-valid-v0.35.6",
   "mode": "controlled-manual-boot",
-  "target": "disk9s3",
+  "target": "disk3s1",
+  "volume_name": "Cidre",
   "profile": "developer",
   "manual_boot_only": true,
   "default_boot_mutation": false,

@@ -1,0 +1,12 @@
+{
+  "command": "cidre-app-install-confirmation",
+  "confirmation_phrase": "I understand Cidre will not change the default startup disk.",
+  "confirmation_token": "a3cb52ba75e95837f3815778b91042e51c32552d4b6532863c4bc1b3263cc554",
+  "exit_code": 0,
+  "expires_at": "2026-06-23T07:29:18+00:00",
+  "plan_hash": "a99cb4e4034759c52e15b7c3aeaca905dd5fd8701ba6986ebab78d012f691fcb",
+  "plan_id": "install-plan-valid-v0.35.6",
+  "schema_version": 1,
+  "status": "passed",
+  "summary": "Install confirmation token generated."
+}

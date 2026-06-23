@@ -37,32 +37,107 @@ staged_assets = []
 if os.uname().sysname == "Darwin":
     try:
         import plistlib
-        # Get target Volume UUID
+        # Get target Volume UUID and container info
         completed = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", target], capture_output=True, check=True)
         info = plistlib.loads(completed.stdout)
         volume_uuid = info.get("VolumeUUID", volume_uuid)
         container_uuid = info.get("APFSContainerUUID", "")
-        
-        if container_uuid:
-            # Find the Preboot volume inside the container
-            apfs = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True).stdout)
-            for container in apfs.get("Containers", []):
-                if container.get("APFSContainerUUID") == container_uuid:
-                    for volume in container.get("Volumes", []):
-                        roles = volume.get("Roles", []) or [volume.get("Role", "")]
-                        if "Preboot" in roles:
-                            preboot_device = volume.get("DeviceIdentifier", "unknown")
-                            preboot_mount = volume.get("MountPoint")
-                            if not preboot_mount:
-                                # Attempt to mount
-                                mount_run = subprocess.run(["/usr/sbin/diskutil", "mount", preboot_device], capture_output=True)
-                                if mount_run.returncode == 0:
-                                    # recheck info
-                                    v_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", preboot_device], capture_output=True, check=True).stdout)
-                                    preboot_mount = v_info.get("MountPoint", preboot_mount)
-                            break
+        container_ref = info.get("APFSContainerReference") or info.get("ParentWholeDisk", "")
+
+        # If APFSContainerUUID is not available on the volume, resolve via container ref
+        if not container_uuid and container_ref:
+            try:
+                c_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", container_ref], capture_output=True, check=True).stdout)
+                container_uuid = c_info.get("APFSContainerUUID") or c_info.get("DiskUUID", "")
+            except Exception:
+                pass
+
+        # Enumerate all APFS containers
+        apfs = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True).stdout)
+
+        # Find which container holds our target volume (by UUID match OR by ContainerReference)
+        # Also find the macOS startup Preboot volume: the Preboot role volume that lives
+        # in the same container as a System-role volume (i.e., the macOS boot container).
+        target_container = None
+        system_preboot_device = "unknown"
+        system_preboot_mount = ""
+        for container in apfs.get("Containers", []):
+            c_uuid = container.get("APFSContainerUUID", "")
+            c_ref = container.get("ContainerReference", "")
+            is_target = (container_uuid and c_uuid == container_uuid) or (container_ref and c_ref == container_ref)
+            if is_target:
+                target_container = container
+                # Prefer Cidre volume UUID if it lives in this container
+                for volume in container.get("Volumes", []):
+                    if volume.get("Name") == "Cidre":
+                        v_uuid = volume.get("APFSVolumeUUID") or volume.get("VolumeUUID")
+                        if v_uuid:
+                            volume_uuid = v_uuid
+            # Track the macOS startup Preboot: only from the container that also has a
+            # System-role volume. iSCPreboot (disk1) is for hardware security, not boot entries.
+            volume_roles_in_container = []
+            for volume in container.get("Volumes", []):
+                volume_roles_in_container.extend(volume.get("Roles", []) or [])
+            has_system_vol = "System" in volume_roles_in_container
+            if has_system_vol:
+                for volume in container.get("Volumes", []):
+                    roles = volume.get("Roles", []) or []
+                    if "Preboot" in roles and system_preboot_device == "unknown":
+                        system_preboot_device = volume.get("DeviceIdentifier", "unknown")
+                        system_preboot_mount = volume.get("MountPoint") or ""
+
+        if target_container:
+            # Strategy: On Apple Silicon, all startup entries are registered in the
+            # system-wide Preboot volume (e.g. disk4s2). Cidre should write its UUID
+            # directory there, not into a per-container Preboot.
+            # Look first inside the Cidre container for an existing Preboot volume.
+            container_preboot_device = "unknown"
+            for volume in target_container.get("Volumes", []):
+                roles = volume.get("Roles", []) or []
+                name = volume.get("Name", "")
+                if "Preboot" in roles or "Installer" in roles or name == "Preboot":
+                    container_preboot_device = volume.get("DeviceIdentifier", "unknown")
+                    preboot_device = container_preboot_device
+                    preboot_mount = volume.get("MountPoint") or ""
+                    break
+
+            # If no Preboot inside the Cidre container, use the system-wide Preboot.
+            # This is the standard Apple Silicon multi-boot behavior.
+            if container_preboot_device == "unknown":
+                if system_preboot_device != "unknown":
+                    preboot_device = system_preboot_device
+                    preboot_mount = system_preboot_mount
+                    sys.stderr.write(f"Using system-wide Preboot volume: {preboot_device}\n")
+                elif not dry_run:
+                    # Last resort: create a Preboot volume in the Cidre container
+                    c_dev = target_container.get("ContainerReference") or container_ref or target
+                    add_run = subprocess.run(
+                        ["/usr/sbin/diskutil", "apfs", "addVolume", c_dev, "APFS", "Preboot", "-role", "I", "-plist"],
+                        capture_output=True
+                    )
+                    if add_run.returncode == 0:
+                        result_plist = plistlib.loads(add_run.stdout)
+                        preboot_device = result_plist.get("AddedVolumeDeviceIdentifier", "unknown")
+                        sys.stderr.write(f"Created Preboot volume: {preboot_device}\n")
+                    else:
+                        sys.stderr.write(f"Failed to create Preboot volume: {add_run.stderr.decode()}\n")
+
+            if preboot_device != "unknown":
+                # Resolve mount point, mount if needed
+                info_run = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", preboot_device], capture_output=True)
+                if info_run.returncode == 0:
+                    v_info = plistlib.loads(info_run.stdout)
+                    preboot_mount = v_info.get("MountPoint") or ""
+                if not preboot_mount and not dry_run:
+                    mount_run = subprocess.run(["/usr/sbin/diskutil", "mount", preboot_device], capture_output=True)
+                    if mount_run.returncode == 0:
+                        v_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", preboot_device], capture_output=True, check=True).stdout)
+                        preboot_mount = v_info.get("MountPoint", "") or ""
+        else:
+            sys.stderr.write(f"Could not locate APFS container for target={target} container_uuid={container_uuid} container_ref={container_ref}\n")
     except Exception as e:
-        pass
+        sys.stderr.write(f"Preboot check exception: {e}\n")
+
 
 # Simulation/Execution of asset staging
 if not dry_run:

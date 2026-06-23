@@ -1,0 +1,10 @@
+{
+  "command": "cidre-app-install-plan-sign",
+  "exit_code": 0,
+  "plan_hash": "a99cb4e4034759c52e15b7c3aeaca905dd5fd8701ba6986ebab78d012f691fcb",
+  "plan_id": "install-plan-valid-v0.35.6",
+  "plan_path": "test/fixtures/controlled-install/install-plan-valid.json",
+  "schema_version": 1,
+  "status": "passed",
+  "summary": "Install plan hash generated."
+}

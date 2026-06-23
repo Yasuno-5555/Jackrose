@@ -53,10 +53,14 @@ if os.uname().sysname == "Darwin":
         for container in apfs.get("Containers", []):
             for volume in container.get("Volumes", []):
                 name = volume.get("Name") or volume.get("VolumeName")
-                mount = volume.get("MountPoint")
-                if name == volume_name and mount:
-                    mount_point = mount
-                    raise StopIteration
+                dev_id = volume.get("DeviceIdentifier")
+                if name == volume_name and dev_id:
+                    # Query individual volume info to extract the MountPoint
+                    v_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", dev_id], capture_output=True, check=True).stdout)
+                    mount = v_info.get("MountPoint")
+                    if mount:
+                        mount_point = mount
+                        raise StopIteration
     except StopIteration:
         pass
     except Exception:

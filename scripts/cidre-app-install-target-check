@@ -136,6 +136,33 @@ if identifier in startup_stores and "apple_apfs" in content:
         "metadata": metadata,
     })
 
+filesystem_type = (info.get("FilesystemType") or "").lower()
+is_apfs = (
+    "apfs" in content
+    or "apple_apfs" in content
+    or "apfs" in filesystem_type
+    or "41504653-0000-11aa-aa11-00306543ecac" in content
+)
+
+is_cidre_volume = (
+    is_apfs
+    and (metadata.get("volume_name") == "Cidre" or (mount_point and mount_point.endswith("/Cidre")))
+    and mount_point != "/"
+)
+
+if is_cidre_volume:
+    print_result({
+        "schema_version": 1,
+        "command": "cidre-app-install-target-check",
+        "status": "passed",
+        "summary": "Selected target is a valid Cidre APFS volume target.",
+        "exit_code": 0,
+        "target": target,
+        "classification": "cidre-volume",
+        "errors": [],
+        "metadata": metadata,
+    })
+
 if mount_point == "/":
     code = "target-is-mounted-system-volume"
     summary = "Select the startup APFS physical store or startup container, not the mounted system volume."

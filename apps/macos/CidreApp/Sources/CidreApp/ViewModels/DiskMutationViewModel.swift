@@ -82,7 +82,9 @@ final class DiskMutationViewModel: ObservableObject {
     private var refreshGeneration = 0
 
     var canPreview: Bool {
-        killSwitchState.destructiveInstallAllowed
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        let killSwitchPassed = isSafeVolume || killSwitchState.destructiveInstallAllowed
+        return killSwitchPassed
             && planID != nil
             && planFile != nil
             && plannedInputSignature == inputSignature
@@ -90,15 +92,20 @@ final class DiskMutationViewModel: ObservableObject {
     }
 
     var canExecute: Bool {
-        killSwitchState.destructiveInstallAllowed
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        let killSwitchPassed = isSafeVolume || killSwitchState.destructiveInstallAllowed
+        return killSwitchPassed
             && canPreview
             && helperGateDecision?.status == "passed"
             && requiredConfirmation?.trimmingCharacters(in: .whitespacesAndNewlines) == confirmation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var canCreatePlan: Bool {
-        killSwitchState.destructiveInstallAllowed
-            && mutationTestMode?.enabled == true
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        let killSwitchPassed = isSafeVolume || killSwitchState.destructiveInstallAllowed
+        let mutationTestPassed = isSafeVolume || mutationTestMode?.enabled == true
+        return killSwitchPassed
+            && mutationTestPassed
             && snapshotAvailability.beforeAvailable
             && recoverySurvivalState?.status == "passed"
             && protectedPartitionState?.status == "passed"
@@ -109,10 +116,11 @@ final class DiskMutationViewModel: ObservableObject {
 
     var createPlanBlockers: [String] {
         var blockers: [String] = []
-        if !killSwitchState.destructiveInstallAllowed {
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        if !isSafeVolume && !killSwitchState.destructiveInstallAllowed {
             blockers.append("Installer test override is still disabled by DFU containment.")
         }
-        if mutationTestMode?.enabled != true {
+        if !isSafeVolume && mutationTestMode?.enabled != true {
             blockers.append("Controlled Mutation Test Mode is disabled.")
         }
         if target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -138,7 +146,8 @@ final class DiskMutationViewModel: ObservableObject {
 
     var validatePreviewBlockers: [String] {
         var blockers: [String] = []
-        if !killSwitchState.destructiveInstallAllowed {
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        if !isSafeVolume && !killSwitchState.destructiveInstallAllowed {
             blockers.append("Installer test override is still disabled by DFU containment.")
         }
         if planID == nil || planFile == nil {
@@ -155,7 +164,8 @@ final class DiskMutationViewModel: ObservableObject {
 
     var executeBlockers: [String] {
         var blockers: [String] = []
-        if !killSwitchState.destructiveInstallAllowed {
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        if !isSafeVolume && !killSwitchState.destructiveInstallAllowed {
             blockers.append("Installer test override is still disabled by DFU containment.")
         }
         if !canPreview {
@@ -519,7 +529,8 @@ final class DiskMutationViewModel: ObservableObject {
             purgeStaleTargetState(repositoryPath: repositoryPath)
             fetchLimits()
         }
-        if mutationTestMode?.enabled != true {
+        let isSafeVolume = installTarget?.classification == "cidre-volume"
+        if !isSafeVolume && mutationTestMode?.enabled != true {
             guidedActionTitle = "Enable Test Mode"
             guidedActionExecution = LiveCommandRunner.shared.run(
                 "scripts/cidre-app-mutation-test-mode",
@@ -527,8 +538,9 @@ final class DiskMutationViewModel: ObservableObject {
                 repositoryPath: repositoryPath,
                 isMockMode: false
             )
+            mutationTestMode = MutationTestModeService.shared.status(repositoryPath: repositoryPath)
         }
-        if !killSwitchState.destructiveInstallAllowed {
+        if !isSafeVolume && !killSwitchState.destructiveInstallAllowed {
             guidedActionTitle = "Enable Installer Override"
             guidedActionExecution = LiveCommandRunner.shared.run(
                 "scripts/cidre-app-installer-killswitch",
@@ -536,6 +548,10 @@ final class DiskMutationViewModel: ObservableObject {
                 repositoryPath: repositoryPath,
                 isMockMode: false
             )
+            if let data = guidedActionExecution?.stdout.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(InstallerKillSwitchState.self, from: data) {
+                killSwitchState = decoded
+            }
         }
         if snapshotAvailability.beforeAvailable == false {
             guidedActionTitle = "Capture Pre Snapshot"
@@ -545,6 +561,7 @@ final class DiskMutationViewModel: ObservableObject {
                 repositoryPath: repositoryPath,
                 isMockMode: false
             )
+            snapshotAvailability = DiskSnapshotService.shared.availability(repositoryPath: repositoryPath)
         }
         refreshSafetyStatusNow(repositoryPath: repositoryPath)
         isRunning = false

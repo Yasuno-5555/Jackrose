@@ -40,19 +40,44 @@ if os.uname().sysname == "Darwin" and not dry_run:
         completed = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", target], capture_output=True, check=True)
         info = plistlib.loads(completed.stdout)
         container_uuid = info.get("APFSContainerUUID", "")
+        if not container_uuid:
+            container_ref = info.get("APFSContainerReference") or info.get("ParentWholeDisk")
+            if container_ref:
+                c_completed = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", container_ref], capture_output=True, check=True)
+                c_info = plistlib.loads(c_completed.stdout)
+                container_uuid = c_info.get("DiskUUID") or c_info.get("APFSContainerUUID", "")
         
         if container_uuid:
-            # Add volume Cidre Rescue inside the target container
-            add_run = subprocess.run(["/usr/sbin/diskutil", "apfs", "addVolume", target, "APFS", rescue_volume_name, "-plist"], capture_output=True)
-            if add_run.returncode == 0:
-                result_plist = plistlib.loads(add_run.stdout)
-                rescue_device = result_plist.get("AddedVolumeDeviceIdentifier", "unknown")
+            # Check if volume already exists
+            apfs = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True).stdout)
+            container_dev = target
+            for container in apfs.get("Containers", []):
+                if container.get("APFSContainerUUID") == container_uuid:
+                    container_dev = container.get("ContainerReference") or target
+                    for volume in container.get("Volumes", []):
+                        if volume.get("Name") == rescue_volume_name:
+                            rescue_device = volume.get("DeviceIdentifier", "unknown")
+                            break
+            
+            if rescue_device == "unknown":
+                # Add volume Cidre Rescue inside the target container
+                add_run = subprocess.run(["/usr/sbin/diskutil", "apfs", "addVolume", container_dev, "APFS", rescue_volume_name, "-plist"], capture_output=True)
+                if add_run.returncode == 0:
+                    result_plist = plistlib.loads(add_run.stdout)
+                    rescue_device = result_plist.get("AddedVolumeDeviceIdentifier", "unknown")
+            
+            if rescue_device != "unknown":
                 # Wait for auto-mount and get mount point
                 info_run = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", rescue_device], capture_output=True, check=True)
                 rescue_info = plistlib.loads(info_run.stdout)
-                rescue_mount = rescue_info.get("MountPoint", rescue_mount)
+                rescue_mount = rescue_info.get("MountPoint")
+                if not rescue_mount:
+                    mount_run = subprocess.run(["/usr/sbin/diskutil", "mount", rescue_device], capture_output=True)
+                    if mount_run.returncode == 0:
+                        rescue_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", rescue_device], capture_output=True, check=True).stdout)
+                        rescue_mount = rescue_info.get("MountPoint", rescue_mount)
     except Exception as e:
-        pass
+        sys.stderr.write(f"Rescue integration exception: {e}\n")
 
 # Ensure staging directories and boot options exist on the rescue mount
 if not dry_run:

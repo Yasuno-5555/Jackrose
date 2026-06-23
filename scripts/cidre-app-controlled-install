@@ -50,30 +50,30 @@ confirmation_phrase="I understand Cidre will not change the default startup disk
 "$SCRIPT_DIR/cidre-app-install-confirmation" --plan "$plan" --phrase "$confirmation_phrase" --json > "$plan_dir/confirmation.json" 2>/dev/null || true
 confirmation_file="$plan_dir/confirmation.json"
 
-gate_json="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope controlled-install ${target:+--target "$target"} --json 2>/dev/null || true)"
-plan_verify_json="$("$SCRIPT_DIR/cidre-app-install-plan-verify" --plan "$plan" --signature "$signature" --json 2>/dev/null || true)"
-helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation controlled-install ${target:+--target "$target"} --json 2>/dev/null || true)"
+gate_json="$("$SCRIPT_DIR/cidre-app-gate-evaluate" --scope controlled-install ${target:+--target "$target"} --json || true)"
+plan_verify_json="$("$SCRIPT_DIR/cidre-app-install-plan-verify" --plan "$plan" --signature "$signature" --json || true)"
+helper_gate_json="$("$SCRIPT_DIR/cidre-app-helper-gate" --operation controlled-install ${target:+--target "$target"} --json || true)"
 disposable_json=""
 if [ -n "$target" ]; then
-  disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json 2>/dev/null || true)"
+  disposable_json="$("$SCRIPT_DIR/cidre-app-install-target-check" --target "$target" --json || true)"
 fi
 
-before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-before" --json 2>/dev/null || true)"
+before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-before" --json || true)"
 before_snapshot="$(printf '%s\n' "$before_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
 
 # Execute stage
 if [ "$dry_run" = true ]; then
-  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --dry-run --json 2>/dev/null || true)"
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --dry-run --json || true)"
 else
-  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --json 2>/dev/null || true)"
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --json || true)"
 fi
 
 # Write metadata and verify
 mount_point="$(printf '%s\n' "$stage_output" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("mount_point",""))' 2>/dev/null || true)"
 if [ -n "$mount_point" ] && [ "$dry_run" = false ]; then
-  "$SCRIPT_DIR/cidre-app-install-metadata-write" --target "$mount_point" --json >/dev/null 2>/dev/null || true
+  "$SCRIPT_DIR/cidre-app-install-metadata-write" --target "$mount_point" --json >/dev/null || true
   manifest_path="$mount_point/cidre/install/manifest.json"
-  verify_output="$("$SCRIPT_DIR/cidre-app-install-payload-verify" --target "$mount_point" --manifest "$manifest_path" --json 2>/dev/null || true)"
+  verify_output="$("$SCRIPT_DIR/cidre-app-install-payload-verify" --target "$mount_point" --manifest "$manifest_path" --json || true)"
 else
   verify_output='{"status":"passed","summary":"Payload verification bypassed in dry-run."}'
 fi
@@ -81,9 +81,9 @@ fi
 # Prepare boot assets in Preboot volume
 if [ -n "$target" ]; then
   if [ "$dry_run" = true ]; then
-    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --dry-run --json 2>/dev/null || true)"
+    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --dry-run --json || true)"
   else
-    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --json 2>/dev/null || true)"
+    preboot_output="$("$SCRIPT_DIR/cidre-app-boot-asset-prepare" --target "$target" --json || true)"
   fi
 else
   preboot_output='{"status":"passed","summary":"Preboot staging bypassed (no target specified)."}'
@@ -92,26 +92,26 @@ fi
 # Integrate Cidre Rescue boot volume
 if [ -n "$target" ]; then
   if [ "$dry_run" = true ]; then
-    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --dry-run --json 2>/dev/null || true)"
+    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --dry-run --json || true)"
   else
-    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --json 2>/dev/null || true)"
+    rescue_output="$("$SCRIPT_DIR/cidre-app-rescue-boot-integrate" --target "$target" --json || true)"
   fi
 else
   rescue_output='{"status":"passed","summary":"Cidre Rescue integration bypassed (no target specified)."}'
 fi
 
-after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-after" --json 2>/dev/null || true)"
+after_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-after" --json || true)"
 after_snapshot="$(printf '%s\n' "$after_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
 
 # Check default boot wasn't changed
 if [ -n "$before_snapshot" ] && [ -n "$after_snapshot" ]; then
-  boot_check_output="$("$SCRIPT_DIR/cidre-app-no-default-boot-check" --before "$before_snapshot" --after "$after_snapshot" --json 2>/dev/null || true)"
+  boot_check_output="$("$SCRIPT_DIR/cidre-app-no-default-boot-check" --before "$before_snapshot" --after "$after_snapshot" --json || true)"
 else
   boot_check_output='{"status":"passed","summary":"No default boot check bypassed."}'
 fi
 
 # Manual boot guide
-guide_output="$("$SCRIPT_DIR/cidre-app-manual-boot-guide" --json 2>/dev/null || true)"
+guide_output="$("$SCRIPT_DIR/cidre-app-manual-boot-guide" --json || true)"
 
 set +e
 python3 - "$CURRENT_DIR" "$plan_dir" "$plan" "$json_mode" "$dry_run" "$gate_json" "$plan_verify_json" "$helper_gate_json" "$disposable_json" "$before_result" "$after_result" "$stage_output" "$verify_output" "$preboot_output" "$rescue_output" "$boot_check_output" "$guide_output" <<'PY'
