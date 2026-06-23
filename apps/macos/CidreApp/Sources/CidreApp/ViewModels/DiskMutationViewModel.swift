@@ -75,6 +75,7 @@ final class DiskMutationViewModel: ObservableObject {
     @Published var requiredConfirmation: String?
     @Published var execution: CommandExecution?
     @Published var guidedActionExecution: CommandExecution?
+    @Published var guidedActionTitle: String?
     @Published var isRunning = false
     @Published var limitsInfo: [String: Any]?
     private var plannedInputSignature: String?
@@ -261,6 +262,7 @@ final class DiskMutationViewModel: ObservableObject {
     func enableMutationTestMode(repositoryPath: String) {
         runGuidedAction(
             repositoryPath: repositoryPath,
+            title: "Enable Test Mode",
             command: "scripts/cidre-app-mutation-test-mode",
             arguments: ["--enable", "--phrase", "I understand this can destroy the selected disposable target.", "--json"],
             refreshKillSwitchState: true
@@ -270,6 +272,7 @@ final class DiskMutationViewModel: ObservableObject {
     func enableInstallerTestOverride(repositoryPath: String) {
         runGuidedAction(
             repositoryPath: repositoryPath,
+            title: "Enable Installer Override",
             command: "scripts/cidre-app-installer-killswitch",
             arguments: ["--enable-for-test", "--i-understand-dfu-risk", "--json"],
             refreshKillSwitchState: true
@@ -279,6 +282,7 @@ final class DiskMutationViewModel: ObservableObject {
     func captureSnapshot(label: String, repositoryPath: String) {
         runGuidedAction(
             repositoryPath: repositoryPath,
+            title: label == "manual-before" ? "Capture Pre Snapshot" : "Capture Post Snapshot",
             command: "scripts/cidre-app-disk-snapshot",
             arguments: ["--label", label, "--json"]
         )
@@ -287,6 +291,7 @@ final class DiskMutationViewModel: ObservableObject {
     func generateRollbackReport(repositoryPath: String) {
         runGuidedAction(
             repositoryPath: repositoryPath,
+            title: "Generate Rollback Report",
             command: "scripts/cidre-app-gate-report",
             arguments: ["--json"]
         )
@@ -295,6 +300,7 @@ final class DiskMutationViewModel: ObservableObject {
     func refreshBootSafety(repositoryPath: String) {
         runGuidedAction(
             repositoryPath: repositoryPath,
+            title: "Recheck Boot Safety",
             command: "scripts/cidre-app-boot-safety-gate",
             arguments: ["--json"]
         )
@@ -520,8 +526,9 @@ final class DiskMutationViewModel: ObservableObject {
         isRunning = false
     }
 
-    private func runGuidedAction(repositoryPath: String, command: String, arguments: [String], refreshKillSwitchState: Bool = false) {
+    private func runGuidedAction(repositoryPath: String, title: String, command: String, arguments: [String], refreshKillSwitchState: Bool = false) {
         isRunning = true
+        guidedActionTitle = title
         guidedActionExecution = LiveCommandRunner.shared.run(command, arguments: arguments, repositoryPath: repositoryPath, isMockMode: false)
         if refreshKillSwitchState {
             refreshKillSwitch(repositoryPath: repositoryPath)

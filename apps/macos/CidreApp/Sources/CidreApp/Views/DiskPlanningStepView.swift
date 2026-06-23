@@ -25,7 +25,9 @@ struct DiskPlanningStepView: View {
                     installerOverrideEnabled: mutation.killSwitchState.destructiveInstallAllowed,
                     beforeSnapshotAvailable: mutation.snapshotAvailability.beforeAvailable,
                     afterSnapshotAvailable: mutation.snapshotAvailability.afterAvailable,
+                    bootSafetyStatus: mutation.gateState?.status,
                     isRunning: mutation.isRunning,
+                    lastActionTitle: mutation.guidedActionTitle,
                     lastExecution: mutation.guidedActionExecution,
                     enableMutationTestMode: {
                         mutation.enableMutationTestMode(repositoryPath: appVM.repositoryPath)

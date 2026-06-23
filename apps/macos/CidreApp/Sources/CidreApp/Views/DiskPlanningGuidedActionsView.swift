@@ -5,7 +5,9 @@ struct DiskPlanningGuidedActionsView: View {
     let installerOverrideEnabled: Bool
     let beforeSnapshotAvailable: Bool
     let afterSnapshotAvailable: Bool
+    let bootSafetyStatus: String?
     let isRunning: Bool
+    let lastActionTitle: String?
     let lastExecution: CommandExecution?
     let enableMutationTestMode: () -> Void
     let enableInstallerTestOverride: () -> Void
@@ -21,6 +23,18 @@ struct DiskPlanningGuidedActionsView: View {
             Text("Use these buttons here first. They satisfy the required safety steps without leaving the wizard.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Test Mode: \(mutationTestModeEnabled ? "Enabled" : "Blocked")")
+                    .font(.caption)
+                    .foregroundColor(mutationTestModeEnabled ? .green : .orange)
+                Text("Installer Override: \(installerOverrideEnabled ? "Enabled" : "Blocked")")
+                    .font(.caption)
+                    .foregroundColor(installerOverrideEnabled ? .green : .orange)
+                Text("Boot Safety: \((bootSafetyStatus ?? "unknown").capitalized)")
+                    .font(.caption)
+                    .foregroundColor((bootSafetyStatus ?? "") == "passed" ? .green : .orange)
+            }
 
             HStack(spacing: 8) {
                 Button(mutationTestModeEnabled ? "Test Mode Enabled" : "Enable Test Mode") {
@@ -59,7 +73,7 @@ struct DiskPlanningGuidedActionsView: View {
             }
 
             if let lastExecution {
-                Text("Latest guided action: \(lastExecution.status.uppercased())")
+                Text("Latest guided action: \((lastActionTitle ?? "Action")) • \(lastExecution.status.uppercased())")
                     .font(.caption)
                     .fontWeight(.semibold)
                 if let parsedResult = lastExecution.parsedResult {
