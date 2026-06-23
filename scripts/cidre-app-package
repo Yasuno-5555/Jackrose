@@ -22,6 +22,7 @@ cp "$helper_bin_dir/CidrePrivilegedHelper" "$BACKEND/libexec/CidrePrivilegedHelp
 cp -R "$REPO_ROOT/scripts" "$BACKEND/scripts"
 cp -R "$REPO_ROOT/interface" "$BACKEND/interface"
 cp -R "$REPO_ROOT/docs" "$BACKEND/docs"
+cp "$REPO_ROOT/README.md" "$BACKEND/README.md"
 touch "$BACKEND/.cidre-backend"
 
 cp "$APP_PACKAGE/Resources/Info.plist" "$CONTENTS/Info.plist"

@@ -8,6 +8,13 @@ class RepositoryPathStore {
     
     func loadPath() -> String {
         if let savedPath = UserDefaults.standard.string(forKey: pathKey), validatePath(savedPath).valid {
+            let expandedPath = (savedPath as NSString).expandingTildeInPath
+            let bundledMarker = URL(fileURLWithPath: expandedPath).appendingPathComponent(".cidre-backend").path
+            if FileManager.default.fileExists(atPath: bundledMarker),
+               let refreshedPath = installBundledBackend() {
+                savePath(refreshedPath)
+                return refreshedPath
+            }
             return savedPath
         }
         if let bundledPath = installBundledBackend() {
