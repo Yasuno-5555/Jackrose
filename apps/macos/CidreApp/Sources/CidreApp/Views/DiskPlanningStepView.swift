@@ -59,9 +59,22 @@ struct DiskPlanningStepView: View {
                     step: mutation.guideStep,
                     currentTarget: mutation.target,
                     candidateTargets: mutation.candidateTargets,
+                    startupTargetIdentifier: mutation.startupTargetIdentifier,
                     disposableSummary: mutation.installTarget?.summary ?? mutation.disposableTarget?.summary,
                     scanSummary: mutation.diskScanResult?.summary,
                     requiredConfirmation: mutation.requiredConfirmation,
+                    mutationTestModeEnabled: mutation.mutationTestMode?.enabled == true,
+                    installerOverrideEnabled: mutation.killSwitchState.destructiveInstallAllowed,
+                    beforeSnapshotAvailable: mutation.snapshotAvailability.beforeAvailable,
+                    recoveryPassed: mutation.recoverySurvivalState?.status == "passed",
+                    protectedPartitionPassed: mutation.protectedPartitionState?.status == "passed",
+                    installTargetPassed: mutation.installTarget?.status == "passed",
+                    createPlanEnabled: mutation.canCreatePlan,
+                    createPlanBlockers: mutation.createPlanBlockers,
+                    validatePreviewEnabled: mutation.canPreview,
+                    validatePreviewBlockers: mutation.validatePreviewBlockers,
+                    executeEnabled: mutation.canExecute,
+                    executeBlockers: mutation.executeBlockers,
                     confirmation: $mutation.confirmation,
                     isRunning: mutation.isRunning,
                     onRefreshTargets: {
@@ -69,6 +82,9 @@ struct DiskPlanningStepView: View {
                     },
                     onSelectTarget: { selected in
                         mutation.selectTarget(selected, repositoryPath: appVM.repositoryPath)
+                    },
+                    onSelectStartupTarget: {
+                        mutation.selectStartupTarget(repositoryPath: appVM.repositoryPath)
                     },
                     onEnableMutationTestMode: {
                         mutation.enableMutationTestMode(repositoryPath: appVM.repositoryPath)
@@ -78,6 +94,9 @@ struct DiskPlanningStepView: View {
                     },
                     onCapturePreSnapshot: {
                         mutation.captureSnapshot(label: "manual-before", repositoryPath: appVM.repositoryPath)
+                    },
+                    onResolveCreatePlanBlockers: {
+                        mutation.resolveCreatePlanBlockers(repositoryPath: appVM.repositoryPath)
                     },
                     onCreatePlan: {
                         mutation.createPlan(repositoryPath: appVM.repositoryPath)
@@ -210,7 +229,13 @@ struct DiskPlanningStepView: View {
                 }
 
                 // ── Actions ───────────────────────────────────────────────
-                DisclosureGroup("Advanced Plan Controls") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Plan Actions")
+                        .font(.headline)
+                    Text("These buttons stay visible here so you can continue the install without opening an Advanced section.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     HStack(spacing: 8) {
                         Button("Create Plan") {
                             mutation.createPlan(repositoryPath: appVM.repositoryPath)
@@ -223,30 +248,16 @@ struct DiskPlanningStepView: View {
                         .disabled(!mutation.canPreview || mutation.isRunning)
                     }
 
-                    if !mutation.canCreatePlan || !mutation.canPreview {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if !mutation.canCreatePlan {
-                                Text("Create Plan is disabled because:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                ForEach(mutation.createPlanBlockers, id: \.self) { blocker in
-                                    Text("• \(blocker)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            if !mutation.canPreview {
-                                Text("Validate Preview is disabled because:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                ForEach(mutation.validatePreviewBlockers, id: \.self) { blocker in
-                                    Text("• \(blocker)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
+                    if !mutation.canCreatePlan {
+                        Button("Resolve Create Plan Blockers") {
+                            mutation.resolveCreatePlanBlockers(repositoryPath: appVM.repositoryPath)
                         }
+                        .disabled(mutation.isRunning)
+                        blockerSection(title: "Create Plan is blocked because:", blockers: mutation.createPlanBlockers)
+                    }
+
+                    if !mutation.canPreview {
+                        blockerSection(title: "Validate Preview is blocked because:", blockers: mutation.validatePreviewBlockers)
                     }
                 }
 
@@ -263,12 +274,20 @@ struct DiskPlanningStepView: View {
                 // ── Confirmation & Execute ────────────────────────────────
                 if mutation.requiredConfirmation != nil {
                     Divider()
-                    DisclosureGroup("Advanced Execution Controls") {
-                        MutationConfirmationView(requiredPhrase: "I understand this can destroy the selected disposable target.", text: $mutation.confirmation)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Install Execution")
+                            .font(.headline)
+                        Text("Enter the confirmation phrase here and run the authenticated disk change when the preview looks correct.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        MutationConfirmationView(requiredPhrase: mutation.requiredConfirmation ?? "", text: $mutation.confirmation)
                         Button("Authenticate and Modify Disk", role: .destructive) {
                             mutation.execute(repositoryPath: appVM.repositoryPath)
                         }
                         .disabled(!mutation.canExecute || mutation.isRunning)
+                        if !mutation.canExecute {
+                            blockerSection(title: "Execution is blocked because:", blockers: mutation.executeBlockers)
+                        }
                     }
                 }
 
@@ -309,5 +328,21 @@ struct DiskPlanningStepView: View {
 
     private func formatGB(_ bytes: Int) -> String {
         String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
+    }
+
+    @ViewBuilder
+    private func blockerSection(title: String, blockers: [String]) -> some View {
+        if !blockers.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                ForEach(blockers, id: \.self) { blocker in
+                    Text("• \(blocker)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
     }
 }

@@ -5,10 +5,11 @@ final class ProtectedPartitionGuardService {
     private init() {}
 
     func evaluate(repositoryPath: String, snapshots: DiskSnapshotAvailability) -> ProtectedPartitionGuardState? {
-        guard let afterPath = snapshots.afterPath else { return nil }
+        let snapshotPath = snapshots.beforePath ?? snapshots.afterPath
+        guard let snapshotPath else { return nil }
         let result = LiveCommandRunner.shared.run(
             "scripts/cidre-app-protected-partition-guard",
-            arguments: ["--snapshot", afterPath, "--json"],
+            arguments: ["--snapshot", snapshotPath, "--json"],
             repositoryPath: repositoryPath,
             isMockMode: false
         )

@@ -153,6 +153,27 @@ final class DiskMutationViewModel: ObservableObject {
         return blockers
     }
 
+    var executeBlockers: [String] {
+        var blockers: [String] = []
+        if !killSwitchState.destructiveInstallAllowed {
+            blockers.append("Installer test override is still disabled by DFU containment.")
+        }
+        if !canPreview {
+            blockers.append("Validate the current preview before running the authenticated disk change.")
+        }
+        if helperGateDecision?.status != "passed" {
+            blockers.append(helperGateDecision?.summary ?? "The helper gate has not approved disk execution yet.")
+        }
+        if let requiredConfirmation,
+           requiredConfirmation.trimmingCharacters(in: .whitespacesAndNewlines) != confirmation.trimmingCharacters(in: .whitespacesAndNewlines) {
+            blockers.append("Enter the exact confirmation phrase before executing the disk change.")
+        }
+        if isRunning {
+            blockers.append("Another disk action is already running.")
+        }
+        return blockers
+    }
+
     var maxPartitionHuman: String {
         guard let limits = limitsInfo,
               let bytes = limits["max_partition_bytes"] as? Int else { return "—" }
@@ -171,6 +192,13 @@ final class DiskMutationViewModel: ObservableObject {
 
     var protectedTargets: [DiskTarget] {
         (diskScanResult?.targets ?? []).filter { $0.protected }
+    }
+
+    var startupTargetIdentifier: String? {
+        if let selected = installTarget?.target, !selected.isEmpty {
+            return selected
+        }
+        return diskScanResult?.startupIdentifiers.first
     }
 
     var hasPreviewResult: Bool {
@@ -406,11 +434,120 @@ final class DiskMutationViewModel: ObservableObject {
         }
     }
 
+    func refreshSafetyStatusNow(repositoryPath: String) {
+        let currentTarget = target
+        let hasExecution = execution != nil
+
+        let killSwitchExecution = LiveCommandRunner.shared.run(
+            "scripts/cidre-app-installer-killswitch",
+            arguments: ["--status", "--json"],
+            repositoryPath: repositoryPath,
+            isMockMode: false
+        )
+        let killSwitchState: InstallerKillSwitchState
+        if let data = killSwitchExecution.stdout.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(InstallerKillSwitchState.self, from: data) {
+            killSwitchState = decoded
+        } else {
+            killSwitchState = .containmentDefault
+        }
+
+        let mutationTestMode = MutationTestModeService.shared.status(repositoryPath: repositoryPath)
+        let diskScanResult = DiskScanService.shared.scan(repositoryPath: repositoryPath)
+        let snapshotAvailability = DiskSnapshotService.shared.availability(repositoryPath: repositoryPath)
+        let protectedPartitionState = ProtectedPartitionGuardService.shared.evaluate(repositoryPath: repositoryPath, snapshots: snapshotAvailability)
+        let diskDiffState = DiskDiffService.shared.evaluate(repositoryPath: repositoryPath, snapshots: snapshotAvailability)
+        let recoverySurvivalState = RecoverySurvivalService.shared.evaluate(repositoryPath: repositoryPath)
+        let gateState = GateEvaluationService.shared.evaluate(scope: "install", repositoryPath: repositoryPath)
+        let disposableTarget = DisposableTargetCheckService.shared.evaluate(target: currentTarget, repositoryPath: repositoryPath)
+        let installTarget = InstallTargetCheckService.shared.check(repositoryPath: repositoryPath, currentTarget: currentTarget)
+        let helperGateDecision = HelperGateService.shared.evaluate(operation: "partition-create", repositoryPath: repositoryPath)
+        let mutationVerification = MutationVerificationService.shared.report(repositoryPath: repositoryPath)
+        let mutationReportMarkdown = MutationReportService.shared.markdown(repositoryPath: repositoryPath)
+        let liveDrillState = LiveDrillService.shared.state(repositoryPath: repositoryPath)
+        let liveDrillVerification = LiveDrillVerificationService.shared.result(repositoryPath: repositoryPath)
+        let liveDrillReportMarkdown = LiveDrillReportService.shared.markdown(repositoryPath: repositoryPath)
+        let controlledInstallLastResult = ControlledInstallService.shared.lastResult(repositoryPath: repositoryPath)
+        let controlledInstallPlan = InstallPlanService.shared.lastPlan(repositoryPath: repositoryPath)
+        let manualBootGuide = ManualBootGuideService.shared.guide(repositoryPath: repositoryPath)
+        let mutationExecutionResult = hasExecution ? MutationExecutionService.shared.report(repositoryPath: repositoryPath) : nil
+
+        self.killSwitchState = killSwitchState
+        self.mutationTestMode = mutationTestMode
+        self.diskScanResult = diskScanResult
+        self.snapshotAvailability = snapshotAvailability
+        self.protectedPartitionState = protectedPartitionState
+        self.diskDiffState = diskDiffState
+        self.recoverySurvivalState = recoverySurvivalState
+        self.gateState = gateState
+        self.disposableTarget = disposableTarget
+        self.installTarget = installTarget
+        self.helperGateDecision = helperGateDecision
+        self.mutationVerification = mutationVerification
+        self.mutationReportMarkdown = mutationReportMarkdown
+        self.liveDrillState = liveDrillState
+        self.liveDrillVerification = liveDrillVerification
+        self.liveDrillReportMarkdown = liveDrillReportMarkdown
+        self.controlledInstallLastResult = controlledInstallLastResult
+        self.controlledInstallPlan = controlledInstallPlan
+        self.manualBootGuide = manualBootGuide
+        self.mutationExecutionResult = mutationExecutionResult
+    }
+
     func selectTarget(_ targetID: String, repositoryPath: String) {
         target = targetID
         purgeStaleTargetState(repositoryPath: repositoryPath)
         fetchLimits()
         refreshSafetyStatus(repositoryPath: repositoryPath)
+    }
+
+    func selectStartupTarget(repositoryPath: String) {
+        guard let startupTargetIdentifier else { return }
+        selectTarget(startupTargetIdentifier, repositoryPath: repositoryPath)
+    }
+
+    func resolveCreatePlanBlockers(repositoryPath: String) {
+        isRunning = true
+        let latestScan = DiskScanService.shared.scan(repositoryPath: repositoryPath)
+        if let latestScan {
+            diskScanResult = latestScan
+        }
+        if target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            target = latestScan?.startupIdentifiers.first ?? target
+        }
+        if !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            purgeStaleTargetState(repositoryPath: repositoryPath)
+            fetchLimits()
+        }
+        if mutationTestMode?.enabled != true {
+            guidedActionTitle = "Enable Test Mode"
+            guidedActionExecution = LiveCommandRunner.shared.run(
+                "scripts/cidre-app-mutation-test-mode",
+                arguments: ["--enable", "--phrase", "I understand this can destroy the selected disposable target.", "--json"],
+                repositoryPath: repositoryPath,
+                isMockMode: false
+            )
+        }
+        if !killSwitchState.destructiveInstallAllowed {
+            guidedActionTitle = "Enable Installer Override"
+            guidedActionExecution = LiveCommandRunner.shared.run(
+                "scripts/cidre-app-installer-killswitch",
+                arguments: ["--enable-for-test", "--i-understand-dfu-risk", "--json"],
+                repositoryPath: repositoryPath,
+                isMockMode: false
+            )
+        }
+        if snapshotAvailability.beforeAvailable == false {
+            guidedActionTitle = "Capture Pre Snapshot"
+            guidedActionExecution = LiveCommandRunner.shared.run(
+                "scripts/cidre-app-disk-snapshot",
+                arguments: ["--label", "manual-before", "--json"],
+                repositoryPath: repositoryPath,
+                isMockMode: false
+            )
+        }
+        refreshSafetyStatusNow(repositoryPath: repositoryPath)
+        isRunning = false
     }
 
     func fetchLimits() {
