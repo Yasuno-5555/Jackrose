@@ -61,10 +61,10 @@ struct CommandResultView: View {
     
     private var statusColor: Color {
         switch result.status.lowercased() {
-        case "pass": return .green
+        case "pass", "passed": return .green
         case "warn": return .yellow
         case "blocked": return .orange
-        case "fail": return .red
+        case "fail", "failed": return .red
         default: return .secondary
         }
     }

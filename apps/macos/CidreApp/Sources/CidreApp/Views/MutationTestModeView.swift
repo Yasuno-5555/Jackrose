@@ -8,16 +8,27 @@ struct MutationTestModeView: View {
             Text("Controlled Mutation Test Mode")
                 .font(.headline)
             Text(state?.summary ?? "Controlled mutation test mode status unavailable.")
-                .foregroundColor(.secondary)
+                .foregroundColor(summaryColor)
             if let state {
                 Text("Mode: \(state.mode) • Env: \(state.environmentEnabled ? "set" : "unset")")
                     .font(.caption)
-                    .foregroundColor(state.enabled ? .orange : .secondary)
+                    .foregroundColor(state.environmentEnabled ? .green : (state.enabled ? .orange : .secondary))
             }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.controlBackgroundColor))
         .cornerRadius(10)
+    }
+
+    private var summaryColor: Color {
+        guard let state else { return .secondary }
+        if state.environmentEnabled {
+            return .green
+        }
+        if state.enabled {
+            return .orange
+        }
+        return .secondary
     }
 }
