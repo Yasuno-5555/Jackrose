@@ -57,18 +57,32 @@ fi
 
 # ── Stage m1n1 ──────────────────────────────────────────────────────
 if [ -f "$m1n1_path" ]; then
-  # Copy to both the boot directory and System/Library/CoreServices
-  mkdir -p "$target_mount/boot"
-  mkdir -p "$target_mount/System/Library/CoreServices"
+  # Verify it's a valid Mach-O binary (not a kernelcache/IMG4)
+  if ! file "$m1n1_path" 2>/dev/null | grep -q "Mach-O"; then
+    errors="${errors}m1n1-not-mach-o($m1n1_path) "
+  else
+    # Copy to both the boot directory and System/Library/CoreServices
+    mkdir -p "$target_mount/boot"
+    mkdir -p "$target_mount/System/Library/CoreServices"
 
-  cp "$m1n1_path" "$target_mount/boot/m1n1.macho"
-  chmod 755 "$target_mount/boot/m1n1.macho"
+    cp "$m1n1_path" "$target_mount/boot/m1n1.macho"
+    chmod 755 "$target_mount/boot/m1n1.macho"
 
-  cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi"
-  chmod 755 "$target_mount/System/Library/CoreServices/boot.efi"
+    cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi"
+    chmod 755 "$target_mount/System/Library/CoreServices/boot.efi"
 
-  staged_files="$staged_files boot/m1n1.macho System/Library/CoreServices/boot.efi"
-  steps="${steps}m1n1-staged "
+    # Save backup as boot.efi.m1n1 (protection against accidental overwrite)
+    cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
+    chmod 755 "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
+
+    # Verify the copy
+    if file "$target_mount/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+      staged_files="$staged_files boot/m1n1.macho System/Library/CoreServices/boot.efi System/Library/CoreServices/boot.efi.m1n1"
+      steps="${steps}m1n1-staged "
+    else
+      errors="${errors}boot.efi-verify-failed "
+    fi
+  fi
 else
   errors="${errors}m1n1-not-found($m1n1_path) "
 fi

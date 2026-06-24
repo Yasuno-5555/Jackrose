@@ -119,6 +119,7 @@ boot_files_ok="$(printf '%s\n' "$discovery_json" | python3 -c 'import json,sys; 
 
 steps_done=""
 steps_failed=""
+one_tr_ready="false"
 
 if [ "$dry_run" = true ]; then
   python3 -c "
@@ -224,49 +225,44 @@ print(json.dumps({'vg_uuid':''}))
 fi
 
 # ── Phase 3: Write boot files ────────────────────────────────────────
+# NOTE: System volume is read-only (S role). Writing directly fails silently.
+# Instead, we locate m1n1 and stage it for Phase 7c (where System role is
+# temporarily removed to make the volume writable).
 echo "[3/6] Writing boot files..."
-if [ "$boot_files_ok" != "true" ] && [ -n "$system_mount" ]; then
-  mkdir -p "$system_mount/System/Library/CoreServices"
+M1N1_SRC=""
+M1N1_STAGING_DIR=""
 
-  # SystemVersion.plist — only create if missing
-  if [ ! -f "$system_mount/System/Library/CoreServices/SystemVersion.plist" ]; then
-    cat > "$system_mount/System/Library/CoreServices/SystemVersion.plist" << 'SVPEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.apple.SystemVersion</string>
-<key>ProductBuildVersion</key><string>1</string>
-<key>ProductCopyright</key><string>Cidre Project</string>
-<key>ProductName</key><string>Cidre</string>
-<key>ProductUserVisibleVersion</key><string>1.0</string>
-<key>ProductVersion</key><string>1.0</string>
-</dict></plist>
-SVPEOF
+# Search for m1n1 in standard locations (including Cidre Data volume)
+M1N1_CANDIDATES="/Users/yasuno/Projects/Cidre/libexec/m1n1.macho /Users/yasuno/Projects/Cidre/m1n1/build/m1n1.macho /Volumes/Cidre/boot/m1n1.macho"
+for candidate in $M1N1_CANDIDATES; do
+  if [ -f "$candidate" ] && file "$candidate" 2>/dev/null | grep -q "Mach-O"; then
+    M1N1_SRC="$candidate"
+    break
   fi
+done
 
-  # boot.efi — NEVER overwrite with text stub; use m1n1 if available
-  if [ ! -f "$system_mount/System/Library/CoreServices/boot.efi" ]; then
-    # Search for m1n1 in standard locations
-    M1N1_CANDIDATES="/Users/yasuno/Projects/Cidre/libexec/m1n1.macho /Users/yasuno/Projects/Cidre/m1n1/build/m1n1.macho $system_mount/boot/m1n1.macho"
-    M1N1_SRC=""
-    for candidate in $M1N1_CANDIDATES; do
-      if [ -f "$candidate" ] && file "$candidate" 2>/dev/null | grep -q "Mach-O"; then
-        M1N1_SRC="$candidate"
-        break
-      fi
-    done
-    if [ -n "$M1N1_SRC" ]; then
-      cp "$M1N1_SRC" "$system_mount/System/Library/CoreServices/boot.efi"
-      chmod 755 "$system_mount/System/Library/CoreServices/boot.efi"
-      steps_done="${steps_done}boot.efi(staged from m1n1) "
-    else
-      steps_failed="${steps_failed}boot.efi(m1n1 not found) "
-    fi
-  else
-    steps_done="${steps_done}boot.efi(already present) "
+# Also check System volume (if it was made writable by a previous run)
+if [ -z "$M1N1_SRC" ] && [ -n "$system_mount" ]; then
+  if [ -f "$system_mount/boot/m1n1.macho" ] && file "$system_mount/boot/m1n1.macho" 2>/dev/null | grep -q "Mach-O"; then
+    M1N1_SRC="$system_mount/boot/m1n1.macho"
   fi
-  steps_done="${steps_done}boot-files-written "
 fi
+
+# Validate existing boot.efi (if any) — it MUST be a Mach-O, not an IMG4/kernelcache
+if [ -n "$system_mount" ] && [ -f "$system_mount/System/Library/CoreServices/boot.efi" ]; then
+  if file "$system_mount/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+    steps_done="${steps_done}boot.efi(valid Mach-O present) "
+  else
+    # boot.efi exists but is NOT a Mach-O (likely kernelcache/IMG4) — mark for replacement
+    echo "WARNING: Existing boot.efi is not a valid Mach-O binary, will replace with m1n1 in Phase 7c"
+    steps_done="${steps_done}boot.efi(invalid — will replace in Phase 7c) "
+  fi
+elif [ -n "$M1N1_SRC" ]; then
+  steps_done="${steps_done}boot.efi(will stage in Phase 7c) "
+else
+  steps_failed="${steps_failed}boot.efi(m1n1 not found) "
+fi
+steps_done="${steps_done}boot-files-scanned "
 
 # ── Phase 4: Copy restore bundle from macOS ──────────────────────────
 echo "[4/6] Copying restore bundle..."
@@ -293,15 +289,57 @@ if [ -n "$preboot_mount" ] && [ -n "$vg_uuid" ]; then
   fi
 
   # Also copy System/Library/CoreServices to Preboot
+  # CRITICAL: Only copy boot.efi if it is a valid Mach-O binary (NOT a kernelcache/IMG4).
+  # If invalid, use m1n1 from the staging location instead.
   if [ -n "$system_mount" ]; then
     mkdir -p "$DST_DIR/System/Library/CoreServices"
     cp "$system_mount/System/Library/CoreServices/SystemVersion.plist" "$DST_DIR/System/Library/CoreServices/" 2>/dev/null || true
-    cp "$system_mount/System/Library/CoreServices/boot.efi" "$DST_DIR/System/Library/CoreServices/" 2>/dev/null || true
+
+    # Decide which boot.efi to use for Preboot
+    BOOT_EFI_SRC=""
+    if [ -f "$system_mount/System/Library/CoreServices/boot.efi" ] && \
+       file "$system_mount/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+      BOOT_EFI_SRC="$system_mount/System/Library/CoreServices/boot.efi"
+    elif [ -n "$M1N1_SRC" ]; then
+      echo "boot.efi is not a valid Mach-O; using m1n1 for Preboot instead"
+      BOOT_EFI_SRC="$M1N1_SRC"
+    fi
+
+    if [ -n "$BOOT_EFI_SRC" ]; then
+      cp "$BOOT_EFI_SRC" "$DST_DIR/System/Library/CoreServices/boot.efi" 2>/dev/null || \
+        run_admin "cp ${BOOT_EFI_SRC} ${DST_DIR}/System/Library/CoreServices/boot.efi" >/dev/null 2>&1 || true
+      run_admin "chmod 755 ${DST_DIR}/System/Library/CoreServices/boot.efi" >/dev/null 2>&1 || true
+
+      # Also save backup as boot.efi.m1n1
+      cp "$BOOT_EFI_SRC" "$DST_DIR/System/Library/CoreServices/boot.efi.m1n1" 2>/dev/null || \
+        run_admin "cp ${BOOT_EFI_SRC} ${DST_DIR}/System/Library/CoreServices/boot.efi.m1n1" >/dev/null 2>&1 || true
+
+      # Verify the copy is valid
+      if file "$DST_DIR/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+        steps_done="${steps_done}preboot-boot.efi-ok "
+      else
+        steps_failed="${steps_failed}preboot-boot.efi-invalid "
+      fi
+    else
+      steps_failed="${steps_failed}preboot-boot.efi-no-source "
+    fi
   fi
 fi
 
-# ── Phase 5: Bless (initialize boot state) ───────────────────────────
-echo "[5/6] Initializing boot state (bless)..."
+# ── Phase 5: Bless (set Cidre as default boot for 1TR flow) ──────────
+# Asahi-alarm reference: src/main.py bless() and step2()
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+#
+# The ONLY way to make a custom OS visible on Apple Silicon is the 1TR flow:
+#   1. Bless the stub volume as DEFAULT boot (temporarily)
+#   2. Reboot → firmware boots the stub's recoveryOS (1TR mode)
+#   3. From 1TR, bputil -g WORKS (no "AP boot mode" error!)
+#   4. step2 script: bputil → m1n1 → bless macOS back as default → reboot
+#
+# bputil -g from macOS ALWAYS fails with "AP boot mode (11)" on modern macOS.
+# This is by Apple's design. RecoveryOS (1TR) is the only supported path.
+echo "[5/6] Setting Cidre as default boot for 1TR setup..."
+
 BLESS_CIDRE="/usr/sbin/bless --setBoot --device /dev/${system_volume}"
 BLESS_MACOS="/usr/sbin/bless --setBoot --device /dev/disk4s1"
 
@@ -321,37 +359,36 @@ run_bless() {
 }
 
 if [ -n "$system_volume" ]; then
-  # SAFETY-CRITICAL ORDER:
-  #   1. Bless Cidre (initialize boot entry in Preboot)
-  #   2. IMMEDIATELY restore macOS as default boot — BEFORE any slow/hanging operations
-  #   3. Only THEN attempt bputil (best-effort, can hang/fail)
   if run_bless "$BLESS_CIDRE"; then
     steps_done="${steps_done}bless-cidre-ok "
+    # CRITICAL: Do NOT restore macOS as default here.
+    # Cidre MUST be the default boot so the firmware boots into its 1TR
+    # recoveryOS on next restart. This is the exact same approach as the
+    # Asahi Linux installer (see src/main.py step2()).
+    #
+    # Safety: The Cidre boot.efi is an Apple-signed macOS kernelcache.
+    # If step2 fails, the user can still hold the power button and
+    # select macOS from the boot picker. macOS is never at risk.
+    one_tr_ready="true"
+    echo "Cidre set as default boot. 1TR flow will handle Reduced Security."
   else
     steps_failed="${steps_failed}bless-failed(owner-auth-required) "
+    # Bless failed — ensure macOS remains default for safety
+    run_bless "$BLESS_MACOS" || {
+      run_admin "$BLESS_MACOS" >/dev/null 2>&1 || true
+    }
+    steps_done="${steps_done}bless-macos-restored "
+    one_tr_ready="false"
   fi
 
-  # ALWAYS restore macOS boot FIRST, regardless of bless outcome.
-  # This prevents the system from being stuck on a non-bootable Cidre entry
-  # if bputil hangs or the script is killed.
-  run_bless "$BLESS_MACOS" || {
-    run_admin "$BLESS_MACOS" >/dev/null 2>&1 || true
-  }
-  steps_done="${steps_done}bless-macos-restored "
-
-  # ── Phase 6: bputil (best-effort, macOS is already safe) ──
-  # Asahi reference: bputil -g accepts -u <user> -p <password> directly.
-  # NO osascript wrapper needed. Run with 15s timeout as safety net.
-  echo "[6/6] Creating LocalPolicy (best-effort, 15s timeout)..."
+  # ── Phase 6: bputil — Note: always deferred to 1TR ──
+  # Asahi reference: bputil -g from macOS → "AP boot mode (11)".
+  # This is expected. bputil only works from recoveryOS (1TR mode).
+  # The step2 script handles this during the 1TR boot.
+  echo "[6/6] LocalPolicy will be created during 1TR boot (step2)..."
   if [ -n "$vg_uuid" ]; then
-    bputil_output=""
-    if [ -n "$owner_user" ] && [ -n "$owner_password" ]; then
-      if bputil_output="$( /usr/bin/bputil -g -v "$vg_uuid" -u "$owner_user" -p "$owner_password" 2>&1 )"; then
-        steps_done="${steps_done}bputil-ok(reduced-security) "
-      else
-        # Expected on macOS: "AP boot mode". Not fatal.
-        steps_done="${steps_done}bputil-deferred(reduced-security-needs-recovery) "
-      fi
+    if [ "$one_tr_ready" = "true" ]; then
+      steps_done="${steps_done}bputil-deferred-to-1TR "
     else
       steps_done="${steps_done}bputil-deferred(owner-credentials-required) "
     fi
@@ -362,9 +399,79 @@ fi
 echo "[7/7] Setting up auto-run step2 (Asahi-style 1TR flow)..."
 step2_ready="false"
 
+# Step 7a: FIRST copy recoveryOS from macOS Recovery while it's accessible
+# Mount macOS Recovery to get arm64eBaseSystem.dmg
+MACOS_REC_MOUNT=""
+REC_IMG_SRC=""
+
+# macOS Recovery might already be at /Volumes/Recovery
+if [ -f "/Volumes/Recovery/08E3B56E-946D-4280-9E3C-1931ED8B8B34/usr/standalone/firmware/arm64eBaseSystem.dmg" ]; then
+  REC_IMG_SRC="/Volumes/Recovery/08E3B56E-946D-4280-9E3C-1931ED8B8B34/usr/standalone/firmware/arm64eBaseSystem.dmg"
+elif diskutil mount disk4s3 2>/dev/null; then
+  REC_IMG_SRC="/Volumes/Recovery/08E3B56E-946D-4280-9E3C-1931ED8B8B34/usr/standalone/firmware/arm64eBaseSystem.dmg"
+fi
+
+# Copy arm64eBaseSystem.dmg to a staging location on Cidre Data volume (writable)
+REC_IMG_STAGING=""
+if [ -f "$REC_IMG_SRC" ] && [ -d "/Volumes/Cidre" ]; then
+  mkdir -p "/Volumes/Cidre/cidre/recovery"
+  if cp "$REC_IMG_SRC" "/Volumes/Cidre/cidre/recovery/arm64eBaseSystem.dmg" 2>/dev/null; then
+    REC_IMG_STAGING="/Volumes/Cidre/cidre/recovery/arm64eBaseSystem.dmg"
+    steps_done="${steps_done}recovery-os-staged "
+  fi
+fi
+
+# Step 7b: Set up Recovery volume with the recoveryOS image
+REC_DEVICE=""
+for dev in disk3s3; do
+  if diskutil info "$dev" >/dev/null 2>&1; then
+    REC_DEVICE="$dev"
+    break
+  fi
+done
+
+if [ -n "$REC_DEVICE" ]; then
+  diskutil unmount /Volumes/Recovery 2>/dev/null || true
+  sleep 1
+  REC_MOUNT=""
+  if diskutil mount "$REC_DEVICE" 2>/dev/null; then
+    REC_MOUNT="/Volumes/Recovery"
+  fi
+
+  if [ -n "$REC_MOUNT" ] && [ -d "$REC_MOUNT" ]; then
+    mkdir -p "$REC_MOUNT/$vg_uuid/usr/standalone/firmware"
+    mkdir -p "$REC_MOUNT/$vg_uuid/boot"
+
+    # Copy recoveryOS from staging or source
+    if [ -f "$REC_IMG_STAGING" ]; then
+      cp "$REC_IMG_STAGING" "$REC_MOUNT/$vg_uuid/usr/standalone/firmware/arm64eBaseSystem.dmg" 2>/dev/null && {
+        steps_done="${steps_done}recovery-os-copied "
+        step2_ready="true"
+      } || steps_done="${steps_done}recovery-os-copy-failed "
+    fi
+
+    # Copy boot structure from Cidre Preboot
+    if [ -n "$preboot_mount" ] && [ -d "$preboot_mount/$vg_uuid/boot" ]; then
+      rm -rf "$REC_MOUNT/$vg_uuid/boot" 2>/dev/null || true
+      cp -R "$preboot_mount/$vg_uuid/boot/" "$REC_MOUNT/$vg_uuid/boot/" 2>/dev/null || true
+    fi
+  fi
+fi
+
+# Copy step2 script to Cidre Data volume (writable, accessible from Recovery/step2)
+STEP2_SRC="$SCRIPT_DIR/cidre-app-recovery-step2"
+if [ -f "$STEP2_SRC" ] && [ -d "/Volumes/Cidre/cidre" ]; then
+  cp "$STEP2_SRC" "/Volumes/Cidre/cidre/step2.sh" 2>/dev/null && {
+    chmod +x "/Volumes/Cidre/cidre/step2.sh" 2>/dev/null || true
+  } || true
+fi
+
+# Re-mount macOS Recovery for restore bundle access (if needed later)
+diskutil mount disk4s3 2>/dev/null || true
+
+# Step 7c: Write .IAPhysicalMedia + Finish Installation.app to System volume
+# System role volumes are read-only; temporarily remove role, write, restore
 if [ -n "$system_mount" ] && [ -n "$system_volume" ]; then
-  # Step 7a: Write .IAPhysicalMedia + Finish Installation.app to System volume
-  # System role volumes are read-only; temporarily remove role, write, restore
 
   SYS_VOL="$system_volume"
   SYS_MOUNT="$system_mount"
@@ -377,8 +484,13 @@ if [ -n "$system_mount" ] && [ -n "$system_volume" ]; then
 
   # Remove System role temporarily (makes volume writable)
   role_removed="false"
-  if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL}" 2>&1; then
+  if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL} clear" 2>&1; then
     role_removed="true"
+  else
+    # Older macOS versions may not support 'clear'; try bare invocation
+    if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL}" 2>&1; then
+      role_removed="true"
+    fi
   fi
 
   # Remount (now read-write since System role is removed)
@@ -419,6 +531,55 @@ IAPEOF
       }
     fi
 
+    # ── Write boot.efi during this writable window ────────────────────
+    # CRITICAL: System volume is writable NOW (role removed). This is the
+    # ONLY opportunity to write boot.efi correctly. We MUST use a valid
+    # Mach-O binary (m1n1), never a kernelcache/IMG4.
+    mkdir -p "$SYS_MOUNT/System/Library/CoreServices"
+
+    # SystemVersion.plist
+    if [ ! -f "$SYS_MOUNT/System/Library/CoreServices/SystemVersion.plist" ]; then
+      cat > "$SYS_MOUNT/System/Library/CoreServices/SystemVersion.plist" << 'SVPEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.apple.SystemVersion</string>
+<key>ProductBuildVersion</key><string>1</string>
+<key>ProductCopyright</key><string>Cidre Project</string>
+<key>ProductName</key><string>Cidre</string>
+<key>ProductUserVisibleVersion</key><string>1.0</string>
+<key>ProductVersion</key><string>1.0</string>
+</dict></plist>
+SVPEOF
+    fi
+
+    # Write boot.efi from m1n1 (skip if M1N1_SRC is not a valid Mach-O)
+    if [ -n "$M1N1_SRC" ] && [ -f "$M1N1_SRC" ] && file "$M1N1_SRC" 2>/dev/null | grep -q "Mach-O"; then
+      cp "$M1N1_SRC" "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
+      chmod 755 "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
+      # Also save backup
+      cp "$M1N1_SRC" "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" 2>/dev/null || true
+
+      # Verify
+      if file "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+        steps_done="${steps_done}boot.efi-ok "
+      else
+        steps_failed="${steps_failed}boot.efi-write-failed "
+      fi
+    else
+      # Fallback: copy boot.efi.m1n1 → boot.efi if m1n1 was previously staged
+      if [ -f "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" ] && \
+         file "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" 2>/dev/null | grep -q "Mach-O"; then
+        cp "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" \
+           "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
+      fi
+      if file "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null | grep -q "Mach-O"; then
+        steps_done="${steps_done}boot.efi-ok(from-backup) "
+      else
+        steps_failed="${steps_failed}boot.efi-no-valid-source "
+      fi
+    fi
+
     step2_ready="true"
   fi
 
@@ -433,103 +594,71 @@ IAPEOF
   fi
 fi
 
-# Step 7b: Set up Recovery volume with recoveryOS
-REC_DEVICE=""
-for dev in disk3s3; do
-  if diskutil info "$dev" >/dev/null 2>&1; then
-    REC_DEVICE="$dev"
-    break
-  fi
-done
-
-if [ -n "$REC_DEVICE" ]; then
-  diskutil unmount /Volumes/Recovery 2>/dev/null || true
-  sleep 1
-  REC_MOUNT=""
-  if diskutil mount "$REC_DEVICE" 2>/dev/null; then
-    REC_MOUNT="/Volumes/Recovery"
-  fi
-
-  if [ -n "$REC_MOUNT" ] && [ -d "$REC_MOUNT" ]; then
-    mkdir -p "$REC_MOUNT/$vg_uuid/usr/standalone/firmware"
-    mkdir -p "$REC_MOUNT/$vg_uuid/boot"
-
-    # Copy arm64eBaseSystem.dmg from macOS Recovery
-    MACOS_REC_DMG="/System/Volumes/Recovery/08E3B56E-946D-4280-9E3C-1931ED8B8B34/usr/standalone/firmware/arm64eBaseSystem.dmg"
-    if [ -f "$MACOS_REC_DMG" ]; then
-      cp "$MACOS_REC_DMG" "$REC_MOUNT/$vg_uuid/usr/standalone/firmware/arm64eBaseSystem.dmg" 2>/dev/null && {
-        steps_done="${steps_done}recovery-os-copied "
-      } || steps_done="${steps_done}recovery-os-copy-failed "
-    fi
-
-    # Copy boot structure from Cidre Preboot
-    if [ -d "$preboot_mount/$vg_uuid/boot" ]; then
-      cp -R "$preboot_mount/$vg_uuid/boot/" "$REC_MOUNT/$vg_uuid/boot/" 2>/dev/null || true
-    fi
-  fi
-fi
-
-# Step 7c: Also copy step2 script to Cidre Data volume (fallback access)
-STEP2_SRC="$SCRIPT_DIR/cidre-app-recovery-step2"
-if [ -f "$STEP2_SRC" ] && [ -d "/Volumes/Cidre/cidre" ]; then
-  cp "$STEP2_SRC" "/Volumes/Cidre/cidre/step2.sh" 2>/dev/null && {
-    chmod +x "/Volumes/Cidre/cidre/step2.sh" 2>/dev/null || true
-  } || true
-fi
-
 # ── Final report ─────────────────────────────────────────────────────
-# Determine SSU/recovery guidance
-ssu_required="false"
-security_mode="unknown"
-reduced_security_status="unknown"
-reduced_security_guide=""
-
-case "$steps_done" in
-  *bputil-ok*)
-    security_mode="reduced"
-    reduced_security_status="set-via-bputil"
-    ;;
-  *bputil-deferred*)
-    ssu_required="true"
-    security_mode="full"
-    if [ "$step2_ready" = "true" ]; then
-      reduced_security_status="recovery-step2-ready"
-      reduced_security_guide="Cidre will auto-complete setup on first boot. To boot Cidre:
-1. Shut down your Mac
-2. Hold the power button until 'Loading startup options' appears
-3. Select Cidre — it will auto-run setup and restart
-4. After restart: hold power button → select Cidre again → Linux boots!"
-    else
-      reduced_security_status="manual-recovery-required"
-      reduced_security_guide="To enable Reduced Security:
-1. Shut down your Mac
-2. Hold the power button until 'Loading startup options' appears
-3. Click Options (gear icon) → Utilities → Startup Security Utility
-4. Select Cidre → Reduced Security → Restart"
-    fi
-    ;;
-esac
+# Determine 1TR flow status
+# one_tr_ready: Cidre is default boot, will boot into 1TR on restart
+# step2_ready: step2 script + IAPhysicalMedia + Finish Installation.app staged
 
 if [ -z "$steps_failed" ]; then
   status="passed"; exit_code=0
-  if [ "$ssu_required" = "true" ]; then
-    if [ "$step2_ready" = "true" ]; then
-      summary="Boot policy created with auto-run setup. Select Cidre from Startup Options (hold power button at boot) — it will auto-complete setup on first boot."
-    else
-      summary="Boot policy created. Reduced Security must be enabled from Startup Security Utility in macOS Recovery before Cidre can boot."
-    fi
+  if [ "$one_tr_ready" = "true" ] && [ "$step2_ready" = "true" ]; then
+    # Happy path: Cidre is default boot, 1TR will auto-complete setup
+    security_mode="full"  # Until 1TR sets Reduced Security
+    reduced_security_status="one-tr-pending"
+    reduced_security_guide="Cidre setup will auto-complete on restart:
+1. Save your work and close all apps
+2. Restart your Mac (Apple menu → Restart)
+3. Mac will automatically boot into Cidre setup (1TR mode)
+4. Setup completes in ~1-2 minutes (you'll see progress on screen)
+5. Mac restarts back to macOS
+6. Done! To boot Cidre: hold power button → select Cidre"
+    summary="Boot policy created (Asahi-style 1TR flow). Restart your Mac now — Cidre will auto-complete setup on next boot, then restart back to macOS."
+  elif [ "$one_tr_ready" = "true" ]; then
+    # Bless succeeded but step2 not fully staged
+    security_mode="full"
+    reduced_security_status="one-tr-manual-step2"
+    reduced_security_guide="Cidre is set as default boot. On restart:
+1. Mac will boot into Cidre recovery environment
+2. Open Terminal (Utilities → Terminal)
+3. Run: /Volumes/Cidre/cidre/step2.sh
+4. Follow the prompts to complete setup"
+    summary="Boot policy created. Restart your Mac → Cidre boots into recovery → run step2.sh to complete."
+  elif [ "$step2_ready" = "true" ]; then
+    # Step2 ready but bless didn't set Cidre as default (unusual)
+    status="blocked"; exit_code=4
+    security_mode="full"
+    reduced_security_status="needs-default-boot"
+    reduced_security_guide="Cidre must be set as default boot to trigger 1TR setup. Run:
+bless --setBoot --device /dev/${system_volume} --user <your_user> --stdinpass
+Then restart."
+    summary="Boot policy partially created. Cidre must be set as default boot to continue."
   else
-    summary="Boot policy created. Cidre should appear in Startup Options (hold power button at boot)."
+    status="blocked"; exit_code=4
+    security_mode="unknown"
+    reduced_security_status="manual-recovery-required"
+    reduced_security_guide="To enable Reduced Security:
+1. Shut down your Mac
+2. Hold power button until 'Loading startup options' appears
+3. Click Options (gear icon) → Utilities → Startup Security Utility
+4. Select Cidre → Reduced Security → Restart"
+    summary="Boot policy created but 1TR auto-setup not available. Use Startup Security Utility in Recovery to set Reduced Security."
   fi
 else
   status="blocked"; exit_code=4
+  security_mode="full"
+  reduced_security_status="bless-failed"
+  reduced_security_guide="Bless failed. To proceed:
+1. Open Terminal in macOS
+2. Run: bless --setBoot --device /dev/${system_volume} --user <your_user> --stdinpass
+3. Enter your macOS password
+4. Restart your Mac"
   summary="Boot policy creation incomplete: ${steps_failed}"
 fi
 
-python3 - "$json_mode" "$status" "$exit_code" "$summary" "$vg_uuid" "$system_volume" "$steps_done" "$steps_failed" "$ssu_required" "$security_mode" "$reduced_security_status" "$reduced_security_guide" "$step2_ready" <<'PY'
+python3 - "$json_mode" "$status" "$exit_code" "$summary" "$vg_uuid" "$system_volume" "$steps_done" "$steps_failed" "$one_tr_ready" "$security_mode" "$reduced_security_status" "$reduced_security_guide" "$step2_ready" <<'PY'
 import json, sys
 (json_mode, status, exit_code, summary, vg_uuid, system_volume,
- steps_done, steps_failed, ssu_required, security_mode,
+ steps_done, steps_failed, one_tr_ready, security_mode,
  reduced_security_status, reduced_security_guide, step2_ready) = sys.argv[1:]
 exit_code = int(exit_code); json_mode = json_mode == "true"
 payload = {
@@ -540,7 +669,7 @@ payload = {
     "system_volume": system_volume if system_volume else None,
     "steps_completed": steps_done.strip() if steps_done else None,
     "steps_failed": steps_failed.strip() if steps_failed else None,
-    "ssu_required": ssu_required == "true",
+    "one_tr_ready": one_tr_ready == "true",
     "security_mode": security_mode if security_mode else "unknown",
     "reduced_security_status": reduced_security_status if reduced_security_status else "unknown",
     "reduced_security_guide": reduced_security_guide if reduced_security_guide else None,

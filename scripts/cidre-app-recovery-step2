@@ -72,10 +72,17 @@ echo "$bp_output" | head -10
 echo ""
 echo "Setting Reduced Security for Cidre..."
 echo "You will be prompted for your macOS admin password."
+echo "(This is required by Apple to change security settings.)"
+echo ""
 
+# Asahi-alarm reference: step2.sh uses bputil -nc (no confirmation)
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+# In 1TR mode, bputil authenticates via recoveryOS pairing.
+# The -nc flag skips the interactive confirmation prompt.
+# bputil will prompt for password interactively if needed.
 bputil_success=false
 for attempt in 1 2 3; do
-    if bputil -g -v "$vg_uuid" 2>&1; then
+    if bputil -nc -v "$vg_uuid" 2>&1; then
         echo "Reduced Security set successfully!"
         bputil_success=true
         break
@@ -124,21 +131,36 @@ if [ -n "$m1n1_src" ]; then
     preboot_mount="/Volumes/Preboot"
     [ -d "$preboot_mount" ] || preboot_mount="/System/Volumes/Preboot"
 
-    dst="$preboot_mount/$vg_uuid/System/Library/CoreServices/boot.efi"
-    if [ -d "$(dirname "$dst")" ]; then
-        cp "$m1n1_src" "$dst"
-        chmod 755 "$dst"
-        echo "m1n1 restored to Preboot: $dst"
+    # ── Write to Preboot root-level CoreServices ──────────────────────
+    mkdir -p "$preboot_mount/$vg_uuid/System/Library/CoreServices"
+    dst_root="$preboot_mount/$vg_uuid/System/Library/CoreServices/boot.efi"
+    cp "$m1n1_src" "$dst_root"
+    chmod 755 "$dst_root"
+    echo "m1n1 restored to Preboot (root): $dst_root"
 
-        # Also update System volume if writable
-        if [ -n "$system_mount" ] && [ -d "$system_mount/System/Library/CoreServices" ]; then
-            cp "$m1n1_src" "$system_mount/System/Library/CoreServices/boot.efi" 2>/dev/null || true
+    # ── Write into the boot hash directory ────────────────────────────
+    # After bputil -g, the active boot hash may have changed.
+    # Read the active hash and ensure boot.efi is inside it.
+    if [ -f "$preboot_mount/$vg_uuid/boot/active" ]; then
+        boot_hash="$(cat "$preboot_mount/$vg_uuid/boot/active" 2>/dev/null)"
+        if [ -n "$boot_hash" ]; then
+            dst_hash="$preboot_mount/$vg_uuid/boot/$boot_hash/System/Library/CoreServices"
+            mkdir -p "$dst_hash"
+            cp "$m1n1_src" "$dst_hash/boot.efi"
+            chmod 755 "$dst_hash/boot.efi"
+            # Copy SystemVersion.plist if available
+            if [ -f "$system_mount/System/Library/CoreServices/SystemVersion.plist" ]; then
+                cp "$system_mount/System/Library/CoreServices/SystemVersion.plist" "$dst_hash/" 2>/dev/null || true
+            fi
+            echo "m1n1 restored to boot hash dir: $dst_hash/boot.efi"
         fi
-        m1n1_restored=true
-    else
-        echo "WARNING: Preboot destination not found: $dst"
-        m1n1_restored=false
     fi
+
+    # Also update System volume if writable
+    if [ -n "$system_mount" ] && [ -d "$system_mount/System/Library/CoreServices" ]; then
+        cp "$m1n1_src" "$system_mount/System/Library/CoreServices/boot.efi" 2>/dev/null || true
+    fi
+    m1n1_restored=true
 else
     echo "WARNING: m1n1 not found. boot.efi will remain as-is."
     m1n1_restored=false
