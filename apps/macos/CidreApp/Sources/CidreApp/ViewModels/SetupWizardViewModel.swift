@@ -128,6 +128,23 @@ final class SetupWizardViewModel: ObservableObject {
     func runCurrent(repositoryPath: String, isMockMode: Bool, logStore: ExecutionLogStore) {
         guard var operation = operationForCurrentStage() else { return }
 
+        // Require owner credentials for boot-policy-create (bless/bputil needs them)
+        if operation.id == "boot-policy-create", ownerCredentials == nil {
+            let blockedStdout = "{\"status\":\"blocked\",\"summary\":\"Owner credentials required. Please enter your macOS username and password in the Privileged Preparation step before creating the boot policy.\",\"reduced_security_status\":\"manual-recovery-required\"}"
+            lastExecution = CommandExecution(
+                id: UUID(),
+                command: operation.command, arguments: [],
+                workingDirectory: repositoryPath,
+                startedAt: Date(), finishedAt: Date(),
+                exitCode: 4, status: "blocked",
+                stdout: blockedStdout, stderr: ""
+            )
+            bootPolicyVM.updateFromResult(
+                (try? JSONSerialization.jsonObject(with: blockedStdout.data(using: .utf8) ?? Data())) as? [String: Any]
+            )
+            return
+        }
+
         // Append owner credentials and target for boot-policy-create operation
         if operation.id == "boot-policy-create" {
             var cmd = operation.command

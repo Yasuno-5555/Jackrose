@@ -60,33 +60,33 @@ struct BootPolicyStepView: View {
                     }
                 }
 
-                // Auto-run step2 guidance (Asahi-style)
-                if bootPolicyVM.step2Ready {
+                // 1TR Auto-Run setup guidance (Asahi-style: Cidre is default boot → auto-boots into 1TR)
+                if bootPolicyVM.oneTrReady && bootPolicyVM.step2Ready {
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 8) {
                                 Image(systemName: "arrow.triangle.branch")
                                     .foregroundColor(.blue)
-                                Text("Auto-Run Setup Ready")
+                                Text("Automatic Setup Ready — Restart Now")
                                     .font(.headline)
                             }
 
-                            Text("Cidre will auto-complete boot policy setup on first boot. No manual SSU or Terminal needed.")
+                            Text("Cidre is set as the default boot. On restart, your Mac will automatically boot into the Cidre setup environment (Apple-signed). Setup completes in 1–2 minutes, then your Mac restarts back to macOS. No manual steps needed.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
                             Divider()
 
                             VStack(alignment: .leading, spacing: 8) {
-                                StepView(number: 1, icon: "power", title: "Shut down your Mac", detail: "Apple menu → Shut Down")
-                                StepView(number: 2, icon: "hand.tap", title: "Hold power button", detail: "Hold until 'Loading startup options' appears")
-                                StepView(number: 3, icon: "square.grid.3x3", title: "Select Cidre", detail: "Setup runs automatically and restarts")
-                                StepView(number: 4, icon: "hand.tap", title: "Hold power button again", detail: "Select Cidre → Linux boots!")
+                                StepView(number: 1, icon: "arrow.triangle.2.circlepath", title: "Restart your Mac", detail: "Apple menu → Restart (save your work first)")
+                                StepView(number: 2, icon: "gearshape.2", title: "Setup runs automatically", detail: "Cidre sets Reduced Security and installs the m1n1 bootloader")
+                                StepView(number: 3, icon: "arrow.uturn.backward", title: "Mac restarts to macOS", detail: "Setup restores macOS as default and reboots")
+                                StepView(number: 4, icon: "hand.tap", title: "Hold power button to boot Cidre", detail: "From now on, Cidre appears in Startup Options → Linux boots!")
                             }
 
                             Divider()
 
-                            Text("First boot runs the step2 setup automatically (Asahi-style). The second boot loads Linux via m1n1.")
+                            Text("This is the same approach used by the Asahi Linux installer. Cidre is default boot for ONE reboot only — macOS is restored automatically after setup.")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
 
@@ -96,7 +96,7 @@ struct BootPolicyStepView: View {
                                     Button(action: {
                                         wizardVM.markSsuCompleted(repositoryPath: appVM.repositoryPath)
                                     }) {
-                                        Label("Continue to Verification", systemImage: "checkmark.circle")
+                                        Label("I have restarted and setup completed", systemImage: "checkmark.circle")
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(.blue)
@@ -114,8 +114,39 @@ struct BootPolicyStepView: View {
                     }
                 }
 
-                // SSU guidance (fallback when bputil deferred and no step2 automation)
-                if bootPolicyVM.ssuRequired && !bootPolicyVM.step2Ready {
+                // 1TR pending but step2 not fully staged (Cidre IS default boot, user needs to run step2 manually)
+                if bootPolicyVM.oneTrReady && !bootPolicyVM.step2Ready {
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "terminal")
+                                    .foregroundColor(.orange)
+                                Text("1TR Recovery Setup")
+                                    .font(.headline)
+                            }
+
+                            Text("Cidre is set as default boot. On restart, your Mac will boot into the Cidre recovery environment. Open Terminal (Utilities → Terminal) and run the step2 script to complete setup.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if let step2Cmd = bootPolicyVM.step2Command, !step2Cmd.isEmpty {
+                                Text("Run: \(step2Cmd)")
+                                    .font(.caption.monospaced())
+                                    .padding(8)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(6)
+                            }
+
+                            Text("After step2 completes, your Mac restarts to macOS and Cidre appears in Startup Options.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(8)
+                    }
+                }
+
+                // SSU guidance (fallback when 1TR not ready and no step2 automation)
+                if !bootPolicyVM.oneTrReady && !bootPolicyVM.step2Ready {
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 8) {
@@ -164,17 +195,19 @@ struct BootPolicyStepView: View {
                     }
                 }
 
-                // Fallback: manual recovery guidance (if ssuRequired is false but security mode unknown)
-                if !bootPolicyVM.ssuRequired, case .manualRecoveryRequired = bootPolicyVM.reducedSecurityState {
+                // Fallback: no 1TR and no step2 — show manual guidance
+                if !bootPolicyVM.oneTrReady, !bootPolicyVM.step2Ready,
+                    !bootPolicyVM.ssuCompleted,
+                    case .manualRecoveryRequired = bootPolicyVM.reducedSecurityState {
                     GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Image(systemName: "info.circle.fill")
                                     .foregroundColor(.orange)
-                                Text("LocalPolicy creation was deferred.")
+                                Text("Boot policy needs owner authentication.")
                                     .font(.callout)
                             }
-                            Text("Restart into macOS Recovery (hold power button at boot), open Startup Security Utility, select Cidre, and set Security Policy to Reduced Security.")
+                            Text("Go back to Privileged Preparation, enter your macOS credentials, then return here and run the Boot Policy operation.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

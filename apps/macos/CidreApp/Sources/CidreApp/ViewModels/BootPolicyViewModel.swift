@@ -85,6 +85,8 @@ final class BootPolicyViewModel: ObservableObject {
     @Published var restoreCompleted: Bool = false
     /// Whether Reduced Security was verified via bputil -e
     @Published var reducedSecurityVerified: Bool = false
+    /// Whether Cidre is set as default boot for 1TR auto-setup
+    @Published var oneTrReady: Bool = false
     /// Whether the automated step2 script is staged on the Cidre volume
     @Published var step2Ready: Bool = false
     /// Path to the step2 script for Recovery Terminal
@@ -135,11 +137,16 @@ final class BootPolicyViewModel: ObservableObject {
         if let reducedStatus = result["reduced_security_status"] as? String {
             switch reducedStatus {
             case "set-via-bputil", "set-via-fork": reducedSecurityState = .setViaBputil
-            case "set-via-recovery", "recovery-step2-ready": reducedSecurityState = .setViaRecovery
+            case "set-via-recovery", "recovery-step2-ready", "one-tr-pending", "one-tr-manual-step2": reducedSecurityState = .setViaRecovery
+            case "needs-default-boot": reducedSecurityState = .manualRecoveryRequired
             default: reducedSecurityState = .manualRecoveryRequired
             }
         }
 
+        // Parse 1TR auto-setup (Asahi-style) fields
+        if let oneTr = result["one_tr_ready"] as? Bool {
+            oneTrReady = oneTr
+        }
         // Parse step2 automation fields
         if let step2cmd = result["step2_command"] as? String {
             step2Command = step2cmd
