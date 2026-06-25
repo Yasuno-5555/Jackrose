@@ -395,6 +395,38 @@ if [ -n "$preboot_mount" ] && [ -n "$vg_uuid" ]; then
       run_admin "cp ${M1N1_SRC} ${DST_DIR}/System/Library/CoreServices/boot.efi.m1n1" >/dev/null 2>&1 || true
     steps_done="${steps_done}preboot-m1n1-backup "
   fi
+
+  # ── Copy Bootability directory (required for 1TR boot) ────────────────
+  # BootabilityBrain.framework and Bootability.trustcache are REQUIRED
+  # for iBoot to complete the 1TR auto-setup flow. Without these,
+  # selecting Cidre from the boot picker results in a reboot loop.
+  if [ -d "$SRC_RESTORE/Bootability" ]; then
+    rm -rf "$DST_DIR/Bootability" 2>/dev/null || true
+    if cp -R "$SRC_RESTORE/Bootability" "$DST_DIR/Bootability" 2>/dev/null; then
+      steps_done="${steps_done}bootability-copied "
+      echo "Bootability: copied (BootabilityBrain.framework + trustcache)"
+    else
+      run_admin "cp -R ${SRC_RESTORE}/Bootability ${DST_DIR}/Bootability" >/dev/null 2>&1 && {
+        steps_done="${steps_done}bootability-copied(admin) "
+        echo "Bootability: copied via admin"
+      } || steps_failed="${steps_failed}bootability-copy "
+    fi
+  else
+    echo "WARNING: Bootability directory not found in restore bundle."
+    echo "1TR auto-setup may fail without BootabilityBrain.framework."
+    steps_failed="${steps_failed}bootability(missing) "
+  fi
+
+  # ── Copy IM4M manifest files (required for signature verification) ────
+  # iBoot uses apticket.*.im4m to verify the kernelcache IMG4 signature.
+  for im4m in "$SRC_RESTORE"/apticket.*.im4m; do
+    if [ -f "$im4m" ]; then
+      cp "$im4m" "$DST_DIR/" 2>/dev/null || \
+        run_admin "cp ${im4m} ${DST_DIR}/" >/dev/null 2>&1 || true
+      steps_done="${steps_done}im4m-copied "
+      echo "IM4M: $(basename "$im4m") copied"
+    fi
+  done
 fi
 
 # ── Phase 5: Bless (set Cidre as default boot for 1TR flow) ──────────
@@ -650,6 +682,68 @@ SVPEOF
       cp "$M1N1_SRC" "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" 2>/dev/null || true
       chmod 755 "$SYS_MOUNT/System/Library/CoreServices/boot.efi.m1n1" 2>/dev/null || true
       steps_done="${steps_done}m1n1-backup "
+    fi
+
+    # ── Copy PlatformSupport.plist (required for iBoot recognition) ──────
+    # iBoot checks PlatformSupport.plist to verify this Mac model is
+    # supported by the OS. Without it, boot may fail → reboot loop.
+    if [ -f "/System/Library/CoreServices/PlatformSupport.plist" ]; then
+      cp "/System/Library/CoreServices/PlatformSupport.plist" \
+         "$SYS_MOUNT/System/Library/CoreServices/PlatformSupport.plist" 2>/dev/null || true
+      steps_done="${steps_done}platform-support "
+      echo "PlatformSupport.plist: copied"
+    else
+      echo "WARNING: macOS PlatformSupport.plist not found."
+      steps_failed="${steps_failed}platform-support(missing) "
+    fi
+
+    # ── Set APFS bootable flag via fsctl (required for iBoot to boot) ────
+    # Without APFS_BOOTABLE_SET, iBoot won't recognize the volume as
+    # bootable even with SystemVersion.plist and boot.efi present.
+    # This is the #1 cause of "appears in boot picker but reboot loops."
+    echo "Setting APFS bootable flag..."
+    if /usr/bin/python3 -c "
+import ctypes
+from ctypes import c_char_p, c_ulong, POINTER, c_int, CDLL, get_errno, byref
+
+sysdll = CDLL('libSystem.B.dylib', use_errno=True)
+func = sysdll.fsctl
+func.restype = c_int
+func.argtypes = (c_char_p, c_ulong, POINTER(c_int), c_uint)
+
+path = '$SYS_MOUNT'
+
+# Query current state
+cmd = c_int(0)
+err = func(path.encode(), 0xc0044a57, byref(cmd), 0)
+print(f'  Current state: bootable={cmd.value}')
+
+# Set bootable (cmd=1 means set bootable)
+cmd = c_int(1)
+err = func(path.encode(), 0xc0044a57, byref(cmd), 0)
+if err == -1:
+    errn = get_errno()
+    print(f'  WARNING: fsctl SET failed, errno={errn}')
+    if errn == 1:
+        print(f'  (EPERM: volume may need to be writable)')
+    elif errn == 30:
+        print(f'  (EROFS: read-only file system)')
+    raise SystemExit(1)
+
+# Verify
+cmd = c_int(0)
+err = func(path.encode(), 0xc0044a57, byref(cmd), 0)
+print(f'  Verified: bootable={cmd.value}')
+if cmd.value != 1:
+    print(f'  WARNING: bootable flag did not stick!')
+    raise SystemExit(2)
+print(f'  Bootable flag: set')
+" 2>&1; then
+      steps_done="${steps_done}fsctl-bootable "
+      echo "  Bootable flag: OK"
+    else
+      echo "  WARNING: fsctl bootable flag could not be set"
+      steps_failed="${steps_failed}fsctl-bootable "
     fi
 
     step2_ready="true"
