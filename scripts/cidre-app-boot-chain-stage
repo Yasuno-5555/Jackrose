@@ -72,45 +72,60 @@ fi
 # IMPORTANT: Both m1n1.macho (Mach-O) and m1n1.bin (raw ARM64 binary)
 # are needed. kmutil configure-boot --raw requires the raw .bin;
 # the .macho is kept as backup for direct boot.efi placement.
-if [ -f "$m1n1_path" ]; then
-  # Verify it's a Mach-O binary (m1n1_path always points to the .macho)
-  if ! file "$m1n1_path" 2>/dev/null | grep -q "Mach-O"; then
-    errors="${errors}m1n1-not-mach-o($m1n1_path) "
-  else
-    m1n1_dir="$(dirname "$m1n1_path")"
-    mkdir -p "$target_mount/boot"
-    mkdir -p "$target_mount/System/Library/CoreServices"
+# Resolve m1n1_path: if it's a directory, look for m1n1.macho inside
+if [ -d "$m1n1_path" ]; then
+  if [ -f "$m1n1_path/m1n1.macho" ]; then
+    m1n1_path="$m1n1_path/m1n1.macho"
+  elif [ -f "$m1n1_path/m1n1.bin" ]; then
+    m1n1_path="$m1n1_path/m1n1.bin"
+  fi
+fi
 
+if [ -f "$m1n1_path" ]; then
+  # Check if it's a Mach-O or raw binary
+  m1n1_type="$(file "$m1n1_path" 2>/dev/null || true)"
+  m1n1_dir="$(dirname "$m1n1_path")"
+  mkdir -p "$target_mount/boot"
+  mkdir -p "$target_mount/System/Library/CoreServices"
+
+  if echo "$m1n1_type" | grep -q "Mach-O"; then
     # Primary m1n1 Mach-O (backup for direct boot.efi placement)
     cp "$m1n1_path" "$target_mount/boot/m1n1.macho"
     chmod 755 "$target_mount/boot/m1n1.macho"
+    steps="${steps}m1n1-macho-staged "
 
-    # Raw ARM64 binary for kmutil configure-boot --raw in step2
-    # Look alongside the .macho for m1n1.bin
+    # Also copy the raw .bin if available alongside
     if [ -f "$m1n1_dir/m1n1.bin" ]; then
       cp "$m1n1_dir/m1n1.bin" "$target_mount/boot/m1n1.bin"
       chmod 755 "$target_mount/boot/m1n1.bin"
-      staged_files="$staged_files boot/m1n1.bin"
+      staged_files="$staged_files boot/m1n1.macho boot/m1n1.bin"
       steps="${steps}m1n1-bin-staged "
     else
+      staged_files="$staged_files boot/m1n1.macho"
       echo "WARNING: m1n1.bin not found alongside m1n1.macho. kmutil --raw will fail."
-      echo "Rebuild m1n1 with: make RELEASE=1 CHAINLOADING=1"
     fi
-
-    # m1n1 backup for step2 restoration (boot.efi stays as kernelcache)
-    cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
-    chmod 755 "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
-
-    # Only copy to boot.efi if boot.efi doesn't already exist (first-time setup)
-    if [ ! -f "$target_mount/System/Library/CoreServices/boot.efi" ]; then
-      echo "NOTE: boot.efi not present — this volume needs boot-policy-create first"
-      cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi"
-      chmod 755 "$target_mount/System/Library/CoreServices/boot.efi"
-    fi
-
-    staged_files="$staged_files boot/m1n1.macho System/Library/CoreServices/boot.efi.m1n1"
-    steps="${steps}m1n1-staged "
+  else
+    # Raw binary — copy as m1n1.bin
+    cp "$m1n1_path" "$target_mount/boot/m1n1.bin"
+    chmod 755 "$target_mount/boot/m1n1.bin"
+    staged_files="$staged_files boot/m1n1.bin"
+    steps="${steps}m1n1-bin-staged "
+    echo "WARNING: m1n1_path is a raw binary, not Mach-O. Direct boot.efi placement may fail."
   fi
+
+  # m1n1 backup for step2 restoration (boot.efi stays as kernelcache)
+  cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
+  chmod 755 "$target_mount/System/Library/CoreServices/boot.efi.m1n1"
+
+  # Only copy to boot.efi if boot.efi doesn't already exist (first-time setup)
+  if [ ! -f "$target_mount/System/Library/CoreServices/boot.efi" ]; then
+    echo "NOTE: boot.efi not present — this volume needs boot-policy-create first"
+    cp "$m1n1_path" "$target_mount/System/Library/CoreServices/boot.efi"
+    chmod 755 "$target_mount/System/Library/CoreServices/boot.efi"
+  fi
+
+  staged_files="$staged_files boot/m1n1.macho System/Library/CoreServices/boot.efi.m1n1"
+  steps="${steps}m1n1-staged "
 else
   errors="${errors}m1n1-not-found($m1n1_path) "
 fi
