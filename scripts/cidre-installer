@@ -157,7 +157,7 @@ if [ "$RC_DRY_RUN" = true ]; then
 
   echo ""
   echo "2. Simulating system bootstrap actions..."
-  if "${SCRIPT_DIR}/bootstrap.sh" --dry-run >/dev/null; then
+  if "${SCRIPT_DIR}/bootstrap.sh" --dry-run --yes >/dev/null; then
     echo "[OK] Bootstrap dry-run simulated successfully."
   else
     echo "[FAIL] Bootstrap dry-run simulation failed."
@@ -269,19 +269,30 @@ write_user_resume_state() {
   } > "${user_resume_dir}/resume.log"
 }
 
-# ----- Root check -----
+# ----- Root check: show guidance instead of rejecting -----
 if [ "$EUID" -eq 0 ] && [ "$DRY_RUN" = false ] && [ "$CHECK_ONLY" = false ] && [ "$RC_DRY_RUN" = false ]; then
-  echo -e "\e[1;31mFAIL: Do not run ./install as root.\e[0m" >&2
-  echo "" >&2
-  echo "For fresh ALARM root-phase preparation, run:" >&2
-  echo "  ./preinstall" >&2
-  echo "" >&2
-  echo "To inspect current readiness first, run:" >&2
-  echo "  scripts/cidre-doctor --base-readiness --summary" >&2
-  echo "" >&2
-  echo "Then switch to your normal user and run:" >&2
-  echo "  ./install" >&2
-  exit 1
+  echo ""
+  echo -e "\e[1;33mYou are running Cidre as root.\e[0m"
+  echo ""
+  echo "Cidre uses two phases:"
+  echo "  1. Root phase:  create/prepare user, sudo, base dependencies"
+  echo "  2. User phase:  install Cidre desktop, session, and configs"
+  echo ""
+  echo "To run the root phase now:"
+  echo "  ./preinstall"
+  echo ""
+  echo "After root phase, switch to the normal user:"
+  echo "  su - <username>"
+  echo "  cd $(pwd)"
+  echo "  ./install.sh --desktop"
+  echo ""
+  echo "To inspect readiness first:"
+  echo "  scripts/cidre-doctor --base-readiness --summary"
+  echo ""
+  echo "For a dry-run preview (safe as root):"
+  echo "  ./install.sh --desktop --dry-run"
+  echo ""
+  exit 0
 fi
 
 # =====================================================================
@@ -423,7 +434,7 @@ echo ""
 echo "=== Step 3: Previewing Planned Actions ==="
 
 echo "Proposed bootstrap system actions:"
-"${SCRIPT_DIR}/bootstrap.sh" --dry-run
+"${SCRIPT_DIR}/bootstrap.sh" --dry-run --yes
 
 echo ""
 SETUP_PROFILE="$PROFILE"
@@ -483,7 +494,7 @@ if [ "${RESUME_MODE}" = true ]; then
   "${SCRIPT_DIR}/cidre-user-phase-state" set-stage "profile-setup" >/dev/null || true
 fi
 
-if ! sudo "${SCRIPT_DIR}/bootstrap.sh" --install; then
+if ! sudo "${SCRIPT_DIR}/bootstrap.sh" --install --yes; then
   echo ""
   echo -e "\e[1;31m[FAILED] System bootstrap failed\e[0m"
   echo ""

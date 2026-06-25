@@ -1,74 +1,168 @@
 #!/bin/bash
-set -eo pipefail
+# bootstrap.sh — Cidre system bootstrap (root phase)
+# Installs base packages, creates user, configures greetd, deploys configs.
+set -euo pipefail
 
-LOG_FILE="/var/log/cidre/bootstrap.log"
-if [ "$EUID" -eq 0 ]; then
-  mkdir -p "$(dirname "$LOG_FILE")" || true
-  exec > >(tee -a "$LOG_FILE") 2>&1 || true
-fi
+# ----- Defaults (preserve existing system settings when possible) -----
+detect_timezone() {
+  if [ -L /etc/localtime ]; then
+    readlink -f /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || echo "UTC"
+  else
+    echo "UTC"
+  fi
+}
 
+detect_keymap() {
+  if [ -f /etc/vconsole.conf ]; then
+    grep -oP 'KEYMAP=\K.*' /etc/vconsole.conf 2>/dev/null || echo "us"
+  else
+    echo "us"
+  fi
+}
+
+detect_locale() {
+  if [ -f /etc/locale.conf ]; then
+    grep -oP 'LANG=\K.*' /etc/locale.conf 2>/dev/null || echo "en_US.UTF-8"
+  else
+    echo "en_US.UTF-8"
+  fi
+}
+
+# ----- CLI flags -----
+USERNAME=""
+TIMEZONE="$(detect_timezone)"
+KEYMAP="$(detect_keymap)"
+LOCALE="$(detect_locale)"
 DRY_RUN=false
 CHECK_ONLY=false
 INSTALL=false
+YES=false
+PRESET=""
 
 show_help() {
   echo "Usage: bootstrap.sh [options]"
-  echo "Options:"
-  echo "  --check       Perform preflight system checks without making changes"
+  echo ""
+  echo "Modes:"
+  echo "  --check       Preflight system checks without making changes"
   echo "  --dry-run     Show the commands that would be executed"
-  echo "  --install     Perform actual installation of Cidre environment"
-  echo "  --help        Show this help message"
+  echo "  --install     Perform actual installation (requires root)"
+  echo ""
+  echo "Options:"
+  echo "  --user <name>         Username to create/configure"
+  echo "  --timezone <zone>     Timezone (default: detect from /etc/localtime)"
+  echo "  --keymap <map>        Console keymap (default: detect from /etc/vconsole.conf)"
+  echo "  --locale <loc>        System locale LANG (default: detect from /etc/locale.conf)"
+  echo "  --preset japan        Shortcut: jp106 + Asia/Tokyo + ja_JP.UTF-8"
+  echo "  --yes                 Skip non-dangerous prompts"
+  echo "  --no-confirm          Skip all confirmation prompts"
+  echo "  --help                Show this help message"
 }
 
 # Parse options
-if [ $# -eq 0 ]; then
-  show_help
-  exit 0
-fi
-
-for arg in "$@"; do
-  case "$arg" in
-    --check)
-      CHECK_ONLY=true
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      ;;
-    --install)
-      INSTALL=true
-      ;;
-    --help)
-      show_help
-      exit 0
-      ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_ONLY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --install) INSTALL=true; shift ;;
+    --user)
+      [ $# -ge 2 ] || { echo "Error: --user requires an argument" >&2; exit 1; }
+      USERNAME="$2"; shift 2 ;;
+    --timezone)
+      [ $# -ge 2 ] || { echo "Error: --timezone requires an argument" >&2; exit 1; }
+      TIMEZONE="$2"; shift 2 ;;
+    --keymap)
+      [ $# -ge 2 ] || { echo "Error: --keymap requires an argument" >&2; exit 1; }
+      KEYMAP="$2"; shift 2 ;;
+    --locale)
+      [ $# -ge 2 ] || { echo "Error: --locale requires an argument" >&2; exit 1; }
+      LOCALE="$2"; shift 2 ;;
+    --preset)
+      [ $# -ge 2 ] || { echo "Error: --preset requires an argument" >&2; exit 1; }
+      PRESET="$2"; shift 2 ;;
+    --yes) YES=true; shift ;;
+    --no-confirm) YES=true; shift ;;
+    --help|-h) show_help; exit 0 ;;
     *)
-      echo "Unknown option: $arg" >&2
+      echo "Unknown option: $1" >&2
       show_help
       exit 1
       ;;
   esac
 done
 
-# Wrapper for running command
+# Apply preset
+if [ "$PRESET" = "japan" ]; then
+  KEYMAP="jp106"
+  TIMEZONE="Asia/Tokyo"
+  LOCALE="ja_JP.UTF-8"
+  echo "Preset 'japan' applied: keymap=$KEYMAP timezone=$TIMEZONE locale=$LOCALE"
+fi
+
+# ----- Logging -----
+LOG_FILE="/var/log/cidre/bootstrap.log"
+if [ "$EUID" -eq 0 ]; then
+  mkdir -p "$(dirname "$LOG_FILE")" || true
+  exec > >(tee -a "$LOG_FILE") 2>&1 || true
+fi
+
+# ----- Helpers -----
 run_cmd() {
   local desc="$1"
   shift
   if [ "$DRY_RUN" = true ]; then
-    echo "[Dry-Run] Would run: $*"
+    echo "[Dry-Run] Would run: $desc: $*"
   else
     echo "Running: $desc"
     "$@"
   fi
 }
 
+confirm() {
+  if [ "$YES" = true ]; then
+    return 0
+  fi
+  local prompt="$1"
+  read -r -p "$prompt [y/N]: " answer
+  [[ "$answer" =~ ^[yY] ]]
+}
+
+ask_username() {
+  if [ -n "$USERNAME" ]; then
+    echo "Using specified user: $USERNAME"
+    return 0
+  fi
+
+  if [ "$YES" = true ]; then
+    # Detect existing non-root user
+    local existing
+    existing=$(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1; exit}' /etc/passwd 2>/dev/null || echo "")
+    if [ -n "$existing" ]; then
+      USERNAME="$existing"
+      echo "Auto-detected user: $USERNAME"
+    else
+      echo "Error: --yes requires --user when no existing normal user is found." >&2
+      echo "Usage: bootstrap.sh --install --user <name> --yes" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  read -r -p "Enter username to create/configure: " USERNAME
+  if [ -z "$USERNAME" ]; then
+    echo "Username cannot be empty." >&2
+    exit 1
+  fi
+}
+
+# =====================================================================
 preflight_check() {
-  echo "=== Running Preflight Checks ==="
+  echo "=== Preflight Checks ==="
   local errors=0
-  
+
   if [ -f /etc/arch-release ]; then
     echo "[OK] Arch-like environment detected."
   else
-    echo "[WARN] /etc/arch-release not found. This does not look like Arch/ALARM."
+    echo "[WARN] /etc/arch-release not found."
   fi
 
   for cmd in pacman pacman-key systemctl sed locale-gen; do
@@ -79,9 +173,9 @@ preflight_check() {
       errors=$((errors + 1))
     fi
   done
-  
+
   if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" = false ]; then
-    echo "[FAIL] Installation requires root privileges. Please run as root."
+    echo "[FAIL] Installation requires root privileges."
     errors=$((errors + 1))
   fi
 
@@ -89,7 +183,270 @@ preflight_check() {
   return $errors
 }
 
-# Run preflight
+# =====================================================================
+# Keyring detection — check what Asahi keyring is available
+# =====================================================================
+detect_keyring() {
+  echo "=== Detecting Asahi Keyring ==="
+
+  if pacman -Q asahi-alarm-keyring >/dev/null 2>&1; then
+    echo "[OK] asahi-alarm-keyring is installed"
+    echo "asahi-alarm"
+    return
+  fi
+
+  if pacman -Q asahilinux-keyring >/dev/null 2>&1; then
+    echo "[OK] asahilinux-keyring is installed"
+    echo "asahilinux"
+    return
+  fi
+
+  # Neither installed — try to install asahi-alarm-keyring
+  echo "[INFO] No Asahi keyring detected. Will install asahi-alarm-keyring."
+  echo "none"
+}
+
+# =====================================================================
+# Greeter detection — check what greeter is available
+# =====================================================================
+detect_greeter() {
+  echo "=== Detecting Greeter ==="
+
+  if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
+    echo "[OK] greetd-tuigreet is available in repos"
+    echo "greetd-tuigreet:tuigreet"
+  else
+    echo "[INFO] greetd-tuigreet not found in repos, using agreety (bundled with greetd)"
+    echo "greetd:agreety"
+  fi
+}
+
+# =====================================================================
+# Main install
+# =====================================================================
+run_install() {
+  echo "=== Cidre Bootstrap Installer ==="
+  echo "Started at $(date)"
+  echo "  User:     ${USERNAME:-<will prompt>}"
+  echo "  Timezone: $TIMEZONE"
+  echo "  Keymap:   $KEYMAP"
+  echo "  Locale:   $LOCALE"
+  echo ""
+
+  # --- Keyboard ---
+  run_cmd "Setting keyboard layout to $KEYMAP" sh -c "echo 'KEYMAP=$KEYMAP' > /etc/vconsole.conf"
+  if command -v localectl >/dev/null 2>&1; then
+    run_cmd "Registering keymap via localectl" localectl set-keymap "$KEYMAP" || true
+  fi
+
+  # --- Timezone ---
+  if [ -f "/usr/share/zoneinfo/$TIMEZONE" ]; then
+    run_cmd "Setting timezone to $TIMEZONE" ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+  else
+    echo "[WARN] Timezone '$TIMEZONE' not found. Leaving /etc/localtime unchanged."
+  fi
+
+  # --- Locale ---
+  if [ -f /etc/locale.gen ]; then
+    local locale_base="${LOCALE%%.*}"  # e.g. "en_US" from "en_US.UTF-8"
+    if ! grep -q "^$LOCALE " /etc/locale.gen 2>/dev/null && grep -q "#$LOCALE " /etc/locale.gen 2>/dev/null; then
+      run_cmd "Enabling $LOCALE in locale.gen" sed -i "s|#$LOCALE |$LOCALE |" /etc/locale.gen
+    fi
+    # Also enable the base locale if different
+    if [ "$locale_base.UTF-8" = "$LOCALE" ] && [ "$locale_base" != "$LOCALE" ]; then
+      true  # already handled above
+    fi
+    run_cmd "Generating locales" locale-gen || true
+  fi
+  run_cmd "Setting default LANG locale" sh -c "echo 'LANG=$LOCALE' > /etc/locale.conf"
+
+  # --- NetworkManager ---
+  if command -v pacman >/dev/null 2>&1; then
+    run_cmd "Installing NetworkManager" pacman -S --noconfirm --needed networkmanager || true
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    run_cmd "Enabling NetworkManager service" systemctl enable NetworkManager || true
+    run_cmd "Starting NetworkManager service" systemctl start NetworkManager || true
+  fi
+
+  # --- Keyring ---
+  local keyring_name
+  keyring_name=$(detect_keyring)
+  if [ "$keyring_name" = "none" ]; then
+    run_cmd "Installing asahi-alarm-keyring" pacman -S --noconfirm --needed asahi-alarm-keyring || {
+      echo "[INFO] asahi-alarm-keyring not available, trying asahilinux-keyring..."
+      run_cmd "Installing asahilinux-keyring" pacman -S --noconfirm --needed asahilinux-keyring || true
+    }
+    keyring_name=$(detect_keyring)
+  fi
+
+  # Populate keyring
+  run_cmd "Initializing pacman keyring" pacman-key --init
+  case "$keyring_name" in
+    asahi-alarm)
+      run_cmd "Populating keyrings" pacman-key --populate archlinuxarm asahi-alarm || true
+      ;;
+    asahilinux)
+      run_cmd "Populating keyrings" pacman-key --populate archlinuxarm asahilinux || true
+      ;;
+    *)
+      run_cmd "Populating keyrings (archlinuxarm only)" pacman-key --populate archlinuxarm || true
+      ;;
+  esac
+  run_cmd "Syncing pacman database" pacman -Sy --noconfirm
+
+  # --- User creation ---
+  ask_username
+
+  if id "$USERNAME" >/dev/null 2>&1; then
+    echo "User $USERNAME already exists. Adding to wheel and standard groups..."
+  else
+    run_cmd "Creating user $USERNAME" useradd -m -G wheel,video,audio,input,power -s /bin/bash "$USERNAME"
+
+    # Password: lock the account, force passwd on first login
+    if [ "$DRY_RUN" = false ]; then
+      if [ -t 0 ] && [ "$YES" = false ]; then
+        echo "Set password for '$USERNAME':"
+        passwd "$USERNAME"
+      else
+        # Non-interactive mode: lock password login, show next step
+        passwd -l "$USERNAME"
+        echo ""
+        echo "============================================="
+        echo "User '$USERNAME' created with password login locked."
+        echo ""
+        echo "Set password before login:"
+        echo "  passwd $USERNAME"
+        echo "============================================="
+        echo ""
+      fi
+    fi
+  fi
+
+  # Ensure group memberships
+  for grp in wheel video audio input power; do
+    if getent group "$grp" >/dev/null 2>&1; then
+      usermod -aG "$grp" "$USERNAME" 2>/dev/null || true
+    fi
+  done
+
+  # --- Sudoers ---
+  if [ -f /etc/sudoers ]; then
+    run_cmd "Enabling wheel group sudo permissions" sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers 2>/dev/null || true
+    run_cmd "Enabling wheel group sudo permissions (alt)" sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers 2>/dev/null || true
+  fi
+
+  # --- Greeter ---
+  local greeter_info
+  greeter_info=$(detect_greeter)
+  local greeter_pkg="${greeter_info%%:*}"
+  local greeter_cmd="${greeter_info##*:}"
+
+  # Install packages
+  local core_packages="base-devel git greetd $greeter_pkg foot fish fuzzel swaybg pipewire pipewire-alsa pipewire-pulse wireplumber rtkit speakersafetyd xorg-xwayland grim slurp wl-clipboard brightnessctl jq"
+  # shellcheck disable=SC2086
+  run_cmd "Installing core packages via pacman" pacman -S --noconfirm --needed $core_packages
+
+  # Configure greetd
+  run_cmd "Configuring greetd display manager" mkdir -p /etc/greetd
+  if [ "$DRY_RUN" = false ]; then
+    cat <<EOF > /etc/greetd/config.toml
+[default_session]
+command = "$greeter_cmd --time --cmd cidre-session"
+user = "greeter"
+EOF
+  else
+    echo "[Dry-Run] Would write greetd config.toml (greeter: $greeter_cmd)"
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_cmd "Enabling greetd service" systemctl enable greetd || true
+  fi
+
+  # --- Deploy defaults to /usr/share/cidre/defaults/ ---
+  run_cmd "Creating defaults folders" mkdir -p /usr/share/cidre/defaults/{niri,ghostty,fcitx5,environment.d,fish,starship,fuzzel,waybar,applications}
+
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  CIDRE_ROOT="$(dirname "$SCRIPT_DIR")"
+
+  run_cmd "Deploying niri config"        cp -r "$CIDRE_ROOT"/config/niri/*          /usr/share/cidre/defaults/niri/
+  run_cmd "Deploying Ghostty config"     cp -r "$CIDRE_ROOT"/config/ghostty/*       /usr/share/cidre/defaults/ghostty/
+  run_cmd "Deploying Fcitx5 config"      cp -r "$CIDRE_ROOT"/config/fcitx5/*        /usr/share/cidre/defaults/fcitx5/
+  run_cmd "Deploying environment vars"   cp -r "$CIDRE_ROOT"/config/environment.d/* /usr/share/cidre/defaults/environment.d/
+  run_cmd "Deploying fish config"        cp -r "$CIDRE_ROOT"/config/fish/*          /usr/share/cidre/defaults/fish/
+  run_cmd "Deploying Starship config"    cp -r "$CIDRE_ROOT"/config/starship/*      /usr/share/cidre/defaults/starship/
+  run_cmd "Deploying fuzzel config"      cp -r "$CIDRE_ROOT"/config/fuzzel/*        /usr/share/cidre/defaults/fuzzel/
+  run_cmd "Deploying Waybar config"      cp -r "$CIDRE_ROOT"/config/waybar/*        /usr/share/cidre/defaults/waybar/
+  run_cmd "Deploying desktop entries"    cp -r "$CIDRE_ROOT"/config/applications/*  /usr/share/cidre/defaults/applications/
+
+  run_cmd "Creating backgrounds folder" mkdir -p /usr/share/backgrounds
+  run_cmd "Deploying wallpaper"  cp "$CIDRE_ROOT"/config/cidre-wallpaper.png /usr/share/backgrounds/cidre-wallpaper.png
+
+  # --- Install cidre-session ---
+  local pkg_dir="$CIDRE_ROOT/packages/arch/cidre-session"
+  if [ -d "$pkg_dir" ]; then
+    run_cmd "Installing cidre-session runner"      cp "$pkg_dir/cidre-session"        /usr/bin/cidre-session
+    run_cmd "Making session runner executable"     chmod +x /usr/bin/cidre-session
+    run_cmd "Installing desktop session entry"     cp "$pkg_dir/cidre.desktop"        /usr/share/wayland-sessions/cidre.desktop
+    run_cmd "Creating systemd user config dir"     mkdir -p /usr/lib/systemd/user/
+    run_cmd "Installing systemd session service"   cp "$pkg_dir/cidre.service"        /usr/lib/systemd/user/cidre.service
+    run_cmd "Installing systemd shutdown target"   cp "$pkg_dir/cidre-shutdown.target" /usr/lib/systemd/user/cidre-shutdown.target
+    run_cmd "Installing fcitx5 systemd service"    cp "$pkg_dir/fcitx5.service"       /usr/lib/systemd/user/fcitx5.service
+  else
+    echo "[WARN] cidre-session package dir not found at $pkg_dir"
+  fi
+
+  # --- Install cidre scripts to /usr/bin ---
+  for script in cidre-user-setup cidre-welcome cidre-audio cidre-recovery cidre-doctor cidre-firstboot cidre-snapshot cidre-repair; do
+    if [ -f "$CIDRE_ROOT/scripts/$script" ]; then
+      run_cmd "Installing $script" cp "$CIDRE_ROOT/scripts/$script" "/usr/bin/$script"
+      run_cmd "Making $script executable" chmod +x "/usr/bin/$script"
+    fi
+  done
+
+  # Also install lib/ if present
+  if [ -d "$CIDRE_ROOT/lib" ]; then
+    run_cmd "Installing lib/ to /usr/lib/cidre" mkdir -p /usr/lib/cidre
+    run_cmd "Copying lib/" cp -r "$CIDRE_ROOT/lib/cidre"/* /usr/lib/cidre/
+  fi
+
+  # --- Recovery hints ---
+  if [ "$DRY_RUN" = false ]; then
+    cat <<EOF > /etc/cidre-recovery-hints
+=== Cidre Recovery Hints ===
+If niri or greetd fails to start:
+1. Access fallback TTY using Ctrl+Alt+F2
+2. Log in as your user
+3. Run emergency commands:
+   sudo cidre-recovery disable-greetd
+   cidre-user-setup --force
+   cidre-repair --session
+   cidre-repair --configs
+   cidre-repair --audio
+EOF
+  else
+    echo "[Dry-Run] Would write recovery hints to /etc/cidre-recovery-hints"
+  fi
+
+  echo ""
+  echo "=== Cidre Bootstrap Complete ==="
+  echo "Next: Switch to user '$USERNAME' and run:"
+  echo "  cd $CIDRE_ROOT"
+  echo "  ./install.sh --desktop"
+  echo ""
+  echo "Or if you have a seed to resume:"
+  echo "  ./install.sh --resume"
+}
+
+# =====================================================================
+# Main
+# =====================================================================
+
+if [ $# -eq 0 ] && [ "$CHECK_ONLY" = false ] && [ "$DRY_RUN" = false ] && [ "$INSTALL" = false ]; then
+  show_help
+  exit 0
+fi
+
 preflight_check || {
   if [ "$CHECK_ONLY" = true ]; then
     exit 1
@@ -100,149 +457,8 @@ preflight_check || {
 }
 
 if [ "$CHECK_ONLY" = true ]; then
-  echo "Preflight checks passed successfully. System is ready for install."
+  echo "Preflight checks passed. System is ready for install."
   exit 0
 fi
 
-echo "=== Cidre Bootstrap Installer ==="
-echo "Started at $(date)"
-
-# Set keyboard map
-run_cmd "Setting keyboard layout to jp106" sh -c "echo 'KEYMAP=jp106' > /etc/vconsole.conf"
-if command -v localectl >/dev/null 2>&1; then
-  run_cmd "Registering keymap via localectl" localectl set-keymap jp106 || true
-fi
-
-# Set timezone and locale
-run_cmd "Setting timezone to Asia/Tokyo" ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
-if [ -f /etc/locale.gen ]; then
-  run_cmd "Enabling ja_JP/en_US locale generation" sed -i 's/#ja_JP.UTF-8 UTF-8/ja_JP.UTF-8 UTF-8/' /etc/locale.gen
-  run_cmd "Enabling en_US locale generation" sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-  run_cmd "Generating locales" locale-gen || true
-fi
-run_cmd "Setting default LANG locale" sh -c "echo 'LANG=en_US.UTF-8' > /etc/locale.conf"
-
-# Enable NetworkManager
-if command -v pacman >/dev/null 2>&1; then
-  run_cmd "Installing NetworkManager" pacman -S --noconfirm --needed networkmanager || true
-fi
-if command -v systemctl >/dev/null 2>&1; then
-  run_cmd "Enabling NetworkManager service" systemctl enable NetworkManager || true
-  run_cmd "Starting NetworkManager service" systemctl start NetworkManager || true
-fi
-
-# Sudo user setup
-if [ -t 0 ] && [ "$DRY_RUN" = false ]; then
-  read -p "Enter username to create/configure: " USERNAME
-else
-  USERNAME="cidre"
-fi
-
-if [ -z "$USERNAME" ]; then
-  echo "Username cannot be empty." >&2
-  exit 1
-fi
-
-if id "$USERNAME" >/dev/null 2>&1; then
-  echo "User $USERNAME already exists. Adding to wheel and standard groups..."
-else
-  run_cmd "Creating sudo user $USERNAME" useradd -m -G wheel,video,audio,input,power -s /bin/bash "$USERNAME"
-  if [ -t 0 ] && [ "$DRY_RUN" = false ]; then
-    passwd "$USERNAME"
-  else
-    run_cmd "Setting default password for $USERNAME" sh -c "echo '$USERNAME:cidre' | chpasswd"
-  fi
-fi
-
-# Configure sudoers
-if [ -f /etc/sudoers ]; then
-  run_cmd "Enabling wheel group sudo permissions" sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-  run_cmd "Enabling wheel group sudo permissions (alternative format)" sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
-fi
-
-# Update pacman keyring
-run_cmd "Initializing pacman keyring" pacman-key --init
-run_cmd "Populating keyrings" pacman-key --populate archlinuxarm asahi
-run_cmd "Syncing pacman database" pacman -Sy --noconfirm
-
-# Install base components
-run_cmd "Installing core packages via pacman" pacman -S --noconfirm --needed base-devel git greetd greetd-tuigreet foot fish fuzzel swaybg pipewire pipewire-alsa pipewire-pulse wireplumber rtkit speakersafetyd xorg-xwayland grim slurp wl-clipboard brightnessctl jq
-
-# Configure greetd to launch Cidre (tuigreet with cidre-session)
-run_cmd "Configuring greetd display manager" mkdir -p /etc/greetd
-if [ "$DRY_RUN" = false ]; then
-  cat <<EOF > /etc/greetd/config.toml
-[default_session]
-command = "tuigreet --time --cmd cidre-session"
-user = "greeter"
-EOF
-else
-  echo "[Dry-Run] Would write greetd config.toml"
-fi
-
-if command -v systemctl >/dev/null 2>&1; then
-  run_cmd "Enabling greetd service" systemctl enable greetd || true
-fi
-
-# Setup default configurations into /usr/share/cidre/defaults/
-run_cmd "Creating defaults folders" mkdir -p /usr/share/cidre/defaults/niri /usr/share/cidre/defaults/ghostty /usr/share/cidre/defaults/fcitx5 /usr/share/cidre/defaults/environment.d /usr/share/cidre/defaults/fish /usr/share/cidre/defaults/starship /usr/share/cidre/defaults/fuzzel /usr/share/cidre/defaults/waybar /usr/share/cidre/defaults/applications
-
-# Copy default config files from script relative location or from cloned path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CIDRE_ROOT="$(dirname "$SCRIPT_DIR")"
-
-run_cmd "Deploying niri config" cp -r "$CIDRE_ROOT"/config/niri/* /usr/share/cidre/defaults/niri/
-run_cmd "Deploying Ghostty config" cp -r "$CIDRE_ROOT"/config/ghostty/* /usr/share/cidre/defaults/ghostty/
-run_cmd "Deploying Fcitx5 config" cp -r "$CIDRE_ROOT"/config/fcitx5/* /usr/share/cidre/defaults/fcitx5/
-run_cmd "Deploying environment vars" cp -r "$CIDRE_ROOT"/config/environment.d/* /usr/share/cidre/defaults/environment.d/
-run_cmd "Deploying fish config" cp -r "$CIDRE_ROOT"/config/fish/* /usr/share/cidre/defaults/fish/
-run_cmd "Deploying Starship config" cp -r "$CIDRE_ROOT"/config/starship/* /usr/share/cidre/defaults/starship/
-run_cmd "Deploying fuzzel config" cp -r "$CIDRE_ROOT"/config/fuzzel/* /usr/share/cidre/defaults/fuzzel/
-run_cmd "Deploying Waybar config" cp -r "$CIDRE_ROOT"/config/waybar/* /usr/share/cidre/defaults/waybar/
-run_cmd "Deploying Ghostty desktop file" cp -r "$CIDRE_ROOT"/config/applications/* /usr/share/cidre/defaults/applications/
-
-run_cmd "Creating backgrounds folder" mkdir -p /usr/share/backgrounds
-run_cmd "Deploying desktop wallpaper" cp "$CIDRE_ROOT"/config/cidre-wallpaper.png /usr/share/backgrounds/cidre-wallpaper.png
-
-# Install cidre-session binaries/systemd units
-run_cmd "Installing cidre-session runner" cp "$CIDRE_ROOT"/packages/arch/cidre-session/cidre-session /usr/bin/cidre-session
-run_cmd "Making session runner executable" chmod +x /usr/bin/cidre-session
-run_cmd "Installing desktop session entry" cp "$CIDRE_ROOT"/packages/arch/cidre-session/cidre.desktop /usr/share/wayland-sessions/cidre.desktop
-run_cmd "Creating systemd user config directory" mkdir -p /usr/lib/systemd/user/
-run_cmd "Installing systemd session service" cp "$CIDRE_ROOT"/packages/arch/cidre-session/cidre.service /usr/lib/systemd/user/cidre.service
-run_cmd "Installing systemd shutdown target" cp "$CIDRE_ROOT"/packages/arch/cidre-session/cidre-shutdown.target /usr/lib/systemd/user/cidre-shutdown.target
-run_cmd "Installing fcitx5 systemd service" cp "$CIDRE_ROOT"/packages/arch/cidre-session/fcitx5.service /usr/lib/systemd/user/fcitx5.service
-
-# Install cidre scripts into bin
-run_cmd "Installing user-setup script" cp "$CIDRE_ROOT"/scripts/cidre-user-setup /usr/bin/cidre-user-setup
-run_cmd "Making user-setup executable" chmod +x /usr/bin/cidre-user-setup
-run_cmd "Installing welcome script" cp "$CIDRE_ROOT"/scripts/cidre-welcome /usr/bin/cidre-welcome
-run_cmd "Making welcome executable" chmod +x /usr/bin/cidre-welcome
-run_cmd "Installing audio manager script" cp "$CIDRE_ROOT"/scripts/cidre-audio /usr/bin/cidre-audio
-run_cmd "Making audio manager executable" chmod +x /usr/bin/cidre-audio
-run_cmd "Installing recovery script" cp "$CIDRE_ROOT"/scripts/cidre-recovery /usr/bin/cidre-recovery
-run_cmd "Making recovery executable" chmod +x /usr/bin/cidre-recovery
-run_cmd "Installing diagnostics doctor script" cp "$CIDRE_ROOT"/scripts/cidre-doctor /usr/bin/cidre-doctor
-run_cmd "Making doctor executable" chmod +x /usr/bin/cidre-doctor
-run_cmd "Installing firstboot validator script" cp "$CIDRE_ROOT"/scripts/cidre-firstboot /usr/bin/cidre-firstboot
-run_cmd "Making firstboot executable" chmod +x /usr/bin/cidre-firstboot
-run_cmd "Installing snapshot utility script" cp "$CIDRE_ROOT"/scripts/cidre-snapshot /usr/bin/cidre-snapshot
-run_cmd "Making snapshot utility executable" chmod +x /usr/bin/cidre-snapshot
-
-# Generate recovery hints
-run_cmd "Generating recovery hints at /etc/cidre-recovery-hints" sh -c "echo 'Cidre Recovery Hints generated' > /dev/null"
-if [ "$DRY_RUN" = false ]; then
-  cat <<EOF > /etc/cidre-recovery-hints
-=== Cidre Recovery Hints ===
-If niri or greetd fails to start:
-1. Access fallback TTY using Ctrl+Alt+F2
-2. Log in as your sudo user
-3. Run emergency command:
-   sudo cidre-recovery disable-greetd
-4. Reset configurations if needed:
-   cidre-user-setup --force
-EOF
-fi
-
-echo "=== Cidre Bootstrap Complete ==="
-echo "Please reboot to test greetd and the Cidre session."
+run_install

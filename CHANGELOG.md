@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.36.1] - 2026-06-25
+
+### Fixed — Bootstrap Reality Fix Pack
+
+- **`install.sh` auto-clone**: When run via `curl | bash` or without the full repo, `install.sh` auto-clones the Cidre repository from GitHub (using `git` or `curl+tar` fallback) before launching the installer. Makes the README one-liner actually work.
+- **`bootstrap.sh` non-interactive**: Added `--user`, `--timezone`, `--keymap`, `--locale`, `--preset japan`, `--yes` flags. Detects existing system settings as defaults (timezone from `/etc/localtime`, keymap from `/etc/vconsole.conf`, locale from `/etc/locale.conf`).
+- **Root execution guidance**: Running `install.sh` as root now shows clear two-phase guidance (preinstall → user → install) instead of just rejecting.
+- **Keyring detection**: Checks for `asahi-alarm-keyring` first, falls back to `asahilinux-keyring`, installs if missing. No longer hardcodes `pacman-key --populate asahi`.
+- **Greeter fallback**: Detects if `greetd-tuigreet` is available in repos before installing; falls back to `agreety` (bundled with `greetd`) if not.
+- **Password policy**: Non-interactive mode now locks the account with `passwd -l` instead of setting a hardcoded password. Shows clear next-step instructions.
+
+### Changed
+
+- **`install`**: Complete rewrite with stdin detection and auto-clone logic.
+- **`scripts/bootstrap.sh`**: Rewritten with CLI flags, system setting detection, keyring fallback, greeter detection, safe password handling.
+- **`scripts/cidre-installer`**: Root guidance updated; passes `--yes` to `bootstrap.sh`.
+- **README.md**: Quick Install section updated to reflect the working `curl | bash` one-liner and root phase instructions.
+
 ## [0.36.0] - 2026-06-25
 
 ### Added

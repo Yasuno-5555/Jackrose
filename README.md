@@ -191,19 +191,35 @@ The goal is to verify build, launch readiness, repository selection, safe read-o
 
 ## Quick Install
 
-If you already have a fresh ALARM (Arch Linux ARM) / Asahi Linux environment on your Apple Silicon Mac:
+On an ALARM (Arch Linux ARM) / Asahi Linux environment on Apple Silicon:
+
+### One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/install.sh -o cidre-install.sh
-bash cidre-install.sh
+curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/install.sh | bash
 ```
 
-For developers:
+This auto-detects whether the Cidre repository is present. If not, it clones the repo automatically (requires `git` or `curl+tar`), then launches the installer.
+
+### From a local clone
 
 ```bash
 git clone https://github.com/Yasuno-5555/Cidre.git
 cd Cidre
 ./install.sh
+```
+
+### Fresh ALARM (root phase first)
+
+If you just booted a fresh ALARM system as root:
+
+```bash
+git clone https://github.com/Yasuno-5555/Cidre.git
+cd Cidre
+./preinstall
+su - <username>
+cd ~/Cidre
+./install.sh --desktop
 ```
 
 ### Choose your profile
