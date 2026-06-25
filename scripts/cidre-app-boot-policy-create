@@ -749,6 +749,22 @@ SVPEOF
       steps_failed="${steps_failed}platform-support(missing) "
     fi
 
+    # ── Deploy bootcaches.plist (required for iBoot to find boot.efi) ────
+    # Asahi-alarm reference: stub.py install_files() extracts bootcaches.plist
+    # from the IPSW to the System volume. This plist tells iBoot where to find
+    # boot.efi (via BooterPaths.EFIBooter) and kernelcaches.
+    if [ -f "/usr/standalone/bootcaches.plist" ]; then
+      mkdir -p "$SYS_MOUNT/usr/standalone"
+      cp "/usr/standalone/bootcaches.plist" \
+         "$SYS_MOUNT/usr/standalone/bootcaches.plist" 2>/dev/null || true
+      steps_done="${steps_done}bootcaches-deployed "
+      echo "bootcaches.plist: deployed (iBoot boot file resolution)"
+    else
+      echo "WARNING: macOS bootcaches.plist not found at /usr/standalone/."
+      echo "iBoot may use default search paths for boot.efi."
+      steps_done="${steps_done}bootcaches-skipped "
+    fi
+
     # ── Set APFS bootable flag via fsctl (required for iBoot to boot) ────
     # Without APFS_BOOTABLE_SET, iBoot won't recognize the volume as
     # bootable even with SystemVersion.plist and boot.efi present.

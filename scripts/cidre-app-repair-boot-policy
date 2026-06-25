@@ -1,0 +1,391 @@
+#!/bin/sh
+set -eu
+# cidre-app-repair-boot-policy
+# Emergency repair: writes missing .IAPhysicalMedia, Bootability, and IM4M files
+# to fix "Your computer was restarted because of a problem" kernel panic.
+#
+# The panic occurs because .IAPhysicalMedia is missing → 1TR mode doesn't trigger
+# → kernel tries normal boot on empty System volume → panic.
+#
+# Usage: cidre-app-repair-boot-policy [--dry-run] [--json]
+
+dry_run=false
+json_mode=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=true; shift ;;
+    --json) json_mode=true; shift ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+run_admin() {
+  /usr/bin/osascript \
+    -e 'on run argv' \
+    -e 'do shell script (item 1 of argv) with administrator privileges' \
+    -e 'end run' \
+    "$1" 2>&1
+}
+
+repairs_done=""
+repairs_failed=""
+
+# ── Discovery ─────────────────────────────────────────────────────────
+echo "=== Cidre Boot Policy Repair ==="
+echo ""
+
+# Find Cidre Volume Group via diskutil info (most reliable method)
+# First try: from mounted /Volumes/Cidre (Data volume)
+CIDRE_VG=$(diskutil info /Volumes/Cidre 2>/dev/null | grep "APFS Volume Group" | awk -F': ' '{print $2}' | tr -d ' ')
+# Second try: scan all volumes
+if [ -z "$CIDRE_VG" ]; then
+  CIDRE_VG=$(diskutil list -plist 2>/dev/null | python3 -c "
+import plistlib, sys
+d = plistlib.loads(sys.stdin.buffer.read())
+for disk in d.get('AllDisksAndPartitions', []):
+    for part in disk.get('Partitions', []):
+        if part.get('VolumeName') == 'Cidre':
+            import subprocess
+            info = subprocess.run(['/usr/sbin/diskutil', 'info', '-plist', part['DeviceIdentifier']],
+                                  capture_output=True)
+            vg = plistlib.loads(info.stdout).get('APFSVolumeGroupUUID', '')
+            if vg: print(vg); sys.exit(0)
+  " 2>/dev/null || echo "")
+fi
+
+if [ -z "$CIDRE_VG" ]; then
+  echo "ERROR: Cidre Volume Group not found. Is /Volumes/Cidre mounted?" >&2
+  echo "Run: diskutil mount disk3s1" >&2
+  exit 1
+fi
+echo "Cidre VG UUID: $CIDRE_VG"
+
+# Find container: scan for the volume with this VG UUID
+CONTAINER=$(diskutil info /Volumes/Cidre 2>/dev/null | grep "APFS Container:" | awk -F': ' '{print $2}' | tr -d ' ')
+if [ -z "$CONTAINER" ]; then
+  echo "ERROR: Cannot determine container." >&2
+  exit 1
+fi
+echo "Container: $CONTAINER"
+
+# Find volumes by convention: System=s2, Preboot=s3, Recovery=s4 in same container
+SYS_VOL="${CONTAINER}s2"
+PREBOOT_DEV="${CONTAINER}s3"
+DATA_MOUNT="/Volumes/Cidre"
+
+# Verify
+if ! diskutil info "$SYS_VOL" >/dev/null 2>&1; then
+  echo "ERROR: System volume $SYS_VOL not found" >&2
+  exit 1
+fi
+if ! diskutil info "$PREBOOT_DEV" >/dev/null 2>&1; then
+  echo "ERROR: Preboot volume $PREBOOT_DEV not found" >&2
+  exit 1
+fi
+
+echo "System volume: $SYS_VOL"
+echo "Preboot device: $PREBOOT_DEV"
+echo "Data mount: $DATA_MOUNT"
+
+if [ "$dry_run" = true ]; then
+  echo ""
+  echo "Dry-run: would repair:"
+  echo "  1. Write .IAPhysicalMedia to System volume"
+  echo "  2. Copy Bootability to Preboot volume"
+  echo "  3. Copy IM4M files to Preboot volume"
+  exit 0
+fi
+
+# ── Repair 1: .IAPhysicalMedia on System volume ───────────────────────
+echo ""
+echo "[1/3] Writing .IAPhysicalMedia to System volume..."
+
+# Detect macOS VG UUID for recoveryOS path reference
+MACOS_VGID="$(diskutil info / 2>/dev/null | grep "APFS Volume Group" | awk -F': ' '{print $2}' | head -1 || echo "")"
+
+NEEDS_IAP=0
+if [ -n "$SYS_VOL" ]; then
+  # Mount and check
+  diskutil mount "$SYS_VOL" 2>/dev/null || true
+  SYS_MOUNT=$(diskutil info -plist "$SYS_VOL" 2>/dev/null | python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read()).get("MountPoint",""))' 2>/dev/null || echo "")
+
+  if [ ! -f "$SYS_MOUNT/.IAPhysicalMedia" ]; then
+    NEEDS_IAP=1
+  else
+    echo "  .IAPhysicalMedia already exists — skipping"
+    repairs_done="${repairs_done}iaphysicalmedia(already-present) "
+  fi
+fi
+
+if [ "$NEEDS_IAP" = "1" ]; then
+  # Remove System role to make writable
+  echo "  Removing System role temporarily..."
+  diskutil unmount "$SYS_VOL" 2>/dev/null || true
+  sleep 1
+
+  role_removed="false"
+  if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL} clear" 2>&1; then
+    role_removed="true"
+    echo "  System role: removed"
+  else
+    # Try bare invocation
+    if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL}" 2>&1; then
+      role_removed="true"
+      echo "  System role: removed (bare)"
+    else
+      echo "  ERROR: Could not remove System role"
+      repairs_failed="${repairs_failed}system-role-remove "
+    fi
+  fi
+
+  if [ "$role_removed" = "true" ]; then
+    diskutil mount "$SYS_VOL" 2>/dev/null || true
+    sleep 1
+    SYS_MOUNT=$(diskutil info -plist "$SYS_VOL" 2>/dev/null | python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read()).get("MountPoint",""))' 2>/dev/null || echo "")
+
+    if [ -n "$SYS_MOUNT" ] && [ -d "$SYS_MOUNT" ]; then
+      # Write .IAPhysicalMedia
+      cat > "$SYS_MOUNT/.IAPhysicalMedia" << 'IAPEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>FinishInstallPhase</key>
+	<string>Install</string>
+</dict>
+</plist>
+IAPEOF
+      chmod 644 "$SYS_MOUNT/.IAPhysicalMedia" 2>/dev/null || true
+
+      if [ -f "$SYS_MOUNT/.IAPhysicalMedia" ]; then
+        echo "  .IAPhysicalMedia: written ✓"
+        repairs_done="${repairs_done}iaphysicalmedia "
+      else
+        echo "  ERROR: .IAPhysicalMedia write failed"
+        repairs_failed="${repairs_failed}iaphysicalmedia "
+      fi
+
+      # Copy Finish Installation.app (if available)
+      FINISH_APP_SRC="$REPO_ROOT/resources/Finish Installation.app"
+      if [ -d "$FINISH_APP_SRC" ]; then
+        rm -rf "$SYS_MOUNT/Finish Installation.app" 2>/dev/null || true
+        if cp -R "$FINISH_APP_SRC" "$SYS_MOUNT/Finish Installation.app" 2>/dev/null; then
+          chmod -R 755 "$SYS_MOUNT/Finish Installation.app" 2>/dev/null || true
+          echo "  Finish Installation.app: copied ✓"
+          repairs_done="${repairs_done}finish-app "
+        fi
+      else
+        echo "  Finish Installation.app: source not found (skipped)"
+      fi
+
+      # Copy step2 script
+      STEP2_SRC="$SCRIPT_DIR/cidre-app-recovery-step2"
+      if [ -f "$STEP2_SRC" ]; then
+        cp "$STEP2_SRC" "$SYS_MOUNT/cidre-step2.sh" 2>/dev/null && {
+          chmod +x "$SYS_MOUNT/cidre-step2.sh" 2>/dev/null || true
+          echo "  cidre-step2.sh: copied ✓"
+          repairs_done="${repairs_done}step2-on-system "
+        }
+      fi
+
+      # Verify fsctl bootable flag
+      echo "  Verifying fsctl bootable flag..."
+      python3 -c "
+import ctypes
+from ctypes import c_char_p, c_ulong, POINTER, c_int, CDLL, get_errno, byref
+
+sysdll = CDLL('libSystem.B.dylib', use_errno=True)
+func = sysdll.fsctl
+func.restype = c_int
+func.argtypes = (c_char_p, c_ulong, POINTER(c_int), c_uint)
+
+cmd = c_int(0)
+err = func(b'$SYS_MOUNT', 0xc0044a57, byref(cmd), 0)
+if cmd.value != 1:
+    cmd = c_int(1)
+    err = func(b'$SYS_MOUNT', 0xc0044a57, byref(cmd), 0)
+    if err == -1:
+        errn = get_errno()
+        print(f'  WARNING: fsctl SET failed, errno={errn}')
+    else:
+        print(f'  fsctl bootable: set ✓')
+        cmd = c_int(0)
+        func(b'$SYS_MOUNT', 0xc0044a57, byref(cmd), 0)
+        print(f'  Verified: bootable={cmd.value}')
+else:
+    print(f'  fsctl bootable: already set ✓')
+" 2>&1 || echo "  WARNING: fsctl bootable verification had issues"
+
+    fi
+
+    # Restore System role
+    diskutil unmount "$SYS_VOL" 2>/dev/null || true
+    sleep 1
+    if run_admin "/usr/sbin/diskutil apfs changeVolumeRole ${SYS_VOL} S" 2>&1; then
+      echo "  System role: restored ✓"
+    else
+      echo "  WARNING: Could not restore System role"
+      repairs_failed="${repairs_failed}system-role-restore "
+    fi
+    diskutil mount "$SYS_VOL" 2>/dev/null || true
+  fi
+fi
+
+# ── Repair 2: Bootability on Preboot volume ───────────────────────────
+echo ""
+echo "[2/3] Copying Bootability to Preboot volume..."
+
+if [ -n "$PREBOOT_DEV" ]; then
+  diskutil mount "$PREBOOT_DEV" 2>/dev/null || true
+  PREBOOT_MOUNT=$(diskutil info -plist "$PREBOOT_DEV" 2>/dev/null | python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read()).get("MountPoint",""))' 2>/dev/null || echo "")
+
+  if [ -n "$PREBOOT_MOUNT" ] && [ -d "$PREBOOT_MOUNT/$CIDRE_VG" ]; then
+    CIDRE_PREBOOT="$PREBOOT_MOUNT/$CIDRE_VG"
+
+    # Check Bootability
+    if [ ! -d "$CIDRE_PREBOOT/Bootability" ]; then
+      # Find macOS restore bundle as source
+      if [ -z "$MACOS_VGID" ]; then
+        MACOS_VGID=$(ls -d /System/Volumes/Preboot/*/restore 2>/dev/null | head -1 | xargs dirname 2>/dev/null | xargs basename 2>/dev/null || echo "")
+      fi
+
+      BOOTABILITY_SRC=""
+      if [ -n "$MACOS_VGID" ] && [ -d "/System/Volumes/Preboot/${MACOS_VGID}/restore/Bootability" ]; then
+        BOOTABILITY_SRC="/System/Volumes/Preboot/${MACOS_VGID}/restore/Bootability"
+      elif [ -d "$CIDRE_PREBOOT/restore/Bootability" ]; then
+        BOOTABILITY_SRC="$CIDRE_PREBOOT/restore/Bootability"
+      fi
+
+      if [ -n "$BOOTABILITY_SRC" ]; then
+        if cp -R "$BOOTABILITY_SRC" "$CIDRE_PREBOOT/Bootability" 2>/dev/null; then
+          echo "  Bootability: copied ✓"
+          repairs_done="${repairs_done}bootability "
+        else
+          echo "  WARNING: Bootability copy failed (may need admin)"
+          repairs_failed="${repairs_failed}bootability "
+        fi
+      else
+        echo "  WARNING: Bootability source not found"
+        repairs_failed="${repairs_failed}bootability(missing-source) "
+      fi
+    else
+      echo "  Bootability: already exists ✓"
+      repairs_done="${repairs_done}bootability(already-present) "
+    fi
+
+    # ── Repair 3: IM4M files ──────────────────────────────────────────
+    echo ""
+    echo "[3/3] Copying IM4M files to Preboot..."
+
+    IM4M_COUNT=0
+    if [ -n "$MACOS_VGID" ]; then
+      for im4m in /System/Volumes/Preboot/${MACOS_VGID}/restore/apticket.*.im4m; do
+        if [ -f "$im4m" ]; then
+          im4m_base=$(basename "$im4m")
+          if [ ! -f "$CIDRE_PREBOOT/$im4m_base" ]; then
+            cp "$im4m" "$CIDRE_PREBOOT/" 2>/dev/null && {
+              IM4M_COUNT=$((IM4M_COUNT + 1))
+            }
+          else
+            IM4M_COUNT=$((IM4M_COUNT + 1))
+          fi
+        fi
+      done
+    fi
+
+    if [ "$IM4M_COUNT" -gt 0 ]; then
+      echo "  IM4M files: $IM4M_COUNT present ✓"
+      repairs_done="${repairs_done}im4m($IM4M_COUNT) "
+    else
+      echo "  WARNING: No IM4M files found (may affect signature verification)"
+      repairs_failed="${repairs_failed}im4m(missing) "
+    fi
+  else
+    echo "  ERROR: Preboot VG directory not found at $PREBOOT_MOUNT/$CIDRE_VG"
+    repairs_failed="${repairs_failed}preboot-vg-dir "
+  fi
+else
+  echo "  ERROR: Preboot device not found"
+  repairs_failed="${repairs_failed}preboot-device "
+fi
+
+# ── Final verification ────────────────────────────────────────────────
+echo ""
+echo "=== Repair Summary ==="
+echo ""
+
+# Re-mount and verify
+diskutil mount "$SYS_VOL" 2>/dev/null || true
+SYS_MOUNT=$(diskutil info -plist "$SYS_VOL" 2>/dev/null | python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read()).get("MountPoint",""))' 2>/dev/null || echo "")
+
+ALL_OK=true
+
+echo "System volume ($SYS_MOUNT):"
+if [ -f "$SYS_MOUNT/.IAPhysicalMedia" ]; then
+  echo "  .IAPhysicalMedia: ✓ ($(wc -c < "$SYS_MOUNT/.IAPhysicalMedia") bytes)"
+else
+  echo "  .IAPhysicalMedia: ✗ MISSING"
+  ALL_OK=false
+fi
+
+if [ -f "$SYS_MOUNT/System/Library/CoreServices/boot.efi" ]; then
+  echo "  boot.efi: ✓ ($(du -sh "$SYS_MOUNT/System/Library/CoreServices/boot.efi" | awk '{print $1}'))"
+else
+  echo "  boot.efi: ✗ MISSING"
+  ALL_OK=false
+fi
+
+if [ -f "$SYS_MOUNT/System/Library/CoreServices/SystemVersion.plist" ]; then
+  echo "  SystemVersion.plist: ✓"
+else
+  echo "  SystemVersion.plist: ✗ MISSING"
+  ALL_OK=false
+fi
+
+echo ""
+echo "Preboot volume:"
+if [ -d "/Volumes/Preboot/$CIDRE_VG/Bootability" ]; then
+  echo "  Bootability: ✓"
+else
+  echo "  Bootability: ✗ MISSING"
+  ALL_OK=false
+fi
+
+IM4M_CHECK=$(ls /Volumes/Preboot/$CIDRE_VG/apticket.*.im4m 2>/dev/null | wc -l | tr -d ' ')
+if [ "$IM4M_CHECK" -gt 0 ]; then
+  echo "  IM4M files: ✓ ($IM4M_CHECK files)"
+else
+  echo "  IM4M files: ✗ MISSING"
+  # Not critical for boot, but noted
+fi
+
+echo ""
+echo "Recovery volume:"
+if [ -f "/Volumes/Recovery/$CIDRE_VG/usr/standalone/firmware/arm64eBaseSystem.dmg" ]; then
+  echo "  arm64eBaseSystem.dmg: ✓ ($(du -sh "/Volumes/Recovery/$CIDRE_VG/usr/standalone/firmware/arm64eBaseSystem.dmg" | awk '{print $1}'))"
+else
+  echo "  arm64eBaseSystem.dmg: ✗ MISSING"
+  ALL_OK=false
+fi
+
+echo ""
+
+if [ -z "$repairs_failed" ] && [ "$ALL_OK" = "true" ]; then
+  echo "=== Repair Complete ✓ ==="
+  echo ""
+  echo "Next steps:"
+  echo "1. Reboot your Mac"
+  echo "2. Hold power button → select Cidre"
+  echo "3. 1TR recoveryOS should boot automatically"
+  echo "4. Open Terminal → run: /Volumes/Cidre/cidre/step2.sh"
+  exit 0
+else
+  echo "=== Repair Incomplete ✗ ==="
+  echo "Repairs done: $repairs_done"
+  echo "Repairs failed: $repairs_failed"
+  exit 4
+fi

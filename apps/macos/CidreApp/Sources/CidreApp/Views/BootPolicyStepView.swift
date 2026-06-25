@@ -71,7 +71,7 @@ struct BootPolicyStepView: View {
                                     .font(.headline)
                             }
 
-                            Text("Cidre is set as the default boot. On restart, your Mac will automatically boot into the Cidre setup environment (Apple-signed). Setup completes in 1–2 minutes, then your Mac restarts back to macOS. No manual steps needed.")
+                            Text("Cidre is set as the default boot. On restart, your Mac will automatically boot into the Cidre setup environment (1TR — One True Recovery) using an Apple-signed kernelcache. Setup completes in 1–2 minutes, then your Mac restarts back to macOS. No manual steps needed.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
@@ -79,14 +79,14 @@ struct BootPolicyStepView: View {
 
                             VStack(alignment: .leading, spacing: 8) {
                                 StepView(number: 1, icon: "arrow.triangle.2.circlepath", title: "Restart your Mac", detail: "Apple menu → Restart (save your work first)")
-                                StepView(number: 2, icon: "gearshape.2", title: "Setup runs automatically", detail: "Cidre sets Reduced Security and installs the m1n1 bootloader")
+                                StepView(number: 2, icon: "gearshape.2", title: "Setup runs automatically", detail: "bputil sets Reduced Security, kmutil installs m1n1 (--raw --entry-point 2048) as custom boot object")
                                 StepView(number: 3, icon: "arrow.uturn.backward", title: "Mac restarts to macOS", detail: "Setup restores macOS as default and reboots")
                                 StepView(number: 4, icon: "hand.tap", title: "Hold power button to boot Cidre", detail: "From now on, Cidre appears in Startup Options → Linux boots!")
                             }
 
                             Divider()
 
-                            Text("This is the same approach used by the Asahi Linux installer. Cidre is default boot for ONE reboot only — macOS is restored automatically after setup.")
+                            Text("This is the same approach used by the Asahi Linux installer (asahi-alarm reference). Cidre is default boot for ONE reboot only — during that boot, bputil sets Reduced Security and kmutil installs m1n1 (entry-point 2048, matching Asahi's boot.bin layout). macOS is restored as default automatically after setup.")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
 

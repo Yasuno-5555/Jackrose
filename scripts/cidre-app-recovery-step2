@@ -159,11 +159,11 @@ echo "Boot object: $BOOT_OBJ"
 
 # Determine if the boot object is Mach-O or raw binary.
 # kmutil configure-boot --raw requires a raw ARM64 binary.
-# m1n1.bin = raw ARM64, code starts at offset 0 (entry point = 0).
+# m1n1.bin = raw ARM64, exception vectors at offset 0, _start at 0x800.
 # m1n1.macho = Mach-O (magic 0xfeedfacf), has 0x4000-byte header.
 BOOT_MAGIC=$(xxd -l 4 -p "$BOOT_OBJ" 2>/dev/null || echo "")
 FOUND_RAW=false
-ENTRY_POINT=0
+ENTRY_POINT=2048
 
 if [ "$BOOT_MAGIC" = "cffaedfe" ]; then
   echo "NOTE: Boot object is a Mach-O file. Looking for accompanying raw binary..."
@@ -200,12 +200,16 @@ else
   echo "Boot object appears to be a raw ARM64 binary."
 fi
 
-# m1n1.bin from Cidre's build (m1n1-raw.ld) starts code at offset 0.
-# ARM64 instructions at offset 0: 09 06 80 d2 = MOVZ x9, #0x30.
-# Entry point (_start) is at the beginning of .init, offset 0.
-# The Asahi reference uses --entry-point 2048 for their m1n1.bin which
-# has an Image4/header prefix; Cidre's build does not.
-echo "Entry point: $ENTRY_POINT (code starts at offset 0 in m1n1.bin)"
+# m1n1.bin from Cidre's build (m1n1-raw.ld) starts with the exception
+# vector table at offset 0 (0x000-0x7FF, 16 vectors × 128 bytes each).
+# _start is at offset 0x800 (2048) within the .init section.
+# If iBoot jumps to offset 0, it hits the first vector (mov x9,'0'; b cpu_reset;
+# → watchdog reboot) — which causes the "kernel panic" / unexpected restart.
+#
+# This matches the Asahi-alarm reference which uses --entry-point 2048:
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+#   step2.sh: kmutil configure-boot -c boot.bin --raw --entry-point 2048 ...
+echo "Entry point: $ENTRY_POINT (_start at offset 0x800 in m1n1.bin)"
 
 # Asahi-alarm: kmutil configure-boot -c boot.bin --raw --entry-point ...
 #   --lowest-virtual-address 0 -v "$system_dir"
