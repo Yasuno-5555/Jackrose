@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.36.0] - 2026-06-25
+
+### Added
+
+- **Direct profile flags**: `--desktop`, `--dev`, `--student`, `--minimal` as first-class CLI flags on `install.sh`.
+- **Student profile**: Lightweight desktop profile for educational use.
+- **`cidre-repair` command**: Focused repair tool with `--configs`, `--session`, `--audio`, `--all` targets. Simpler than full `cidre-recovery`.
+- **Interactive `cidre-welcome`**: First-login dashboard with numbered menu for input method setup, audio test, terminal/shell selection, and docs.
+- **`lib/cidre/` shared libraries**: `ui.sh` (TUI helpers), `log.sh` (logging), `checks.sh` (system checks), `rollback.sh` (snapshots).
+- **`install.sh` symlink**: Top-level `install.sh` for `curl | bash` one-liner compatibility.
+- **Brand promise display**: Every install prints and confirms "Cidre will NOT change macOS default boot, NVRAM boot order, boot policy, recovery partition".
+- **Failure UX pattern**: All error messages now include Likely causes, Try (recovery commands), and Log path.
+- **`--no-confirm` flag**: Skip non-dangerous confirmations. Brand promise confirmation is never skipped.
+- **`docs/install.md`**: New comprehensive install guide for the `install.sh` flow.
+
+### Changed
+
+- **`scripts/cidre-installer`**: Rewritten with shared library support, direct flags, Student profile, brand promise, and improved failure UX.
+- **`scripts/cidre-user-setup`**: Added `student` and `recovery` profile mappings.
+- **`scripts/cidre-doctor`**: `valid_profile` now includes `student`.
+- **README.md**: Added Quick Install section with one-liner and profile descriptions.
+
+### Notes
+
+This release focuses on installer UX: CLI-first, single entry point, clear failure messages, and a brand promise of not touching macOS boot configuration. The macOS GUI app is unchanged.
+
 ## [0.35.6] - 2026-06-22
 
 ### Added

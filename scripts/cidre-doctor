@@ -299,7 +299,7 @@ print_result() {
 
 valid_profile() {
   case "$1" in
-    desktop|developer|minimal|recovery) return 0 ;;
+    desktop|developer|student|minimal|recovery) return 0 ;;
     *) return 1 ;;
   esac
 }

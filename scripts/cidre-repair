@@ -1,0 +1,329 @@
+#!/bin/bash
+# cidre-repair: Cidre focused repair tool — simpler than full cidre-recovery
+# Usage: cidre-repair [--configs|--session|--audio|--all]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source shared UI library if available
+if [ -f "$SCRIPT_DIR/../lib/cidre/ui.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/../lib/cidre/ui.sh"
+fi
+
+MODE=""
+DRY_RUN=false
+YES=false
+
+show_help() {
+  echo "Usage: cidre-repair [options]"
+  echo ""
+  echo "Repair targets:"
+  echo "  --configs          Reset Cidre configs to defaults (niri, waybar, fish, ghostty)"
+  echo "  --session          Fix greetd/session manager issues"
+  echo "  --audio            Diagnose and fix audio (pipewire, wireplumber, speakersafetyd)"
+  echo "  --all              Run all repair targets"
+  echo ""
+  echo "Options:"
+  echo "  --dry-run          Show what would be done without doing it"
+  echo "  --yes              Skip confirmation prompts"
+  echo "  --help             Show this help message"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --configs) MODE="configs"; shift ;;
+    --session) MODE="session"; shift ;;
+    --audio)   MODE="audio"; shift ;;
+    --all)     MODE="all"; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --yes)     YES=true; shift ;;
+    --help|-h) show_help; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$MODE" ]; then
+  echo "Cidre Repair"
+  echo "============"
+  echo ""
+  echo "Select repair target:"
+  echo "  [1] Configs  — Reset configs to defaults (niri, waybar, fish, ghostty)"
+  echo "  [2] Session  — Fix greetd/session manager issues"
+  echo "  [3] Audio    — Diagnose and fix audio"
+  echo "  [4] All      — Run all repair targets"
+  echo ""
+  read -r -p "Select option [1-4]: " opt
+  case "$opt" in
+    1) MODE="configs" ;;
+    2) MODE="session" ;;
+    3) MODE="audio" ;;
+    4) MODE="all" ;;
+    *) echo "No selection made. Exiting."; exit 0 ;;
+  esac
+fi
+
+confirm() {
+  if [ "$YES" = true ] || [ "$DRY_RUN" = true ]; then
+    return 0
+  fi
+  read -r -p "$1 [y/N]: " conf
+  [[ "$conf" =~ ^[yY] ]]
+}
+
+# =====================================================================
+repair_configs() {
+  echo "=== Repair: Configs ==="
+  echo ""
+  echo "This will restore the following to Cidre defaults:"
+  echo "  - ~/.config/niri/config.kdl"
+  echo "  - ~/.config/waybar/config + style.css"
+  echo "  - ~/.config/fish/config.fish"
+  echo "  - ~/.config/ghostty/config"
+  echo ""
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "[DRY-RUN] Would reset configs from system defaults."
+    return 0
+  fi
+
+  if ! confirm "Reset configs to Cidre defaults? (a snapshot will be created first)"; then
+    echo "Repair cancelled."
+    return 0
+  fi
+
+  # Create snapshot before repair
+  if command -v cidre-snapshot >/dev/null 2>&1; then
+    cidre-snapshot create --label "pre-repair-configs" 2>/dev/null || true
+  fi
+
+  local repaired=0
+  local failed=0
+
+  # Niri
+  if [ -f "/usr/share/cidre/defaults/niri/config.kdl" ]; then
+    mkdir -p "$HOME/.config/niri"
+    if [ -f "$HOME/.config/niri/config.kdl" ]; then
+      cp "$HOME/.config/niri/config.kdl" "$HOME/.config/niri/config.kdl.bak.$(date +%Y%m%d-%H%M%S)"
+    fi
+    cp /usr/share/cidre/defaults/niri/config.kdl "$HOME/.config/niri/config.kdl"
+    echo "[OK] Niri config restored"
+    repaired=$((repaired + 1))
+  else
+    echo "[WARN] Niri defaults not found — run ./install first"
+    failed=$((failed + 1))
+  fi
+
+  # Waybar
+  if [ -d "/usr/share/cidre/defaults/waybar" ]; then
+    mkdir -p "$HOME/.config/waybar"
+    cp /usr/share/cidre/defaults/waybar/config "$HOME/.config/waybar/config"
+    cp /usr/share/cidre/defaults/waybar/style.css "$HOME/.config/waybar/style.css"
+    echo "[OK] Waybar config restored"
+    repaired=$((repaired + 1))
+  else
+    echo "[WARN] Waybar defaults not found — run ./install first"
+    failed=$((failed + 1))
+  fi
+
+  # Fish shell
+  if [ -f "/usr/share/cidre/defaults/fish/config.fish" ]; then
+    mkdir -p "$HOME/.config/fish"
+    cp /usr/share/cidre/defaults/fish/config.fish "$HOME/.config/fish/config.fish"
+    echo "[OK] Fish config restored"
+    repaired=$((repaired + 1))
+  else
+    echo "[WARN] Fish defaults not found — run ./install first"
+    failed=$((failed + 1))
+  fi
+
+  # Ghostty
+  if [ -d "/usr/share/cidre/defaults/ghostty" ]; then
+    mkdir -p "$HOME/.config/ghostty"
+    cp /usr/share/cidre/defaults/ghostty/config "$HOME/.config/ghostty/config"
+    echo "[OK] Ghostty config restored"
+    repaired=$((repaired + 1))
+  else
+    echo "[INFO] Ghostty defaults not found (optional)"
+  fi
+
+  echo ""
+  echo "Repaired: $repaired, Failed/Skipped: $failed"
+  echo ""
+  echo "Next: Log out and back in, or restart affected services."
+}
+
+# =====================================================================
+repair_session() {
+  echo "=== Repair: Session ==="
+  echo ""
+  echo "Checking session manager..."
+
+  local issues=0
+
+  # Check greetd
+  if systemctl is-active --quiet greetd 2>/dev/null; then
+    echo "[OK] greetd is active"
+  else
+    echo "[WARN] greetd is not active"
+    issues=$((issues + 1))
+
+    if [ "$DRY_RUN" = false ]; then
+      if confirm "Enable and start greetd?"; then
+        sudo systemctl enable greetd
+        sudo systemctl start greetd || true
+        echo "[OK] greetd enabled and started"
+      fi
+    else
+      echo "[DRY-RUN] Would enable and start greetd"
+    fi
+  fi
+
+  # Check if niri config exists
+  if [ -f "$HOME/.config/niri/config.kdl" ]; then
+    echo "[OK] Niri config exists"
+  else
+    echo "[FAIL] Niri config is missing at ~/.config/niri/config.kdl"
+    echo "       Run: cidre-repair --configs"
+    issues=$((issues + 1))
+  fi
+
+  # Check greetd config references niri
+  if [ -f /etc/greetd/config.toml ]; then
+    if grep -q "niri" /etc/greetd/config.toml 2>/dev/null; then
+      echo "[OK] greetd configured for niri"
+    else
+      echo "[WARN] greetd may not be configured for niri"
+      issues=$((issues + 1))
+    fi
+  fi
+
+  echo ""
+  if [ $issues -eq 0 ]; then
+    echo "Session looks healthy."
+  else
+    echo "Found $issues issue(s). Run with specific repair target or use cidre-recovery for full repair."
+  fi
+}
+
+# =====================================================================
+repair_audio() {
+  echo "=== Repair: Audio ==="
+  echo ""
+
+  local repaired=0
+
+  # Check speakersafetyd
+  if systemctl is-active --quiet speakersafetyd 2>/dev/null; then
+    echo "[OK] speakersafetyd is active"
+  else
+    echo "[WARN] speakersafetyd is not active"
+
+    if [ "$DRY_RUN" = false ]; then
+      if confirm "Start speakersafetyd?"; then
+        sudo systemctl start speakersafetyd || true
+        echo "[OK] speakersafetyd started"
+        repaired=$((repaired + 1))
+      fi
+    else
+      echo "[DRY-RUN] Would start speakersafetyd"
+    fi
+  fi
+
+  # Check pipewire
+  if systemctl --user is-active --quiet pipewire 2>/dev/null; then
+    echo "[OK] PipeWire is active"
+  else
+    echo "[WARN] PipeWire is not active"
+
+    if [ "$DRY_RUN" = false ]; then
+      systemctl --user restart pipewire || true
+      echo "[OK] PipeWire restarted"
+      repaired=$((repaired + 1))
+    else
+      echo "[DRY-RUN] Would restart PipeWire"
+    fi
+  fi
+
+  # Check wireplumber
+  if systemctl --user is-active --quiet wireplumber 2>/dev/null; then
+    echo "[OK] WirePlumber is active"
+  else
+    echo "[WARN] WirePlumber is not active"
+
+    if [ "$DRY_RUN" = false ]; then
+      systemctl --user restart wireplumber || true
+      echo "[OK] WirePlumber restarted"
+      repaired=$((repaired + 1))
+    else
+      echo "[DRY-RUN] Would restart WirePlumber"
+    fi
+  fi
+
+  # Check audio profile
+  local conf_file="$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-audio.conf"
+  if [ -f "$conf_file" ]; then
+    echo "[OK] Cidre audio profile exists"
+    if grep -q "node.quantum" "$conf_file"; then
+      local quantum
+      quantum=$(grep "node.quantum" "$conf_file" | grep -o '[0-9]\+' | head -n 1)
+      echo "      Current quantum: $quantum"
+    fi
+  else
+    echo "[INFO] No custom audio profile — applying stable profile"
+
+    if [ "$DRY_RUN" = false ]; then
+      if [ -x "$SCRIPT_DIR/cidre-audio" ]; then
+        "$SCRIPT_DIR/cidre-audio" profile stable
+        echo "[OK] Audio profile set to stable"
+        repaired=$((repaired + 1))
+      fi
+    else
+      echo "[DRY-RUN] Would apply stable audio profile"
+    fi
+  fi
+
+  echo ""
+  echo "Audio repair complete. Repairs applied: $repaired"
+  echo ""
+  echo "If issues persist, try:"
+  echo "  cidre-audio diagnose"
+  echo "  cidre-audio reset"
+  echo "  journalctl --user -u pipewire -n 50"
+}
+
+# =====================================================================
+# Main dispatch
+# =====================================================================
+run_mode() {
+  case "$1" in
+    configs) repair_configs ;;
+    session) repair_session ;;
+    audio)   repair_audio ;;
+    all)
+      repair_configs
+      echo ""
+      echo "============================================="
+      echo ""
+      repair_session
+      echo ""
+      echo "============================================="
+      echo ""
+      repair_audio
+      ;;
+  esac
+}
+
+run_mode "$MODE"
+
+echo ""
+echo "Repair finished."
+echo ""
+echo "If problems persist, use full recovery:"
+echo "  cidre-recovery status"
+echo "  cidre-recovery doctor"
+echo "  cidre-recovery collect-logs"

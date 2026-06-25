@@ -35,6 +35,11 @@ PROFILES = {
 def get_profile_files(profile_name):
     files = []
     order = ["minimal", "desktop", "developer", "full"]
+    # Map convenience profiles
+    if profile_name == "student":
+        profile_name = "desktop"
+    elif profile_name == "recovery":
+        profile_name = "minimal"
     if profile_name not in order:
         profile_name = "desktop"
     
@@ -341,7 +346,7 @@ terminal=com.mitchellh.ghostty.desktop
 def main():
     parser = argparse.ArgumentParser(description="Cidre User Setup & RICE Utility")
     parser.add_argument("command", choices=["apply", "dry-run", "status", "verify", "list", "backup", "restore", "reset", "diff", "rollback", "history"], nargs="?", default="status")
-    parser.add_argument("--profile", choices=["minimal", "desktop", "developer", "full"], default="desktop")
+    parser.add_argument("--profile", choices=["minimal", "desktop", "developer", "student", "full", "recovery"], default="desktop")
     parser.add_argument("--force", action="store_true", help="Force configuration overwrite")
     parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode showing proposed changes")
     parser.add_argument("--no-snapshot", action="store_true", help="Do not create automatic snapshot before applying configurations")

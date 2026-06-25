@@ -1,46 +1,294 @@
 #!/bin/bash
-# cidre-welcome: Cidre TUI dashboard helper for new logins
+# cidre-welcome: Cidre first-login interactive welcome dashboard
 set -euo pipefail
 
-clear
-echo -e "\e[1;36m====================================================\e[0m"
-echo -e "\e[1;35m          Welcome to Cidre Linux Desktop!          \e[0m"
-echo -e "\e[1;36m====================================================\e[0m"
-echo ""
-echo -e "\e[1;32mKeybindings (Basic Navigation):\e[0m"
-echo -e "  \e[33mSuper + Enter\e[0m      Open Ghostty Terminal"
-echo -e "  \e[33mSuper + Alt + T\e[0m      Open Fallback Terminal (foot)"
-echo -e "  \e[33mSuper + D\e[0m          Open fuzzel Launcher"
-echo -e "  \e[33mSuper + Q\e[0m          Close Window"
-echo -e "  \e[33mSuper + Shift + E\e[0m    Exit Graphical Session (Logout)"
-echo -e "  \e[33mSuper + Shift + R\e[0m    Reload Niri Configuration"
-echo -e "  \e[33mSuper + F\e[0m          Toggle Fullscreen"
-echo -e "  \e[33mPrint\e[0m              Take screenshot"
-echo -e "  \e[33mShift + Print\e[0m        Screenshot area selection"
-echo -e "  \e[33mCtrl + Print\e[0m         Screenshot to clipboard"
-echo ""
-echo -e "\e[1;32mJapanese Input (IME):\e[0m"
-echo -e "  Fcitx5 with Mozc is active. Toggle layout using \e[33mCtrl + Space\e[0m."
-echo ""
-echo -e "\e[1;32mAudio Control (cidre-audio):\e[0m"
-echo -e "  To manage buffer profiles for Asahi Audio:"
-echo -e "  \e[33mcidre-audio status\e[0m"
-echo -e "  \e[33mcidre-audio profile stable\e[0m  (Fixes seek audio pop-noises)"
-echo -e "  To control volume or mute:"
-echo -e "  \e[33mcidre-audio volume 5%+\e[0m | \e[33mcidre-audio mute\e[0m"
-echo ""
-echo -e "\e[1;32mDiagnostics & Emergency Recovery:\e[0m"
-echo -e "  Check desktop health status:"
-echo -e "    \e[33mcidre-doctor --daily\e[0m"
-echo -e "  If graphical session breaks, switch to TTY (Ctrl+Alt+F2) and run:"
-echo -e "    \e[33mcidre-recovery status\e[0m | \e[33mcidre-recovery safe-mode\e[0m"
-echo ""
-echo -e "\e[1;32mMaintenance & Updates:\e[0m"
-echo -e "  Check update readiness & apply updates safely:"
-echo -e "    \e[33mcidre-update --check\e[0m | \e[33mcidre-update --apply\e[0m"
-echo -e "  Check state, configurations drift, and clean logs/snapshots:"
-echo -e "    \e[33mcidre-maintenance status\e[0m | \e[33mcidre-maintenance drift\e[0m | \e[33mcidre-maintenance prune\e[0m"
-echo -e "    \e[33mcidre-doctor --maintenance\e[0m"
-echo ""
-echo -e "\e[1;36m====================================================\e[0m"
-echo "To show this help menu again, run: 'cidre-welcome'"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source shared UI if available
+if [ -f "$SCRIPT_DIR/../lib/cidre/ui.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/../lib/cidre/ui.sh"
+fi
+
+NO_COLOR=false
+SKIP_INTRO=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-color) NO_COLOR=true; shift ;;
+    --skip-intro) SKIP_INTRO=true; shift ;;
+    --help|-h)
+      echo "Usage: cidre-welcome [--skip-intro] [--no-color]"
+      echo "Cidre first-login welcome dashboard."
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+C_GREEN='\e[32m'; C_YELLOW='\e[33m'; C_RED='\e[31m'
+C_CYAN='\e[36m'; C_MAGENTA='\e[35m'; C_BOLD='\e[1m'; C_RESET='\e[0m'
+if [ "$NO_COLOR" = true ]; then
+  C_GREEN='' C_YELLOW='' C_RED='' C_CYAN='' C_MAGENTA='' C_BOLD='' C_RESET=''
+  export C_GREEN C_YELLOW C_RED C_CYAN C_MAGENTA C_BOLD C_RESET
+fi
+
+# =====================================================================
+show_banner() {
+  clear
+  echo -e "${C_CYAN}====================================================${C_RESET}"
+  echo -e "${C_MAGENTA}          Welcome to Cidre Linux Desktop!          ${C_RESET}"
+  echo -e "${C_CYAN}====================================================${C_RESET}"
+  echo "  The cider after Homebrew."
+  echo ""
+}
+
+show_keybindings() {
+  echo -e "${C_BOLD}Keybindings (Basic Navigation):${C_RESET}"
+  echo -e "  ${C_YELLOW}Super + Enter${C_RESET}      Open Ghostty Terminal"
+  echo -e "  ${C_YELLOW}Super + Alt + T${C_RESET}    Open Fallback Terminal (foot)"
+  echo -e "  ${C_YELLOW}Super + D${C_RESET}          Open fuzzel Launcher"
+  echo -e "  ${C_YELLOW}Super + Q${C_RESET}          Close Window"
+  echo -e "  ${C_YELLOW}Super + Shift + E${C_RESET}  Exit Graphical Session (Logout)"
+  echo -e "  ${C_YELLOW}Super + Shift + R${C_RESET}  Reload Niri Configuration"
+  echo -e "  ${C_YELLOW}Super + F${C_RESET}          Toggle Fullscreen"
+  echo -e "  ${C_YELLOW}Print${C_RESET}              Take screenshot"
+  echo ""
+}
+
+show_maintenance() {
+  echo -e "${C_BOLD}Maintenance & Recovery:${C_RESET}"
+  echo "  Check desktop health:"
+  echo -e "    ${C_YELLOW}cidre-doctor --daily${C_RESET}"
+  echo "  If graphical session breaks (Ctrl+Alt+F2):"
+  echo -e "    ${C_YELLOW}cidre-recovery status${C_RESET}"
+  echo -e "    ${C_YELLOW}cidre-repair --session${C_RESET}"
+  echo "  Audio issues:"
+  echo -e "    ${C_YELLOW}cidre-repair --audio${C_RESET}"
+  echo -e "    ${C_YELLOW}cidre-audio profile stable${C_RESET}"
+  echo ""
+}
+
+# =====================================================================
+# Interactive actions
+# =====================================================================
+
+action_input_method() {
+  echo ""
+  echo "=== Input Method Setup ==="
+  echo ""
+  echo "Fcitx5 with Mozc (Japanese) is configured by default."
+  echo "Toggle IME: Ctrl + Space"
+  echo ""
+
+  if systemctl --user is-active --quiet fcitx5 2>/dev/null; then
+    echo "[OK] fcitx5 is running"
+  else
+    echo "[WARN] fcitx5 is not running"
+    echo "Start it with: systemctl --user start fcitx5"
+  fi
+
+  echo ""
+  echo "To add more input methods:"
+  echo "  fcitx5-configtool"
+  echo ""
+  read -r -p "Press Enter to continue..." _
+}
+
+action_test_audio() {
+  echo ""
+  echo "=== Audio Test ==="
+  echo ""
+
+  # Run quick audio status
+  if systemctl --user is-active --quiet pipewire 2>/dev/null && \
+     systemctl --user is-active --quiet wireplumber 2>/dev/null; then
+    echo "[OK] PipeWire and WirePlumber are running"
+
+    if systemctl is-active --quiet speakersafetyd 2>/dev/null; then
+      echo "[OK] speakersafetyd is running"
+    else
+      echo "[WARN] speakersafetyd is not running — audio may be unsafe at high volume"
+    fi
+
+    echo ""
+    echo "Current volume:"
+    if command -v wpctl >/dev/null 2>&1; then
+      wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || echo "  (could not query)"
+    fi
+
+    echo ""
+    echo "Audio profile:"
+    local conf="$HOME/.config/wireplumber/wireplumber.conf.d/99-cidre-audio.conf"
+    if [ -f "$conf" ]; then
+      if grep -q "node.quantum = 1024" "$conf" 2>/dev/null; then
+        echo "  stable (recommended — fixes seek pop-noises)"
+      elif grep -q "node.quantum = 512" "$conf" 2>/dev/null; then
+        echo "  balanced"
+      elif grep -q "node.quantum = 256" "$conf" 2>/dev/null; then
+        echo "  low-latency"
+      else
+        echo "  custom"
+      fi
+    else
+      echo "  default (not yet configured)"
+      echo "  Run: cidre-audio profile stable"
+    fi
+  else
+    echo "[FAIL] Audio services are not running"
+    echo "Run: cidre-repair --audio"
+  fi
+
+  echo ""
+  read -r -p "Press Enter to continue..." _
+}
+
+action_choose_terminal() {
+  echo ""
+  echo "=== Choose Default Terminal ==="
+  echo ""
+  echo "[1] Ghostty (recommended — GPU-accelerated)"
+  echo "[2] foot (lightweight fallback)"
+  echo ""
+
+  read -r -p "Select option [1-2] (default: 1): " opt
+
+  case "$opt" in
+    2)
+      echo "Setting foot as default terminal..."
+      mkdir -p "$HOME/.config/cidre"
+      echo "foot" > "$HOME/.config/cidre/default-terminal"
+      echo "[OK] Default terminal set to foot"
+      ;;
+    *)
+      echo "Keeping Ghostty as default terminal."
+      mkdir -p "$HOME/.config/cidre"
+      echo "ghostty" > "$HOME/.config/cidre/default-terminal"
+      echo "[OK] Default terminal set to Ghostty"
+      ;;
+  esac
+
+  echo ""
+  echo "Tip: Super+Enter opens Ghostty, Super+Alt+T opens foot as fallback."
+  echo ""
+  read -r -p "Press Enter to continue..." _
+}
+
+action_choose_shell() {
+  echo ""
+  echo "=== Choose Default Shell ==="
+  echo ""
+  echo "[1] fish (recommended — friendly, modern)"
+  echo "[2] bash (standard, widely compatible)"
+  echo ""
+
+  read -r -p "Select option [1-2] (default: 1): " opt
+
+  case "$opt" in
+    2)
+      echo "Keeping bash as default shell."
+      echo "[OK] Default shell is bash"
+      ;;
+    *)
+      if command -v fish >/dev/null 2>&1; then
+        echo "Fish shell is available."
+        echo "To set fish as your default: chsh -s $(which fish)"
+        echo ""
+        echo "Or add to ~/.bashrc: exec fish"
+        echo "[OK] fish is ready to use"
+      else
+        echo "[WARN] fish is not installed."
+        echo "Install with: sudo pacman -S fish"
+      fi
+      ;;
+  esac
+
+  echo ""
+  read -r -p "Press Enter to continue..." _
+}
+
+action_show_docs() {
+  echo ""
+  echo "=== Cidre Documentation ==="
+  echo ""
+  echo "Available docs (in the Cidre repository):"
+  echo "  README.md              — Project overview"
+  echo "  INSTALL.md             — Installation guide"
+  echo "  docs/install.md        — Detailed install docs"
+  echo "  docs/recovery.md       — Recovery procedures"
+  echo "  docs/troubleshooting.md — Common issues"
+  echo ""
+  echo "Online:"
+  echo "  https://github.com/Yasuno-5555/Cidre"
+  echo ""
+  read -r -p "Press Enter to continue..." _
+}
+
+# =====================================================================
+# Main loop
+# =====================================================================
+
+main_loop() {
+  while true; do
+    show_banner
+
+    if [ "$SKIP_INTRO" = false ]; then
+      show_keybindings
+    fi
+
+    echo -e "${C_BOLD}Recommended next steps:${C_RESET}"
+    echo "  [1] Set up input method"
+    echo "  [2] Test audio"
+    echo "  [3] Choose terminal: foot / ghostty"
+    echo "  [4] Choose shell: bash / fish"
+    echo "  [5] Open Cidre docs"
+    echo "  [6] Show keybindings"
+    echo "  [7] System diagnostics"
+    echo "  [0] Exit"
+    echo ""
+
+    read -r -p "Select option [0-7]: " opt
+
+    case "$opt" in
+      1) action_input_method ;;
+      2) action_test_audio ;;
+      3) action_choose_terminal ;;
+      4) action_choose_shell ;;
+      5) action_show_docs ;;
+      6)
+        clear
+        show_banner
+        show_keybindings
+        show_maintenance
+        read -r -p "Press Enter to return to menu..." _
+        ;;
+      7)
+        echo ""
+        echo "Running quick diagnostics..."
+        if [ -x "$SCRIPT_DIR/cidre-doctor" ]; then
+          "$SCRIPT_DIR/cidre-doctor" --daily
+        else
+          echo "[WARN] cidre-doctor not found"
+        fi
+        echo ""
+        read -r -p "Press Enter to return to menu..." _
+        ;;
+      0)
+        echo ""
+        echo "Enjoy Cidre!"
+        echo "Run 'cidre-welcome' anytime to see this menu again."
+        echo ""
+        exit 0
+        ;;
+      *)
+        echo "Invalid option."
+        sleep 1
+        ;;
+    esac
+  done
+}
+
+main_loop

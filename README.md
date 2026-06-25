@@ -189,7 +189,78 @@ Cidre v0.34.0 adds runtime validation tooling for the macOS app prototype.
 
 The goal is to verify build, launch readiness, repository selection, safe read-only command execution, report preview, and blocked destructive action display on a real macOS machine.
 
-## Installation Flow
+## Quick Install
+
+If you already have a fresh ALARM (Arch Linux ARM) / Asahi Linux environment on your Apple Silicon Mac:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/install.sh -o cidre-install.sh
+bash cidre-install.sh
+```
+
+For developers:
+
+```bash
+git clone https://github.com/Yasuno-5555/Cidre.git
+cd Cidre
+./install.sh
+```
+
+### Choose your profile
+
+```bash
+./install.sh --desktop    # Full desktop (Niri, Ghostty, waybar, fcitx5 Mozc)
+./install.sh --dev        # Desktop + dev toolchain (fish, starship)
+./install.sh --student    # Lightweight desktop for educational use
+./install.sh --minimal    # Core session and config only
+```
+
+### What install.sh does
+
+```
+Phase 0: Entry        curl .../install.sh | bash
+Phase 1: Preflight    System checks (Arch, pacman, network, user, sudo)
+Phase 2: Plan         Shows planned packages and config changes
+Phase 3: Install      Installs packages, applies configs
+Phase 4: Verify       Runs cidre-doctor diagnostics
+Phase 5: Next steps   Reboot, choose Cidre session, run cidre-welcome
+```
+
+### Key guarantees
+
+```
+Cidre will NOT change:
+  - macOS default boot
+  - NVRAM boot order
+  - boot policy
+  - recovery partition
+```
+
+### If something fails
+
+```bash
+./install.sh --repair     # Repair existing install
+./install.sh --doctor     # Run diagnostics
+./install.sh --dry-run    # Preview without changes
+```
+
+Every failure message includes **Likely causes**, **Try** (recovery commands), and **Log** path.
+
+### Fresh ALARM root phase
+
+If you're starting from a bare ALARM install, run the root-phase setup first:
+
+```bash
+./preinstall
+```
+
+Then switch to your normal user and run:
+
+```bash
+./install.sh
+```
+
+## Installation Flow (detailed)
 
 Cidre has three phases.
 
