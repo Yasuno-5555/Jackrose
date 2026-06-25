@@ -4,6 +4,8 @@ set -eu
 plan=""
 confirmation=""
 m1n1_path=""
+seed_path=""
+rootfs_path=""
 dry_run=false
 json_mode=false
 
@@ -12,9 +14,14 @@ while [ "$#" -gt 0 ]; do
     --plan) plan="$2"; shift 2 ;;
     --confirmation) confirmation="$2"; shift 2 ;;
     --m1n1-path) m1n1_path="$2"; shift 2 ;;
+    --seed-path) seed_path="$2"; shift 2 ;;
+    --rootfs-path) rootfs_path="$2"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     --json) json_mode=true; shift ;;
-    --help|-h) echo "Usage: cidre-app-install-payload-stage --plan plan.json --confirmation conf.json [--m1n1-path <file>] [--dry-run] [--json]"; exit 0 ;;
+    --help|-h)
+      echo "Usage: cidre-app-install-payload-stage --plan plan.json --confirmation conf.json [--m1n1-path <file>] [--seed-path <file>] [--rootfs-path <file>] [--dry-run] [--json]"
+      exit 0
+      ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -23,24 +30,47 @@ done
 [ -n "$confirmation" ] || { echo "ERROR: --confirmation is required" >&2; exit 2; }
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+# Resolve seed path if not explicitly provided
+if [ -z "$seed_path" ] && [ "$dry_run" = false ]; then
+  SEED_DIR="$REPO_ROOT/.local/state/cidre/macos-bootstrap"
+  if [ -f "$SEED_DIR/cidre-seed.tar.gz" ]; then
+    seed_path="$SEED_DIR/cidre-seed.tar.gz"
+  fi
+fi
+
+# Resolve rootfs path if not explicitly provided
+if [ -z "$rootfs_path" ] && [ "$dry_run" = false ]; then
+  ALARM_CACHE="$HOME/.local/share/cidre/alarm"
+  ALARM_TARBALL="ArchLinuxARM-aarch64-latest.tar.gz"
+  if [ -f "$ALARM_CACHE/$ALARM_TARBALL" ]; then
+    rootfs_path="$ALARM_CACHE/$ALARM_TARBALL"
+  fi
+fi
 
 # Resolve m1n1 path if not explicitly provided
 if [ -z "$m1n1_path" ] && [ "$dry_run" = false ]; then
-  # Try to acquire m1n1
   m1n1_result="$("$SCRIPT_DIR/cidre-app-m1n1-acquire" --json 2>/dev/null || echo '{"status":"blocked"}')"
   m1n1_path="$(printf '%s\n' "$m1n1_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("m1n1_path",""))' 2>/dev/null || echo "")"
 fi
 
-python3 - "$plan" "$confirmation" "$dry_run" "$json_mode" "$m1n1_path" <<'PY'
+python3 - "$plan" "$confirmation" "$dry_run" "$json_mode" "$m1n1_path" "$seed_path" "$rootfs_path" <<'PY'
 import json
 import os
+import shutil
 import subprocess
 import sys
 
 plan_path, confirmation_path, dry_run, json_mode = sys.argv[1:5]
 m1n1_path = sys.argv[5] if len(sys.argv) > 5 else ""
+seed_path = sys.argv[6] if len(sys.argv) > 6 else ""
+rootfs_path = sys.argv[7] if len(sys.argv) > 7 else ""
 dry_run = dry_run == "true"
 json_mode = json_mode == "true"
+
+errors = []
+warnings = []
 
 try:
     with open(plan_path, "r", encoding="utf-8") as handle:
@@ -54,20 +84,17 @@ except Exception as e:
 target = plan.get("target", "unknown-target")
 volume_name = plan.get("volume_name") or "Cidre"
 
-# Determine stage path:
-# In test mode or dry-run, we stage to /tmp/cidre-staged-install or a mocked mount
+# Determine mount point
 mount_point = f"/tmp/cidre-staged-{target}"
 if os.uname().sysname == "Darwin":
     try:
         import plistlib
-        # Prefer the dedicated Cidre APFS volume created during partition mutation.
         apfs = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "apfs", "list", "-plist"], capture_output=True, check=True).stdout)
         for container in apfs.get("Containers", []):
             for volume in container.get("Volumes", []):
                 name = volume.get("Name") or volume.get("VolumeName")
                 dev_id = volume.get("DeviceIdentifier")
                 if name == volume_name and dev_id:
-                    # Query individual volume info to extract the MountPoint
                     v_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", dev_id], capture_output=True, check=True).stdout)
                     mount = v_info.get("MountPoint")
                     if mount:
@@ -79,7 +106,6 @@ if os.uname().sysname == "Darwin":
         pass
 
 if os.uname().sysname == "Darwin" and mount_point.startswith("/tmp/") and target.startswith("disk"):
-    # Fallback only when no dedicated Cidre mount point was found.
     try:
         completed = subprocess.run(["/usr/sbin/diskutil", "info", "-plist", target], capture_output=True, check=True)
         import plistlib
@@ -89,50 +115,85 @@ if os.uname().sysname == "Darwin" and mount_point.startswith("/tmp/") and target
     except Exception:
         pass
 
-# Ensure mount_point exists if not dry_run
 payload_files = []
 if not dry_run:
     os.makedirs(mount_point, exist_ok=True)
-    
+
     install_dir = os.path.join(mount_point, "cidre", "install")
     rootfs_dir = os.path.join(mount_point, "cidre", "rootfs")
     state_dir = os.path.join(mount_point, "cidre", "state")
+    boot_dir = os.path.join(mount_point, "boot")
     core_services_dir = os.path.join(mount_point, "System", "Library", "CoreServices")
-    
+
     os.makedirs(install_dir, exist_ok=True)
     os.makedirs(rootfs_dir, exist_ok=True)
     os.makedirs(state_dir, exist_ok=True)
+    os.makedirs(boot_dir, exist_ok=True)
     os.makedirs(core_services_dir, exist_ok=True)
-    
-    # Write files
-    for name, content in [
-        ("handoff.txt", "Cidre installation handoff file\n"),
-        ("profile.json", json.dumps({"profile": plan.get("profile", "developer")}, indent=2) + "\n"),
-        ("seed.tar.gz", "mock_tar_content_placeholder"),
-    ]:
-        path = os.path.join(install_dir, name)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        payload_files.append(os.path.relpath(path, mount_point))
-        
-    # Write mock rootfs file
-    rootfs_placeholder = os.path.join(rootfs_dir, "rootfs_placeholder.txt")
-    with open(rootfs_placeholder, "w", encoding="utf-8") as handle:
-        handle.write("staged placeholder rootfs\n")
-    payload_files.append(os.path.relpath(rootfs_placeholder, mount_point))
 
-    # Write bootloader: use real m1n1 if available, fall back to stub
+    # --- handoff.txt ---
+    handoff_path = os.path.join(install_dir, "handoff.txt")
+    with open(handoff_path, "w", encoding="utf-8") as handle:
+        handle.write("Cidre installation handoff file\n")
+        handle.write(f"profile: {plan.get('profile', 'developer')}\n")
+        handle.write(f"installed_at: {plan.get('created_at', '')}\n")
+    payload_files.append(os.path.relpath(handoff_path, mount_point))
+
+    # --- profile.json ---
+    profile_path = os.path.join(install_dir, "profile.json")
+    with open(profile_path, "w", encoding="utf-8") as handle:
+        json.dump({"profile": plan.get("profile", "developer"), "plan_id": plan.get("plan_id")}, handle, indent=2)
+        handle.write("\n")
+    payload_files.append(os.path.relpath(profile_path, mount_point))
+
+    # --- seed.tar.gz (REAL seed, not mock) ---
+    seed_dest = os.path.join(install_dir, "seed.tar.gz")
+    if seed_path and os.path.exists(seed_path) and os.path.getsize(seed_path) > 100:
+        shutil.copy2(seed_path, seed_dest)
+        payload_files.append(os.path.relpath(seed_dest, mount_point))
+    else:
+        warnings.append({
+            "code": "seed-missing",
+            "message": "Seed tarball not found. preinstall --import-seed will not work."
+        })
+
+    # --- ALARM rootfs (REAL tarball, not placeholder) ---
+    if rootfs_path and os.path.exists(rootfs_path):
+        rootfs_dest = os.path.join(rootfs_dir, os.path.basename(rootfs_path))
+        shutil.copy2(rootfs_path, rootfs_dest)
+        payload_files.append(os.path.relpath(rootfs_dest, mount_point))
+    else:
+        warnings.append({
+            "code": "rootfs-missing",
+            "message": "ALARM rootfs not found. Manual rootfs staging required."
+        })
+
+    # --- boot.efi (m1n1.macho as boot.efi for 1TR kernelcache flow) ---
+    # Note: boot-policy-create will later REPLACE this with Apple's kernelcache
+    # for the initial 1TR boot. This m1n1 copy is saved as boot.efi.m1n1 for
+    # step2 restoration after bputil -g.
     boot_efi = os.path.join(core_services_dir, "boot.efi")
     if m1n1_path and os.path.exists(m1n1_path) and os.path.getsize(m1n1_path) > 1000:
-        import shutil
+        shutil.copy2(m1n1_path, boot_efi)
+        os.chmod(boot_efi, 0o755)
+        payload_files.append(os.path.relpath(boot_efi, mount_point))
+    elif m1n1_path and os.path.exists(m1n1_path):
+        warnings.append({
+            "code": "m1n1-too-small",
+            "message": f"m1n1 at {m1n1_path} is too small ({os.path.getsize(m1n1_path)} bytes). Boot may fail."
+        })
+        # Still copy it — it might be valid
         shutil.copy2(m1n1_path, boot_efi)
         os.chmod(boot_efi, 0o755)
         payload_files.append(os.path.relpath(boot_efi, mount_point))
     else:
-        with open(boot_efi, "w", encoding="utf-8") as handle:
-            handle.write("Cidre Bootloader Bootstrap Wrapper Placeholder\n")
-        payload_files.append(os.path.relpath(boot_efi, mount_point))
+        errors.append({
+            "code": "m1n1-missing",
+            "message": "m1n1 bootloader not available. Cannot create boot.efi. Run 'scripts/cidre-app-m1n1-acquire' manually or use '--m1n1-path'."
+        })
+        # DO NOT write a text placeholder — that would cause a kernel panic
 
+    # --- SystemVersion.plist (Apple-like metadata) ---
     system_version_plist = os.path.join(core_services_dir, "SystemVersion.plist")
     os_name = "Cidre Rescue" if plan.get("profile") == "recovery" else "Cidre"
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -159,28 +220,44 @@ if not dry_run:
     payload_files.append(os.path.relpath(system_version_plist, mount_point))
 
 else:
-    # Dry run mock files
+    # Dry run mock files — still include the real paths we would copy
     payload_files = [
         "cidre/install/handoff.txt",
         "cidre/install/profile.json",
-        "cidre/install/seed.tar.gz",
-        "cidre/rootfs/rootfs_placeholder.txt",
-        "System/Library/CoreServices/boot.efi",
+        f"cidre/install/seed.tar.gz ← {seed_path or 'NOT FOUND'}" if seed_path else "cidre/install/seed.tar.gz ← MISSING",
+        f"cidre/rootfs/{os.path.basename(rootfs_path)} ← {rootfs_path or 'NOT FOUND'}" if rootfs_path else "cidre/rootfs/ ← MISSING",
+        f"System/Library/CoreServices/boot.efi ← {m1n1_path or 'NOT FOUND'}" if m1n1_path else "System/Library/CoreServices/boot.efi ← MISSING",
         "System/Library/CoreServices/SystemVersion.plist",
     ]
+
+# Determine final status
+if errors:
+    status = "failed"
+    summary = f"Payload staging failed: {errors[0]['message']}"
+    exit_code = 4
+else:
+    status = "passed"
+    if dry_run:
+        summary = "Payload staging dry-run completed."
+    else:
+        summary = f"Payload staging completed. {len(payload_files)} files staged."
+    exit_code = 0
 
 payload = {
     "schema_version": 1,
     "command": "cidre-app-install-payload-stage",
-    "status": "passed",
-    "summary": "Payload staging dry-run completed." if dry_run else "Payload staging completed successfully.",
-    "exit_code": 0,
+    "status": status,
+    "summary": summary,
+    "exit_code": exit_code,
     "plan_id": plan.get("plan_id"),
     "target": target,
     "mount_point": mount_point,
     "dry_run": dry_run,
     "staged_files": payload_files,
+    "errors": errors,
+    "warnings": warnings,
 }
 
 print(json.dumps(payload, indent=2) if json_mode else payload["summary"])
+sys.exit(exit_code)
 PY

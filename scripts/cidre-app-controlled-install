@@ -61,11 +61,19 @@ fi
 before_result="$("$SCRIPT_DIR/cidre-app-disk-snapshot" --label "install-before" --json || true)"
 before_snapshot="$(printf '%s\n' "$before_result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("snapshot_file",""))' 2>/dev/null || true)"
 
-# Execute stage
+# Execute stage — pass real artifact paths for seed and rootfs
+SEED_DIR="$REPO_ROOT/.local/state/cidre/macos-bootstrap"
+SEED_PATH=""
+[ -f "$SEED_DIR/cidre-seed.tar.gz" ] && SEED_PATH="$SEED_DIR/cidre-seed.tar.gz"
+
+ROOTFS_CACHE="$HOME/.local/share/cidre/alarm"
+ROOTFS_PATH=""
+[ -f "$ROOTFS_CACHE/ArchLinuxARM-aarch64-latest.tar.gz" ] && ROOTFS_PATH="$ROOTFS_CACHE/ArchLinuxARM-aarch64-latest.tar.gz"
+
 if [ "$dry_run" = true ]; then
-  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --dry-run --json || true)"
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --dry-run --json ${SEED_PATH:+--seed-path "$SEED_PATH"} ${ROOTFS_PATH:+--rootfs-path "$ROOTFS_PATH"} || true)"
 else
-  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --json || true)"
+  stage_output="$("$SCRIPT_DIR/cidre-app-install-payload-stage" --plan "$plan" --confirmation "$confirmation_file" --json ${SEED_PATH:+--seed-path "$SEED_PATH"} ${ROOTFS_PATH:+--rootfs-path "$ROOTFS_PATH"} || true)"
 fi
 
 # Write metadata and verify
@@ -157,6 +165,7 @@ add_check("helper-gate", helper_gate.get("status") == "passed", helper_gate.get(
 add_check("boot-asset-prepare", preboot.get("status") == "passed", preboot.get("summary") or "Boot asset preparation failed.")
 add_check("rescue-boot-integrate", rescue.get("status") == "passed", rescue.get("summary") or "Rescue boot integration failed.")
 add_check("no-default-boot-check", boot.get("status") == "passed", boot.get("summary") or "Default boot validation failed.")
+add_check("payload-stage", stage.get("status") == "passed" and not stage.get("errors"), stage.get("summary") or "Payload staging failed.")
 
 status = "blocked" if errors else "passed"
 summary = "Controlled manual-boot install completed." if not errors else "Controlled install is blocked."
