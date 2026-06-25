@@ -3,19 +3,25 @@
 #
 # Two modes:
 #   1. Local repo:  cd Cidre && ./install.sh --desktop
-#   2. Remote:      curl -fsSL .../install.sh | bash
+#   2. Remote:      curl -fsSL https://.../install.sh | bash
 #
-# In remote mode, auto-clones the repo to ~/.cache/cidre/source and re-execs.
+# In remote mode, auto-clones the repo and re-execs.
+# Truncation guard: if the download is incomplete, bash will not execute
+# because the final 'fi' is missing.
+if true; then
 set -euo pipefail
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+export LANG="${LANG:-en_US.UTF-8}"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # ----- Detect execution mode -----
+# Piped from curl: BASH_SOURCE is /dev/fd/N, pipe:N, or "-"
 CIDRE_STDIN_MODE=0
-if [[ "${BASH_SOURCE[0]:-}" == "/dev/fd/"* || "${BASH_SOURCE[0]:-}" == "-" || "${BASH_SOURCE[0]:-}" == "pipe"* ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "/dev/fd/"* || "${BASH_SOURCE[0]:-}" == "-" || "${BASH_SOURCE[0]:-}" == pipe* ]]; then
   CIDRE_STDIN_MODE=1
 fi
 
-# ----- Resolve SCRIPT_DIR -----
-# In stdin mode, BASH_SOURCE is unusable; use PWD-based detection
+# ----- Resolve script directory -----
 if [ "$CIDRE_STDIN_MODE" -eq 1 ]; then
   SCRIPT_DIR="$PWD"
 else
@@ -25,51 +31,68 @@ fi
 CIDRE_ROOT="$SCRIPT_DIR"
 CIDRE_INSTALLER="$CIDRE_ROOT/scripts/cidre-installer"
 
-# ----- Auto-clone if installer is missing -----
+# ----- Configuration -----
 CIDRE_REPO_URL="${CIDRE_REPO_URL:-https://github.com/Yasuno-5555/Cidre.git}"
 CIDRE_BRANCH="${CIDRE_BRANCH:-main}"
 CIDRE_CACHE_DIR="${CIDRE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/cidre/source}"
 
+# ----- Auto-clone if installer is missing -----
 if [[ ! -x "$CIDRE_INSTALLER" ]]; then
-  echo "Cidre installer not found locally. Bootstrapping from repository..."
-  echo "  Remote: $CIDRE_REPO_URL"
-  echo "  Branch: $CIDRE_BRANCH"
+  echo "============================================="
+  echo "  Cidre Installer Bootstrap"
+  echo "============================================="
+  echo ""
+  echo "Installer not found locally. Bootstrapping from:"
+  echo "  $CIDRE_REPO_URL"
   echo ""
 
-  # Use git if available (preferred — gets the full repo)
+  # Preferred: git (gets full repo, supports updates)
   if command -v git >/dev/null 2>&1; then
-    echo "Using git to clone repository..."
+    echo "Using git..."
     mkdir -p "$(dirname "$CIDRE_CACHE_DIR")"
     rm -rf "$CIDRE_CACHE_DIR"
-    git clone --depth=1 --branch "$CIDRE_BRANCH" "$CIDRE_REPO_URL" "$CIDRE_CACHE_DIR"
-    echo ""
-    echo "Repository cloned. Starting installer..."
+    git clone --depth=1 --branch "$CIDRE_BRANCH" "$CIDRE_REPO_URL" "$CIDRE_CACHE_DIR" || {
+      echo "" >&2
+      echo "ERROR: Failed to clone repository." >&2
+      echo "Check your network connection and try again." >&2
+      echo "If GitHub is unreachable, consider using a VPN." >&2
+      exit 1
+    }
     echo ""
     exec bash "$CIDRE_CACHE_DIR/install.sh" "$@"
   fi
 
-  # Fallback: curl + tar (doesn't require git)
+  # Fallback: curl + tar (no git required)
   if command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
-    echo "git not available. Using curl+tar to fetch repository archive..."
+    echo "git not found. Using curl+tar..."
     mkdir -p "$(dirname "$CIDRE_CACHE_DIR")"
     rm -rf "$CIDRE_CACHE_DIR"
     TARBALL_URL="${CIDRE_REPO_URL%.git}/archive/refs/heads/${CIDRE_BRANCH}.tar.gz"
-    curl -fsSL "$TARBALL_URL" -o /tmp/cidre-bootstrap.tar.gz
+    curl -fsSL "$TARBALL_URL" -o /tmp/cidre-bootstrap.tar.gz || {
+      echo "" >&2
+      echo "ERROR: Failed to download repository archive." >&2
+      echo "Check your network connection and try again." >&2
+      echo "If GitHub is unreachable, consider using a VPN." >&2
+      exit 1
+    }
     mkdir -p "$CIDRE_CACHE_DIR"
-    tar -xzf /tmp/cidre-bootstrap.tar.gz -C "$CIDRE_CACHE_DIR" --strip-components=1
+    tar -xzf /tmp/cidre-bootstrap.tar.gz -C "$CIDRE_CACHE_DIR" --strip-components=1 || {
+      echo "" >&2
+      echo "ERROR: Failed to extract repository archive." >&2
+      rm -f /tmp/cidre-bootstrap.tar.gz
+      exit 1
+    }
     rm -f /tmp/cidre-bootstrap.tar.gz
-    echo ""
-    echo "Repository fetched. Starting installer..."
     echo ""
     exec bash "$CIDRE_CACHE_DIR/install.sh" "$@"
   fi
 
-  # If neither git nor curl+tar is available
+  # Neither git nor curl+tar available
   echo "" >&2
-  echo "Cidre requires git or curl+tar for remote bootstrap." >&2
+  echo "ERROR: Cidre requires git or curl+tar for remote bootstrap." >&2
   echo "" >&2
-  echo "Install git:" >&2
-  echo "  pacman -S git" >&2
+  echo "On Arch/ALARM:" >&2
+  echo "  sudo pacman -S git" >&2
   echo "" >&2
   echo "Or clone manually:" >&2
   echo "  git clone $CIDRE_REPO_URL" >&2
@@ -80,3 +103,5 @@ fi
 
 # ----- Delegate to main installer -----
 exec "$CIDRE_INSTALLER" "$@"
+
+fi # truncation guard — ensures incomplete downloads fail safely
