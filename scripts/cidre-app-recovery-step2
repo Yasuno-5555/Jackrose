@@ -8,7 +8,7 @@ set -eu
 # Flow (matching Asahi Alarm step2.sh):
 # 1. Detect Cidre VG UUID and system volume
 # 2. Verify we're in 1TR recovery mode (paired to the correct VG)
-# 3. bputil -g sets Reduced Security (works in 1TR!)
+# 3. bputil -nc sets Permissive Security (works in 1TR!)
 # 4. kmutil configure-boot installs m1n1 as custom boot object
 # 5. Clean up .IAPhysicalMedia
 # 6. Reboot
@@ -99,8 +99,8 @@ if ! grep -q 'one true recoveryOS' /tmp/bp.txt; then
   exit 1
 fi
 
-# ── Set Reduced Security ────────────────────────────────────────────
-echo "Setting Reduced Security for Cidre..."
+# ── Set Permissive Security ──────────────────────────────────────────
+echo "Setting Permissive Security for Cidre..."
 echo ""
 echo "You will see messages about changing the security level of your"
 echo "system. These changes apply ONLY to your Cidre install."
@@ -110,10 +110,13 @@ echo "You will be prompted for your macOS admin credentials."
 echo "Press enter to continue."
 read dummy
 
-# bputil -g: Set Reduced Security — allows custom bootloaders (m1n1).
-# This is the documented flag per project docs/apple-silicon-boot-integration.md.
+# bputil -nc: Set Permissive Security — allows custom bootloaders (m1n1).
+# This flag matches the Asahi-alarm reference implementation exactly:
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+#   step2.sh: while ! bputil -nc -v "$VGID"; do
 # Only works from recoveryOS (1TR mode), not from macOS (AP boot mode 11).
-while ! bputil -g -v "$VGID"; do
+# Only works from recoveryOS (1TR mode), not from macOS (AP boot mode 11).
+while ! bputil -nc -v "$VGID"; do
   echo ""
   echo "bputil failed. Did you mistype your password?"
   echo "Press enter to try again."
@@ -121,32 +124,53 @@ while ! bputil -g -v "$VGID"; do
 done
 
 echo ""
-echo "Reduced Security: enabled"
+echo "Permissive Security: enabled"
 echo ""
 
 # ── Install m1n1 as custom boot object ──────────────────────────────
 # Asahi-alarm reference: uses kmutil configure-boot with boot.bin
 #   https://github.com/asahi-alarm/asahi-alarm-installer
+#   step2.sh: kmutil configure-boot -c boot.bin --raw --entry-point 2048
+#             --lowest-virtual-address 0 -v "$system_dir"
 #
 # kmutil configure-boot properly installs the custom boot object into
 # the Preboot boot hash directory. This is the Apple-supported way to
 # install a custom kernel/bootloader.
+#
+# Priority (matching Asahi ALARM):
+# 1. ./boot.bin (same dir as step2.sh — Resources/)
+# 2. /Volumes/Cidre/cidre/m1n1.bin (Cidre Data volume)
+# 3. /Volumes/Cidre/cidre/boot.bin
+# 4. $SYSTEM_DIR/System/Library/CoreServices/boot.efi.m1n1
 
 BOOT_OBJ=""
-for candidate in \
-  "/Volumes/Cidre/cidre/m1n1.bin" \
-  "/Volumes/Cidre/boot/m1n1.bin" \
-  "/Volumes/Cidre/cidre/m1n1.macho" \
-  "/Volumes/Cidre/boot/m1n1.macho" \
-  "$SYSTEM_DIR/System/Library/CoreServices/boot.efi.m1n1" \
-  "$SYSTEM_DIR/boot/m1n1.macho" \
-  "$SYSTEM_DIR/boot/m1n1.bin" \
-  "/Volumes/Cidre/System/Library/CoreServices/boot.efi.m1n1"; do
-  if [ -f "$candidate" ] && [ -s "$candidate" ]; then
-    BOOT_OBJ="$candidate"
-    break
-  fi
-done
+self_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+# First: check for boot.bin in step2.sh's own directory (Asahi ALARM layout)
+if [ -f "$self_dir/boot.bin" ] && [ -s "$self_dir/boot.bin" ]; then
+  BOOT_OBJ="$self_dir/boot.bin"
+elif [ -f "./boot.bin" ] && [ -s "./boot.bin" ]; then
+  BOOT_OBJ="./boot.bin"
+fi
+
+# Fallback: search common locations
+if [ -z "$BOOT_OBJ" ]; then
+  for candidate in \
+    "/Volumes/Cidre/cidre/m1n1.bin" \
+    "/Volumes/Cidre/cidre/boot.bin" \
+    "/Volumes/Cidre/boot/m1n1.bin" \
+    "/Volumes/Cidre/boot/boot.bin" \
+    "/Volumes/Cidre/cidre/m1n1.macho" \
+    "/Volumes/Cidre/boot/m1n1.macho" \
+    "$SYSTEM_DIR/System/Library/CoreServices/boot.efi.m1n1" \
+    "$SYSTEM_DIR/boot/m1n1.bin" \
+    "/Volumes/Cidre/System/Library/CoreServices/boot.efi.m1n1"; do
+    if [ -f "$candidate" ] && [ -s "$candidate" ]; then
+      BOOT_OBJ="$candidate"
+      break
+    fi
+  done
+fi
 
 if [ -z "$BOOT_OBJ" ]; then
   echo "ERROR: m1n1 boot object not found." >&2
@@ -211,6 +235,24 @@ fi
 #   step2.sh: kmutil configure-boot -c boot.bin --raw --entry-point 2048 ...
 echo "Entry point: $ENTRY_POINT (_start at offset 0x800 in m1n1.bin)"
 
+# ── External volume workaround (Asahi ALARM reference) ──────────
+# kmutil has a problem with picking up AdminUserRecoveryInfo.plist from
+# the wrong place on external volumes. Work around that by copying the
+# Preboot var/ directory to iSCPreboot if it exists.
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+if [ -e "/System/Volumes/iSCPreboot/$VGID/boot" ]; then
+  echo "External volume detected. Applying iSCPreboot workaround..."
+  PREBOOT_DEV="$(diskutil list | grep "Preboot" | head -1 | awk '{print $NF}')"
+  if [ -n "$PREBOOT_DEV" ]; then
+    diskutil mount "$PREBOOT_DEV" 2>/dev/null || true
+    preboot_mount="$(diskutil info "$PREBOOT_DEV" 2>/dev/null | grep "Mount Point" | sed 's, *Mount Point: *,,')"
+    if [ -n "$preboot_mount" ] && [ -d "$preboot_mount/$VGID/var" ]; then
+      cp -R "$preboot_mount/$VGID/var" "/System/Volumes/iSCPreboot/$VGID/" 2>/dev/null || true
+      echo "iSCPreboot workaround: applied"
+    fi
+  fi
+fi
+
 # Asahi-alarm: kmutil configure-boot -c boot.bin --raw --entry-point ...
 #   --lowest-virtual-address 0 -v "$system_dir"
 while ! kmutil configure-boot \
@@ -249,7 +291,7 @@ echo "============================================"
 echo "Installation complete!"
 echo ""
 echo "What was done:"
-echo "  - Reduced Security: enabled"
+echo "  - Permissive Security: enabled"
 echo "  - m1n1 bootloader: installed"
 echo "  - Boot entry: configured"
 echo ""

@@ -1,6 +1,10 @@
 #!/bin/sh
-# Cidre step2 auto-launcher
-# Runs when macOS boots the Cidre stub and finds .IAPhysicalMedia
+# Cidre step2 auto-launcher (Asahi ALARM reference layout)
+# Reference: https://github.com/asahi-alarm/asahi-alarm-installer
+#   src/step2/Finish Installation.app/Contents/MacOS/step2_launcher.sh
+#
+# Runs when recoveryOS boots the Cidre stub and finds .IAPhysicalMedia.
+# Opens Terminal.app to run step2.sh interactively.
 
 LOG="/var/log/cidre-step2.log"
 exec >> "$LOG" 2>&1
@@ -8,23 +12,34 @@ exec >> "$LOG" 2>&1
 echo "=== Cidre Step2 Auto-Launcher ==="
 echo "Started: $(date)"
 
-# Find the step2 script on the Cidre Data volume
-STEP2="/Volumes/Cidre/cidre/step2.sh"
+# Priority 1: step2.sh in the app bundle's Resources (Asahi ALARM layout)
+SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+RESOURCES="$SELF_DIR/../Resources"
+STEP2="$RESOURCES/step2.sh"
 
 if [ -x "$STEP2" ]; then
-    echo "Running: $STEP2"
-    exec "$STEP2"
-else
-    echo "ERROR: step2.sh not found at $STEP2"
-    # Fallback: try to find and run it
-    for candidate in \
-        "/Volumes/Cidre/cidre/step2.sh" \
-        "/Volumes/Cidre 1/cidre/step2.sh"; do
-        if [ -x "$candidate" ]; then
-            echo "Found: $candidate"
-            exec "$candidate"
-        fi
-    done
-    echo "FATAL: Cannot find step2 script"
-    exit 1
+    echo "Running via Terminal: $STEP2"
+    exec /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal "$STEP2"
 fi
+
+# Priority 2: step2.sh on Cidre Data volume (fallback)
+STEP2="/Volumes/Cidre/cidre/step2.sh"
+if [ -x "$STEP2" ]; then
+    echo "Running via Terminal (fallback): $STEP2"
+    exec /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal "$STEP2"
+fi
+
+# Priority 3: search for step2.sh
+for candidate in \
+    "/Volumes/Cidre/cidre/step2.sh" \
+    "/Volumes/Cidre 1/cidre/step2.sh" \
+    "/Volumes/Cidre/cidre-step2.sh"; do
+    if [ -x "$candidate" ]; then
+        echo "Running via Terminal (found): $candidate"
+        exec /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal "$candidate"
+    fi
+done
+
+echo "FATAL: Cannot find step2 script"
+echo "Searched: $RESOURCES/step2.sh, /Volumes/Cidre/cidre/step2.sh"
+exit 1

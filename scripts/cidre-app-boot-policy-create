@@ -290,25 +290,57 @@ else
   steps_done="${steps_done}macos-vgid($MACOS_VGID) "
 fi
 
+# ── Kernelcache search (Asahi ALARM reference approach) ────
+# Asahi ALARM extracts kernelcache from IPSW; we use the macOS restore bundle.
+# The kernelcache is the ONLY file iBoot will load with Full Security.
+# Without it, the first 1TR boot cannot happen — iBoot rejects unsigned boot.efi.
+# CRITICAL: Never fall back to m1n1 for the first boot. It's unsigned, so
+# iBoot will always reject it with Full Security → reboot loop back to macOS.
+#
+# Search strategy:
+# 1. macOS Preboot restore bundle (any kernelcache.release.*, wildcard for macOS ver)
+# 2. macOS Preboot boot hash directory
+# 3. Cidre Preboot restore bundle
+# 4. Any kernelcache on the system Preboot volumes
+
 KC_CANDIDATES=""
 if [ -n "$MACOS_VGID" ]; then
+  # Wildcard kernelcache.release.* to support any macOS version (mac13g, mac14g, etc.)
   KC_CANDIDATES="
-/System/Volumes/Preboot/${MACOS_VGID}/restore/kernelcache.release.mac13g
+/System/Volumes/Preboot/${MACOS_VGID}/restore/kernelcache.release.*
 /System/Volumes/Preboot/${MACOS_VGID}/boot/*/System/Library/Caches/com.apple.kernelcaches/kernelcache
 "
 fi
 KC_CANDIDATES="${KC_CANDIDATES}
-/Volumes/Preboot/${vg_uuid}/restore/kernelcache.release.mac13g
+/Volumes/Preboot/${vg_uuid}/restore/kernelcache.release.*
 /Volumes/Preboot/${vg_uuid}/boot/*/System/Library/Caches/com.apple.kernelcaches/kernelcache
 "
+
+# Fallback: search all Preboot directories for any kernelcache
+KC_CANDIDATES="${KC_CANDIDATES}
+/System/Volumes/Preboot/*/restore/kernelcache.release.*
+/Volumes/Preboot/*/restore/kernelcache.release.*
+"
+
+echo "Searching for Apple kernelcache..."
 for candidate in $KC_CANDIDATES; do
-  # Expand glob if any
   for expanded in $candidate; do
     if [ -f "$expanded" ] && [ -s "$expanded" ]; then
-      # Verify it's an IMG4 file (Apple-signed)
-      if xxd "$expanded" 2>/dev/null | head -1 | grep -q "IMG4\|IM4P"; then
+      KC_SIZE=$(stat -f%z "$expanded" 2>/dev/null || echo "0")
+      # Kernelcache is typically 25-40 MB. m1n1 is ~1 MB.
+      # Use size to distinguish from m1n1 and other small binaries.
+      KC_TYPE=$(file "$expanded" 2>/dev/null || echo "")
+      if [ "$KC_SIZE" -gt 10000000 ] 2>/dev/null; then
+        # Large file — almost certainly an IMG4 kernelcache
+        echo "  found (by size: $KC_SIZE bytes): $expanded"
         KERNELCACHE_SRC="$expanded"
         break 2
+      elif echo "$KC_TYPE" | grep -qi "img4\|img4p"; then
+        echo "  found (by type: IMG4): $expanded"
+        KERNELCACHE_SRC="$expanded"
+        break 2
+      else
+        echo "  skipping (not kernelcache: ${KC_SIZE} bytes, ${KC_TYPE})" >&2
       fi
     fi
   done
@@ -318,9 +350,26 @@ if [ -n "$KERNELCACHE_SRC" ]; then
   echo "Apple kernelcache found: $KERNELCACHE_SRC ($(du -sh "$KERNELCACHE_SRC" | awk '{print $1}'))"
   steps_done="${steps_done}kernelcache-found "
 else
-  echo "WARNING: Apple kernelcache not found. 1TR boot may not work with Full Security."
-  steps_failed="${steps_failed}kernelcache(missing — 1TR boot requires Apple-signed IMG4) "
+  # CRITICAL: No kernelcache = no 1TR boot. Do NOT fall back to m1n1.
+  # m1n1 is unsigned and will be rejected by iBoot with Full Security,
+  # causing the exact "select Cidre → reboot to macOS" symptom.
+  echo "ERROR: Apple kernelcache not found anywhere."
+  echo "Checked paths:"
+  for candidate in $KC_CANDIDATES; do
+    for expanded in $candidate; do
+      echo "  $expanded $( [ -f "$expanded" ] && echo "(EXISTS)" || echo "(missing)")"
+    done
+  done | sort -u
+  echo ""
+  echo "The kernelcache (Apple-signed IMG4) is REQUIRED for the first 1TR boot."
+  echo "Without it, iBoot will reject any unsigned bootloader with Full Security."
+  echo ""
+  echo "To fix: ensure the macOS restore bundle is accessible at"
+  echo "  /System/Volumes/Preboot/<macOS-VG-UUID>/restore/"
+  echo "which contains kernelcache.release.* (an Apple-signed IMG4 file)."
+  steps_failed="${steps_failed}kernelcache(missing — CRITICAL: 1TR boot requires Apple-signed IMG4 kernelcache. m1n1 cannot be used for first boot.) "
 fi
+
 
 if [ -n "$M1N1_SRC" ]; then
   echo "m1n1 found: $M1N1_SRC ($(du -sh "$M1N1_SRC" | awk '{print $1}'))"
@@ -380,15 +429,16 @@ if [ -n "$preboot_mount" ] && [ -n "$vg_uuid" ]; then
     run_admin "chmod 755 ${DST_DIR}/System/Library/CoreServices/boot.efi" >/dev/null 2>&1 || true
     echo "Preboot boot.efi = Apple kernelcache (for 1TR boot)"
     steps_done="${steps_done}preboot-boot.efi(kernelcache) "
-  elif [ -n "$M1N1_SRC" ]; then
-    echo "WARNING: No kernelcache; using m1n1 as boot.efi (requires Reduced Security already set)"
-    cp "$M1N1_SRC" "$DST_DIR/System/Library/CoreServices/boot.efi" 2>/dev/null || \
-      run_admin "cp ${M1N1_SRC} ${DST_DIR}/System/Library/CoreServices/boot.efi" >/dev/null 2>&1 || true
-    run_admin "chmod 755 ${DST_DIR}/System/Library/CoreServices/boot.efi" >/dev/null 2>&1 || true
-    steps_done="${steps_done}preboot-boot.efi(m1n1-fallback) "
-  else
-    steps_failed="${steps_failed}preboot-boot.efi-no-source "
-  fi
+    else
+      # CRITICAL: NEVER fall back to m1n1 for boot.efi during first boot.
+      # m1n1 is unsigned; iBoot will reject it with Full Security → reboot
+      # back to macOS (the exact bug being fixed here).
+      # If kernelcache is missing, the 1TR boot cannot work. Fail loudly.
+      echo "ERROR: Cannot create boot.efi — no Apple kernelcache found."
+      echo "  An unsigned bootloader (m1n1) cannot be used for the FIRST boot."
+      echo "  iBoot requires an Apple-signed IMG4 kernelcache with Full Security."
+      steps_failed="${steps_failed}preboot-boot.efi-no-kernelcache "
+    fi
 
   # Save m1n1 backup for step2 restoration after bputil -g
   if [ -n "$M1N1_SRC" ] && [ -f "$M1N1_SRC" ]; then
@@ -428,6 +478,42 @@ if [ -n "$preboot_mount" ] && [ -n "$vg_uuid" ]; then
       echo "IM4M: $(basename "$im4m") copied"
     fi
   done
+fi
+
+# ── Copy AdminUserRecoveryInfo.plist (CRITICAL for recoveryOS auth) ─
+# Asahi-alarm reference: stub.py copy_admin_users()
+#   https://github.com/asahi-alarm/asahi-alarm-installer
+#
+# RecoveryOS needs AdminUserRecoveryInfo.plist on the boot volume's
+# Preboot to authenticate the user when running step2.sh.
+# Without this file, bputil and kmutil in recoveryOS will fail
+# because they can't verify the admin credentials.
+#
+# Copy from macOS Preboot → Cidre Preboot, then set schg flag
+# to prevent macOS <12.0 bootability code from clobbering it.
+ADMIN_USERS_SRC="/System/Volumes/Preboot/${MACOS_VGID}/var/db/AdminUserRecoveryInfo.plist"
+ADMIN_USERS_DST="${preboot_mount}/${vg_uuid}/var/db"
+if [ -f "$ADMIN_USERS_SRC" ] && [ -d "${preboot_mount}/${vg_uuid}" ]; then
+  mkdir -p "$ADMIN_USERS_DST"
+  [ -f "$ADMIN_USERS_DST/AdminUserRecoveryInfo.plist" ] && \
+    chflags noschg "$ADMIN_USERS_DST/AdminUserRecoveryInfo.plist" 2>/dev/null || true
+  if cp "$ADMIN_USERS_SRC" "$ADMIN_USERS_DST/AdminUserRecoveryInfo.plist" 2>/dev/null; then
+    chflags schg "$ADMIN_USERS_DST/AdminUserRecoveryInfo.plist" 2>/dev/null || true
+    steps_done="${steps_done}admin-users-copied "
+    echo "AdminUserRecoveryInfo.plist: copied to Cidre Preboot"
+  else
+    if run_admin "cp ${ADMIN_USERS_SRC} ${ADMIN_USERS_DST}/AdminUserRecoveryInfo.plist && chflags schg ${ADMIN_USERS_DST}/AdminUserRecoveryInfo.plist" >/dev/null 2>&1; then
+      steps_done="${steps_done}admin-users-copied(admin) "
+      echo "AdminUserRecoveryInfo.plist: copied via admin"
+    else
+      echo "WARNING: Could not copy AdminUserRecoveryInfo.plist"
+      steps_failed="${steps_failed}admin-users-copy "
+    fi
+  fi
+else
+  echo "WARNING: AdminUserRecoveryInfo.plist not found at macOS Preboot."
+  echo "RecoveryOS authentication may fail without this file."
+  steps_failed="${steps_failed}admin-users(missing) "
 fi
 
 # ── Phase 5: Bless (set Cidre as default boot for 1TR flow) ──────────
@@ -656,14 +742,24 @@ if [ -n "$system_mount" ] && [ -n "$system_volume" ]; then
   SYS_MOUNT="$(diskutil info -plist "$SYS_VOL" 2>/dev/null | python3 -c 'import plistlib,sys; print(plistlib.loads(sys.stdin.buffer.read()).get("MountPoint",""))' 2>/dev/null || echo "")"
 
   if [ -n "$SYS_MOUNT" ] && [ -d "$SYS_MOUNT" ]; then
-    # Write .IAPhysicalMedia marker plist
+    # Write .IAPhysicalMedia marker plist (Asahi ALARM reference format)
+    # Reference: https://github.com/asahi-alarm/asahi-alarm-installer
+    #   src/step2/IAPhysicalMedia.plist
+    # Keys: AppName (app to launch in recovery), ProductBuildVersion,
+    #        ProductVersion (OS version for compatibility checks)
+    # These EXACT keys are required for recoveryOS to recognize and
+    # auto-launch Finish Installation.app during the 1TR boot flow.
     cat > "$SYS_MOUNT/.IAPhysicalMedia" << 'IAPEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>FinishInstallPhase</key>
-    <string>Install</string>
+	<key>AppName</key>
+	<string>Finish Installation.app</string>
+	<key>ProductBuildVersion</key>
+	<string>00A191</string>
+	<key>ProductVersion</key>
+	<string>12.1</string>
 </dict>
 </plist>
 IAPEOF
@@ -678,8 +774,43 @@ IAPEOF
       } || steps_done="${steps_done}finish-app-copy-failed "
     fi
 
-    # Copy step2 script to System volume directly
+    # ── Stage boot.bin (raw ARM64 m1n1) for step2 ──────────────────
+    # Asahi-alarm reference: step2.sh expects boot.bin in the same
+    # directory as step2.sh (Finish Installation.app/Contents/Resources/).
+    # kmutil configure-boot -c boot.bin --raw --entry-point 2048 ...
+    #   https://github.com/asahi-alarm/asahi-alarm-installer
+    FINISH_RESOURCES="$SYS_MOUNT/Finish Installation.app/Contents/Resources"
+    mkdir -p "$FINISH_RESOURCES"
+    M1N1_BIN_FOR_STEP2=""
+    if [ -n "$M1N1_BIN_SRC" ] && [ -f "$M1N1_BIN_SRC" ]; then
+      M1N1_BIN_FOR_STEP2="$M1N1_BIN_SRC"
+    elif [ -f "$REPO_ROOT/libexec/m1n1.bin" ]; then
+      M1N1_BIN_FOR_STEP2="$REPO_ROOT/libexec/m1n1.bin"
+    elif [ -f "$REPO_ROOT/m1n1/build/m1n1.bin" ]; then
+      M1N1_BIN_FOR_STEP2="$REPO_ROOT/m1n1/build/m1n1.bin"
+    fi
+    if [ -n "$M1N1_BIN_FOR_STEP2" ] && [ -f "$M1N1_BIN_FOR_STEP2" ]; then
+      cp "$M1N1_BIN_FOR_STEP2" "$FINISH_RESOURCES/boot.bin" 2>/dev/null && {
+        chmod 755 "$FINISH_RESOURCES/boot.bin" 2>/dev/null || true
+        steps_done="${steps_done}boot.bin-staged "
+        echo "boot.bin: staged to Finish Installation.app/Contents/Resources/"
+      } || steps_done="${steps_done}boot.bin-copy-failed "
+    else
+      echo "WARNING: m1n1.bin not found. boot.bin will not be staged."
+      steps_failed="${steps_failed}boot.bin(missing) "
+    fi
+
+    # Also copy step2.sh to Finish Installation.app Resources
+    # so it matches Asahi ALARM's layout exactly.
     STEP2_SRC="$SCRIPT_DIR/cidre-app-recovery-step2"
+    if [ -f "$STEP2_SRC" ]; then
+      cp "$STEP2_SRC" "$FINISH_RESOURCES/step2.sh" 2>/dev/null && {
+        chmod +x "$FINISH_RESOURCES/step2.sh" 2>/dev/null || true
+        steps_done="${steps_done}step2.sh-in-resources "
+      } || true
+    fi
+
+    # Copy step2 script to System volume directly (fallback path)
     if [ -f "$STEP2_SRC" ]; then
       cp "$STEP2_SRC" "$SYS_MOUNT/cidre-step2.sh" 2>/dev/null && {
         chmod +x "$SYS_MOUNT/cidre-step2.sh" 2>/dev/null || true
@@ -704,11 +835,11 @@ IAPEOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.apple.SystemVersion</string>
-<key>ProductBuildVersion</key><string>1</string>
+<key>ProductBuildVersion</key><string>00A191</string>
 <key>ProductCopyright</key><string>Cidre Project</string>
 <key>ProductName</key><string>Cidre</string>
-<key>ProductUserVisibleVersion</key><string>1.0</string>
-<key>ProductVersion</key><string>1.0</string>
+<key>ProductUserVisibleVersion</key><string>12.1 (stub)</string>
+<key>ProductVersion</key><string>12.1</string>
 </dict></plist>
 SVPEOF
     fi
@@ -719,14 +850,14 @@ SVPEOF
       chmod 755 "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
       echo "System volume boot.efi = Apple kernelcache (for 1TR boot)"
       steps_done="${steps_done}boot.efi(kernelcache) "
-    elif [ -n "$M1N1_SRC" ] && [ -f "$M1N1_SRC" ]; then
-      # Fallback to m1n1 (only works if Reduced Security already set)
-      echo "WARNING: No kernelcache; using m1n1 as boot.efi"
-      cp "$M1N1_SRC" "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
-      chmod 755 "$SYS_MOUNT/System/Library/CoreServices/boot.efi" 2>/dev/null || true
-      steps_done="${steps_done}boot.efi(m1n1-fallback) "
     else
-      steps_failed="${steps_failed}boot.efi-no-valid-source "
+      # CRITICAL: NEVER fall back to m1n1 for boot.efi during first boot.
+      # m1n1 is unsigned; iBoot will reject it with Full Security → reboot
+      # back to macOS (the exact bug being fixed here).
+      echo "ERROR: Cannot create System boot.efi — no Apple kernelcache found."
+      echo "  An unsigned bootloader (m1n1) cannot be used for the FIRST boot."
+      echo "  iBoot requires an Apple-signed IMG4 kernelcache with Full Security."
+      steps_failed="${steps_failed}boot.efi-no-kernelcache "
     fi
 
     # Save m1n1 backup for step2 restoration after bputil -g
@@ -751,18 +882,67 @@ SVPEOF
 
     # ── Deploy bootcaches.plist (required for iBoot to find boot.efi) ────
     # Asahi-alarm reference: stub.py install_files() extracts bootcaches.plist
-    # from the IPSW to the System volume. This plist tells iBoot where to find
-    # boot.efi (via BooterPaths.EFIBooter) and kernelcaches.
-    if [ -f "/usr/standalone/bootcaches.plist" ]; then
+    # from the IPSW to BOTH the System volume AND the Preboot restore bundle.
+    # The IPSW version has correct paths; macOS /usr/standalone/bootcaches.plist
+    # has paths hardcoded for the macOS VG UUID — copying it to Cidre causes iBoot
+    # to look for kernelcache at the wrong path → boot failure.
+    #
+    # Strategy: use the restore bundle bootcaches.plist (correct for this kernelcache),
+    # or skip deployment (iBoot falls back to System/Library/CoreServices/boot.efi).
+    DST_RESTORE="${preboot_mount}/${vg_uuid}/restore"
+    if [ -f "$DST_RESTORE/bootcaches.plist" ]; then
       mkdir -p "$SYS_MOUNT/usr/standalone"
-      cp "/usr/standalone/bootcaches.plist" \
+      cp "$DST_RESTORE/bootcaches.plist" \
          "$SYS_MOUNT/usr/standalone/bootcaches.plist" 2>/dev/null || true
-      steps_done="${steps_done}bootcaches-deployed "
-      echo "bootcaches.plist: deployed (iBoot boot file resolution)"
+      steps_done="${steps_done}bootcaches-deployed(from-restore-bundle) "
+      echo "bootcaches.plist: deployed from restore bundle"
+    elif [ -f "$DST_RESTORE/usr/standalone/bootcaches.plist" ]; then
+      mkdir -p "$SYS_MOUNT/usr/standalone"
+      cp "$DST_RESTORE/usr/standalone/bootcaches.plist" \
+         "$SYS_MOUNT/usr/standalone/bootcaches.plist" 2>/dev/null || true
+      steps_done="${steps_done}bootcaches-deployed(from-restore-usr) "
+      echo "bootcaches.plist: deployed from restore bundle usr/standalone/"
     else
-      echo "WARNING: macOS bootcaches.plist not found at /usr/standalone/."
-      echo "iBoot may use default search paths for boot.efi."
-      steps_done="${steps_done}bootcaches-skipped "
+      # NOT copying macOS /usr/standalone/bootcaches.plist — it has wrong VG UUID paths.
+      # iBoot will fall back to directly loading System/Library/CoreServices/boot.efi.
+      echo "NOTE: bootcaches.plist not in restore bundle — iBoot will use boot.efi directly."
+      steps_done="${steps_done}bootcaches-skipped(iBoot-will-use-boot.efi-directly) "
+    fi
+
+    # ── Create restore bundle symlink (Asahi ALARM reference) ──────
+    # Asahi-alarm stub.py: creates symlink from System volume to Preboot
+    # restore bundle. This is REQUIRED for bootability code to find the
+    # apticket and other files in the restore bundle.
+    # Without this, bootability puts the apticket in the wrong volume.
+    DST_RESTORE="${preboot_mount}/${vg_uuid}/restore"
+    RESTORE_BUNDLE_PATH=""
+    if [ -f "$DST_RESTORE/bootcaches.plist" ]; then
+      RESTORE_BUNDLE_PATH="$(python3 -c "
+import plistlib
+bc = plistlib.load(open('${DST_RESTORE}/bootcaches.plist', 'rb'))
+print(bc.get('bless2', {}).get('RestoreBundlePath', ''))
+" 2>/dev/null || echo "")"
+    fi
+    if [ -z "$RESTORE_BUNDLE_PATH" ] && [ -f "$SRC_RESTORE/bootcaches.plist" ]; then
+      RESTORE_BUNDLE_PATH="$(python3 -c "
+import plistlib
+bc = plistlib.load(open('${SRC_RESTORE}/bootcaches.plist', 'rb'))
+print(bc.get('bless2', {}).get('RestoreBundlePath', ''))
+" 2>/dev/null || echo "")"
+    fi
+    if [ -n "$RESTORE_BUNDLE_PATH" ]; then
+      SYS_RESTORE_LINK="$SYS_MOUNT/$RESTORE_BUNDLE_PATH"
+      mkdir -p "$(dirname "$SYS_RESTORE_LINK")" 2>/dev/null || true
+      [ -L "$SYS_RESTORE_LINK" ] && rm -f "$SYS_RESTORE_LINK" 2>/dev/null || true
+      [ -e "$SYS_RESTORE_LINK" ] && rm -rf "$SYS_RESTORE_LINK" 2>/dev/null || true
+      if ln -sf "$DST_RESTORE" "$SYS_RESTORE_LINK" 2>/dev/null; then
+        steps_done="${steps_done}restore-symlink "
+        echo "Restore symlink: $RESTORE_BUNDLE_PATH -> Preboot restore bundle"
+      else
+        echo "WARNING: Could not create restore bundle symlink"
+      fi
+    else
+      echo "NOTE: Could not determine RestoreBundlePath from bootcaches.plist"
     fi
 
     # ── Set APFS bootable flag via fsctl (required for iBoot to boot) ────
