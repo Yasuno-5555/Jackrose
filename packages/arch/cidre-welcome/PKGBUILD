@@ -17,5 +17,6 @@ _repo_root="${startdir}/../../.."
 
 package() {
   install -Dm755 "${_repo_root}/components/welcome/bin/cidre-welcome" "${pkgdir}/usr/bin/cidre-welcome"
+  install -Dm755 "${_repo_root}/components/welcome/bin/cidre-oobe" "${pkgdir}/usr/bin/cidre-oobe"
 }
 
