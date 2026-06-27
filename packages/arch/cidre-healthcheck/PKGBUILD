@@ -1,13 +1,13 @@
 # Maintainer: Yasuno <yasuno@example.invalid>
 
-pkgname=cidre-user-setup
+pkgname=cidre-healthcheck
 pkgver=1.0.0
 pkgrel=1
-pkgdesc='Cidre user environment setup tool'
+pkgdesc='Cidre environment health check diagnostic tool'
 url='https://github.com/Yasuno-5555/Cidre'
 arch=('any')
 license=('custom')
-depends=('bash')
+depends=('bash' 'cidre-diagnostics')
 source=()
 sha256sums=()
 
@@ -16,6 +16,6 @@ sha256sums=()
 _repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm755 "${_repo_root}/components/config/bin/cidre-user-setup" "${pkgdir}/usr/bin/cidre-user-setup"
+  install -Dm755 "${_repo_root}/components/healthcheck/bin/cidre-healthcheck" \
+    "${pkgdir}/usr/bin/cidre-healthcheck"
 }
-

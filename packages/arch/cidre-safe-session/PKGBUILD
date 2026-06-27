@@ -1,9 +1,9 @@
 # Maintainer: Yasuno <yasuno@example.invalid>
 
-pkgname=cidre-user-setup
+pkgname=cidre-safe-session
 pkgver=1.0.0
 pkgrel=1
-pkgdesc='Cidre user environment setup tool'
+pkgdesc='Cidre environment minimal recovery safe session (Skeleton)'
 url='https://github.com/Yasuno-5555/Cidre'
 arch=('any')
 license=('custom')
@@ -16,6 +16,7 @@ sha256sums=()
 _repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm755 "${_repo_root}/components/config/bin/cidre-user-setup" "${pkgdir}/usr/bin/cidre-user-setup"
+  # Skeleton phase: Create minimal marker or directories
+  mkdir -p "${pkgdir}/usr/share/cidre/safe"
+  echo "# safe session config skeleton" > "${pkgdir}/usr/share/cidre/safe/skeleton.txt"
 }
-

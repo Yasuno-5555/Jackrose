@@ -3,14 +3,25 @@
 pkgname=cidre-firstboot
 pkgver=1.0.0
 pkgrel=1
-pkgdesc='Cidre environment first-boot diagnostic verification script'
+pkgdesc='Cidre environment first-boot OOBE systemd service and triggers'
 url='https://github.com/Yasuno-5555/Cidre'
 arch=('any')
 license=('custom')
 depends=('bash')
-source=('cidre-firstboot')
-sha256sums=('SKIP')
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+# This will be replaced by source=() when packages move to cidre-packages.
+_repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm755 "${srcdir}/cidre-firstboot" "${pkgdir}/usr/bin/cidre-firstboot"
+  # Install the systemd service file
+  install -Dm644 "${_repo_root}/components/firstboot/systemd/cidre-firstboot.service" \
+    "${pkgdir}/usr/lib/systemd/system/cidre-firstboot.service"
+
+  # Install the finish script
+  install -Dm755 "${_repo_root}/components/firstboot/bin/cidre-firstboot-finish" \
+    "${pkgdir}/usr/bin/cidre-firstboot-finish"
 }
+

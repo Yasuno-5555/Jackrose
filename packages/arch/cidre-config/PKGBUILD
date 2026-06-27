@@ -8,29 +8,23 @@ url='https://github.com/Yasuno-5555/Cidre'
 arch=('any')
 license=('custom')
 depends=()
-source=(
-  'niri/config.kdl'
-  'ghostty/config'
-  'fcitx5/profile'
-  'environment.d/90-cidre-ime.conf'
-  'fish/config.fish'
-  'starship/starship.toml'
-  'fuzzel/fuzzel.ini'
-  'waybar/config'
-  'waybar/style.css'
-  'applications/com.mitchellh.ghostty.desktop'
-)
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+# This will be replaced by source=() when packages move to cidre-packages.
+_repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm644 "${srcdir}/niri/config.kdl" "${pkgdir}/usr/share/cidre/defaults/niri/config.kdl"
-  install -Dm644 "${srcdir}/ghostty/config" "${pkgdir}/usr/share/cidre/defaults/ghostty/config"
-  install -Dm644 "${srcdir}/fcitx5/profile" "${pkgdir}/usr/share/cidre/defaults/fcitx5/profile"
-  install -Dm644 "${srcdir}/environment.d/90-cidre-ime.conf" "${pkgdir}/usr/share/cidre/defaults/environment.d/90-cidre-ime.conf"
-  install -Dm644 "${srcdir}/fish/config.fish" "${pkgdir}/usr/share/cidre/defaults/fish/config.fish"
-  install -Dm644 "${srcdir}/starship/starship.toml" "${pkgdir}/usr/share/cidre/defaults/starship/starship.toml"
-  install -Dm644 "${srcdir}/fuzzel/fuzzel.ini" "${pkgdir}/usr/share/cidre/defaults/fuzzel/fuzzel.ini"
-  install -Dm644 "${srcdir}/waybar/config" "${pkgdir}/usr/share/cidre/defaults/waybar/config"
-  install -Dm644 "${srcdir}/waybar/style.css" "${pkgdir}/usr/share/cidre/defaults/waybar/style.css"
-  install -Dm644 "${srcdir}/applications/com.mitchellh.ghostty.desktop" "${pkgdir}/usr/share/cidre/defaults/applications/com.mitchellh.ghostty.desktop"
+  install -Dm644 "${_repo_root}/components/config/defaults/niri/config.kdl" "${pkgdir}/usr/share/cidre/defaults/niri/config.kdl"
+  install -Dm644 "${_repo_root}/components/config/defaults/ghostty/config" "${pkgdir}/usr/share/cidre/defaults/ghostty/config"
+  install -Dm644 "${_repo_root}/components/config/defaults/fcitx5/profile" "${pkgdir}/usr/share/cidre/defaults/fcitx5/profile"
+  install -Dm644 "${_repo_root}/components/config/defaults/environment.d/90-cidre-ime.conf" "${pkgdir}/usr/share/cidre/defaults/environment.d/90-cidre-ime.conf"
+  install -Dm644 "${_repo_root}/components/config/defaults/fish/config.fish" "${pkgdir}/usr/share/cidre/defaults/fish/config.fish"
+  install -Dm644 "${_repo_root}/components/config/defaults/starship/starship.toml" "${pkgdir}/usr/share/cidre/defaults/starship/starship.toml"
+  install -Dm644 "${_repo_root}/components/config/defaults/fuzzel/fuzzel.ini" "${pkgdir}/usr/share/cidre/defaults/fuzzel/fuzzel.ini"
+  install -Dm644 "${_repo_root}/components/config/defaults/waybar/config" "${pkgdir}/usr/share/cidre/defaults/waybar/config"
+  install -Dm644 "${_repo_root}/components/config/defaults/waybar/style.css" "${pkgdir}/usr/share/cidre/defaults/waybar/style.css"
+  install -Dm644 "${_repo_root}/components/config/defaults/applications/com.mitchellh.ghostty.desktop" "${pkgdir}/usr/share/cidre/defaults/applications/com.mitchellh.ghostty.desktop"
 }
+

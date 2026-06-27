@@ -8,9 +8,14 @@ url='https://github.com/Yasuno-5555/Cidre'
 arch=('any')
 license=('custom')
 depends=('bash')
-source=('cidre-welcome')
-sha256sums=('SKIP')
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+# This will be replaced by source=() when packages move to cidre-packages.
+_repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm755 "${srcdir}/cidre-welcome" "${pkgdir}/usr/bin/cidre-welcome"
+  install -Dm755 "${_repo_root}/components/welcome/bin/cidre-welcome" "${pkgdir}/usr/bin/cidre-welcome"
 }
+
