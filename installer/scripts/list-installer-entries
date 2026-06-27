@@ -1,0 +1,113 @@
+#!/bin/bash
+# list-installer-entries: Parses and queries metadata entries matching filters
+set -euo pipefail
+
+METADATA=""
+ARCH_FILTER=""
+PLAT_FILTER=""
+CHAN_FILTER=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> [--arch <arch>] [--platform <platform>] [--channel <channel>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires a path argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --arch)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --arch requires an argument." >&2
+        exit 1
+      fi
+      ARCH_FILTER="$2"
+      shift 2
+      ;;
+    --platform)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --platform requires an argument." >&2
+        exit 1
+      fi
+      PLAT_FILTER="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires an argument." >&2
+        exit 1
+      fi
+      CHAN_FILTER="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ]; then
+  echo "ERROR: --metadata is required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ]; then
+  echo "ERROR: Metadata file not found at $METADATA" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Build jq filter expression
+jq_expr=".entries[]"
+
+if [ -n "$ARCH_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.arch == \"$ARCH_FILTER\")"
+fi
+
+if [ -n "$PLAT_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.compatibility.platform == \"$PLAT_FILTER\")"
+fi
+
+if [ -n "$CHAN_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.channel == \"$CHAN_FILTER\")"
+fi
+
+# Run selection parse
+matched_count=$(jq "[ ${jq_expr} ] | length" "$METADATA")
+
+if [ "$matched_count" -eq 0 ]; then
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  No installer entries matched the requested filters." >&2
+  echo "" >&2
+  echo "Next action:" >&2
+  echo "  Check metadata channel, architecture, and compatibility fields." >&2
+  exit 2
+fi
+
+echo "Available Cidre installer entries:"
+echo ""
+
+index=1
+while IFS=$'\t' read -r entry_id entry_name entry_ver entry_chan entry_arch entry_plat entry_mode; do
+  echo "[$index] $entry_name"
+  echo "    id: $entry_id"
+  echo "    version: $entry_ver"
+  echo "    channel: $entry_chan"
+  echo "    arch: $entry_arch"
+  echo "    platform: $entry_plat"
+  echo "    first boot: $entry_mode"
+  echo ""
+  index=$((index + 1))
+done < <(jq -r "[ ${jq_expr} ] | .[] | [ .id, .name, .version, .channel, .arch, .compatibility.platform, .first_boot.mode ] | @tsv" "$METADATA")

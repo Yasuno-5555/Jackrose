@@ -1,0 +1,91 @@
+#!/bin/bash
+# simulate-installer-selection: Dry-run selector listing compatibility, sizes, and startup targets
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA=""
+ID=""
+VERIFY=0
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> [--verify-artifact]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires a path argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name argument." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --verify-artifact)
+      VERIFY=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ]; then
+  echo "ERROR: Both --metadata and --id are required." >&2
+  usage
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Run selection resolution
+entry_json=$("$SCRIPT_DIR/resolve-installer-entry" --metadata "$METADATA" --id "$ID" --format json)
+
+echo "=== Installer Selection Simulation ==="
+echo ""
+echo "Selected:"
+echo "  $(echo "$entry_json" | jq -r '.name')"
+echo ""
+echo "Image:"
+echo "  $(echo "$entry_json" | jq -r '.image.url')"
+echo ""
+echo "Compatibility:"
+echo "  platform:                  $(echo "$entry_json" | jq -r '.compatibility.platform')"
+echo "  arch:                      $(echo "$entry_json" | jq -r '.arch')"
+echo "  devices:                   $(echo "$entry_json" | jq -r '.compatibility.devices | join(", ")')"
+echo "  requires_asahi_boot_chain: $(echo "$entry_json" | jq -r '.compatibility.requires_asahi_boot_chain')"
+echo ""
+echo "First boot:"
+echo "  mode:     $(echo "$entry_json" | jq -r '.first_boot.mode')"
+echo "  session:  $(echo "$entry_json" | jq -r '.first_boot.session')"
+echo "  welcome:  $(echo "$entry_json" | jq -r '.first_boot.welcome')"
+echo ""
+echo "Features:"
+while IFS= read -r feat; do
+  echo "  - $feat"
+done < <(echo "$entry_json" | jq -r '.features[]')
+echo ""
+
+if [ "$VERIFY" -eq 1 ]; then
+  echo "Verifying local image archive bindings..."
+  "$SCRIPT_DIR/verify-local-image-artifact" --metadata "$METADATA" --id "$ID"
+  echo ""
+fi
+
+echo "Result:"
+echo "  Selection simulation passed."
+echo "  No disk changes were made."
+exit 0

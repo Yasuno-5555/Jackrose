@@ -1,0 +1,111 @@
+#!/bin/bash
+# resolve-installer-entry: Resolves detailed metadata values for a specific entry ID
+set -euo pipefail
+
+METADATA=""
+ID=""
+FORMAT="text"
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> [--format <text|env|json>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires a path argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name argument." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --format)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --format requires a type." >&2
+        exit 1
+      fi
+      FORMAT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ]; then
+  echo "ERROR: Both --metadata and --id are required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ]; then
+  echo "ERROR: Metadata file not found at $METADATA" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Search entry ID
+matched_count=$(jq "[ .entries[] | select(.id == \"$ID\") ] | length" "$METADATA")
+
+if [ "$matched_count" -eq 0 ]; then
+  echo "ERROR: Entry ID '$ID' not found in $METADATA." >&2
+  exit 1
+elif [ "$matched_count" -gt 1 ]; then
+  echo "ERROR: Duplicate entry ID '$ID' found in $METADATA." >&2
+  exit 1
+fi
+
+# Fetch properties
+entry_json=$(jq ".entries[] | select(.id == \"$ID\")" "$METADATA")
+
+first_boot_mode=$(echo "$entry_json" | jq -r '.first_boot.mode')
+if [ "$first_boot_mode" != "desktop-welcome" ]; then
+  echo "ERROR: Unsupported first_boot.mode: $first_boot_mode. Must be desktop-welcome." >&2
+  exit 1
+fi
+
+if [ "$FORMAT" = "json" ]; then
+  echo "$entry_json"
+elif [ "$FORMAT" = "env" ]; then
+  entry_name=$(echo "$entry_json" | jq -r '.name')
+  entry_ver=$(echo "$entry_json" | jq -r '.version')
+  entry_chan=$(echo "$entry_json" | jq -r '.channel')
+  img_url=$(echo "$entry_json" | jq -r '.image.url')
+  img_sha=$(echo "$entry_json" | jq -r '.image.sha256')
+  img_manifest=$(echo "$entry_json" | jq -r '.image.manifest')
+  
+  echo "CIDRE_ENTRY_ID=${ID}"
+  echo "CIDRE_ENTRY_NAME=\"${entry_name}\""
+  echo "CIDRE_ENTRY_VERSION=${entry_ver}"
+  echo "CIDRE_ENTRY_CHANNEL=${entry_chan}"
+  echo "CIDRE_IMAGE_URL=${img_url}"
+  echo "CIDRE_IMAGE_SHA256=${img_sha}"
+  echo "CIDRE_IMAGE_MANIFEST=${img_manifest}"
+  echo "CIDRE_FIRST_BOOT_MODE=${first_boot_mode}"
+else
+  # Default text formatting
+  echo "Resolved Entry: $ID"
+  echo "  Name:         $(echo "$entry_json" | jq -r '.name')"
+  echo "  Version:      $(echo "$entry_json" | jq -r '.version')"
+  echo "  Channel:      $(echo "$entry_json" | jq -r '.channel')"
+  echo "  Image URL:    $(echo "$entry_json" | jq -r '.image.url')"
+  echo "  SHA256:       $(echo "$entry_json" | jq -r '.image.sha256')"
+  echo "  Manifest:     $(echo "$entry_json" | jq -r '.image.manifest')"
+  echo "  First Boot:   $first_boot_mode"
+fi
+exit 0

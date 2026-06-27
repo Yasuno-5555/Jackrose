@@ -18,6 +18,7 @@ usage() {
   echo "  --rootfs <path>     Path to test rootfs to validate"
   echo "  --apply             Perform real package install and firstboot enable (requires --rootfs)"
   echo "  --metadata-only     Run local installer metadata validation checks only"
+  echo "  --installer-local-only Run local installer selection integration tests"
   exit 1
 }
 
@@ -47,6 +48,10 @@ while [ $# -gt 0 ]; do
       METADATA_ONLY=1
       shift
       ;;
+    --installer-local-only)
+      INSTALLER_LOCAL_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -57,6 +62,12 @@ done
 if [ "${METADATA_ONLY:-0}" -eq 1 ]; then
   echo "Running metadata validation only..."
   "$REPO_ROOT/installer/scripts/validate-installer-metadata" "$REPO_ROOT/installer/metadata/cidre-seed.local.json"
+  exit 0
+fi
+
+if [ "${INSTALLER_LOCAL_ONLY:-0}" -eq 1 ]; then
+  echo "Running installer local integration validation tests only..."
+  "$REPO_ROOT/installer/scripts/run-local-integration-tests"
   exit 0
 fi
 

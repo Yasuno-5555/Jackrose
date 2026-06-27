@@ -1,0 +1,160 @@
+#!/bin/bash
+# verify-local-image-artifact: Validates existence and checksum compatibility of local image target files
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA=""
+ID=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id>"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires an argument." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ]; then
+  echo "ERROR: Both --metadata and --id are required." >&2
+  usage
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Resolve entry variables
+entry_json=$("$SCRIPT_DIR/resolve-installer-entry" --metadata "$METADATA" --id "$ID" --format json)
+
+img_url=$(echo "$entry_json" | jq -r '.image.url')
+img_sha=$(echo "$entry_json" | jq -r '.image.sha256')
+img_manifest_url=$(echo "$entry_json" | jq -r '.image.manifest')
+channel=$(echo "$entry_json" | jq -r '.channel')
+
+# Verify local schemes
+if [[ ! "$img_url" =~ ^file:// && ! "$img_url" =~ ^placeholder:// ]]; then
+  echo "ERROR: Phase 12 only supports local testing file:// or placeholder:// schemes." >&2
+  exit 1
+fi
+
+# Resolve paths (Remove file:// prefix)
+img_path="${img_url#file://}"
+manifest_path="${img_manifest_url#file://}"
+
+# Convert relative paths (prefixing repository root if matches out/)
+if [[ "$img_path" =~ ^out/ ]]; then
+  img_path="$SCRIPT_DIR/../../$img_path"
+fi
+
+if [[ "$manifest_path" =~ ^out/ ]]; then
+  manifest_path="$SCRIPT_DIR/../../$manifest_path"
+fi
+
+# Special boundary check on PLACEHOLDER_SHA256
+if [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+  case "$channel" in
+    local)
+      if [ ! -f "$img_path" ]; then
+        echo "  [WARN] Local image artifact not found at $img_path. Skipping checksum check (local bypass)."
+        exit 0
+      fi
+      ;;
+    dev)
+      if [ ! -f "$img_path" ]; then
+        echo "  [WARN] Dev image artifact not found. Please build the seed image."
+        exit 0
+      else
+        echo "" >&2
+        echo "What happened:" >&2
+        echo "  Local image artifact exists, but metadata still uses PLACEHOLDER_SHA256." >&2
+        echo "" >&2
+        echo "Next action:" >&2
+        echo "  Run installer/scripts/update-metadata-from-build to update checksum and size fields." >&2
+        exit 1
+      fi
+      ;;
+    release)
+      echo "ERROR: Release entries cannot use PLACEHOLDER_SHA256 checksums." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# Real verification checks
+echo "Verifying local image artifact at $img_path..."
+if [ ! -f "$img_path" ]; then
+  echo "ERROR: Image file is missing at $img_path." >&2
+  exit 1
+fi
+
+echo "Verifying build manifest at $manifest_path..."
+if [ ! -f "$manifest_path" ]; then
+  echo "ERROR: Build manifest is missing at $manifest_path." >&2
+  exit 1
+fi
+
+# Check manifest structure keys
+REQUIRED_MANIFEST_KEYS=(
+  profile_name=
+  image_name=
+  version=
+  arch=
+  build_date=
+  base_rootfs=
+  output_image=
+  sha256=
+  package_count=
+  validation_status=
+  first_boot_mode=desktop-welcome
+)
+
+for key in "${REQUIRED_MANIFEST_KEYS[@]}"; do
+  if ! grep -q "^${key}" "$manifest_path"; then
+    echo "ERROR: Manifest is missing required key prefix: ${key} in $manifest_path" >&2
+    exit 1
+  fi
+done
+echo "  [OK] Manifest verification passed."
+
+# SHA256 checksum calculation
+echo "Computing image sha256 checksum..."
+computed_sha=""
+if command -v sha256sum >/dev/null 2>&1; then
+  computed_sha=$(sha256sum "$img_path" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+  computed_sha=$(shasum -a 256 "$img_path" | cut -d' ' -f1)
+fi
+
+if [ "$computed_sha" != "$img_sha" ]; then
+  echo "ERROR: SHA256 checksum mismatch." >&2
+  echo "  Metadata SHA256: $img_sha" >&2
+  echo "  Computed SHA256: $computed_sha" >&2
+  exit 1
+fi
+
+echo "  [OK] SHA256 checksum match."
+echo "Image verification completed successfully."
+exit 0
