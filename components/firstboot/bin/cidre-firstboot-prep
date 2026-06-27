@@ -1,0 +1,15 @@
+#!/bin/bash
+# cidre-firstboot-prep: Sets up basic state folders on first graphical boot
+set -euo pipefail
+
+echo "Initializing Cidre state directories..."
+
+# Prepare state directories
+mkdir -p /var/lib/cidre
+mkdir -p /var/log/cidre
+
+# Permissions safety check
+chmod 755 /var/lib/cidre /var/log/cidre
+
+echo "Initialization completed successfully. Greetd graphical session is ready to spawn."
+exit 0

@@ -1,5 +1,120 @@
 #!/bin/bash
-# pack-image: Skeleton script for archiving target rootfs image
+# pack-image: Archives target rootfs into a compressed seed image
 set -euo pipefail
 
-echo "  [DRY-RUN] pack-image skeleton executed."
+ROOTFS=""
+OUTPUT_DIR=""
+NAME=""
+DRY_RUN=0
+APPLY=0
+
+usage() {
+  echo "Usage: $0 --rootfs <path> --output-dir <path> --name <name> [--dry-run | --apply]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --rootfs requires an argument." >&2
+        exit 1
+      fi
+      ROOTFS="$2"
+      shift 2
+      ;;
+    --output-dir)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output-dir requires an argument." >&2
+        exit 1
+      fi
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --name)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --name requires an argument." >&2
+        exit 1
+      fi
+      NAME="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ROOTFS" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$NAME" ]; then
+  echo "ERROR: --rootfs, --output-dir, and --name are all required." >&2
+  usage
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Use --dry-run or --apply explicitly." >&2
+  exit 1
+fi
+
+if [ "$ROOTFS" = "/" ]; then
+  echo "ERROR: Refusing to package host root '/'." >&2
+  exit 1
+fi
+
+IMAGE_PATH="$OUTPUT_DIR/${NAME}.tar.zst"
+SHA_PATH="${IMAGE_PATH}.sha256"
+MANIFEST_PATH="$OUTPUT_DIR/${NAME}.manifest"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  === Image Packaging [DRY-RUN SIMULATION] ==="
+  echo "  Source rootfs: $ROOTFS"
+  echo "  Output target: $IMAGE_PATH"
+  echo "  [DRY-RUN] would pack rootfs using tar and zstd compression."
+  echo "  [DRY-RUN] would generate sha256 checksum at $SHA_PATH"
+  echo "  [DRY-RUN] would compile manifest details at $MANIFEST_PATH"
+  exit 0
+fi
+
+# Apply mode execution
+echo "Archiving rootfs to $IMAGE_PATH..."
+
+mkdir -p "$OUTPUT_DIR"
+
+if command -v tar >/dev/null 2>&1 && command -v zstd >/dev/null 2>&1; then
+  # Pack rootfs recursively using zstd compression
+  tar --zstd -cf "$IMAGE_PATH" -C "$ROOTFS" .
+else
+  echo "ERROR: tar or zstd commands not found on host." >&2
+  exit 1
+fi
+
+echo "Generating sha256 checksum..."
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$IMAGE_PATH" | cut -d' ' -f1 > "$SHA_PATH"
+elif command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "$IMAGE_PATH" | cut -d' ' -f1 > "$SHA_PATH"
+else
+  echo "Warning: checksum tools not found. Checksum generation skipped."
+fi
+
+echo "Writing build manifest..."
+{
+  echo "Build Date: $(date)"
+  echo "Target Architecture: aarch64"
+  echo "Base Workspace: $ROOTFS"
+  echo "Cidre Seed Package: Version 1.0.0"
+  echo "Compositor Mode: desktop-first greetd"
+  if [ -f "$SHA_PATH" ]; then
+    echo "SHA256 Checksum: $(cat "$SHA_PATH")"
+  fi
+} > "$MANIFEST_PATH"
+
+echo "Packaging completed successfully."

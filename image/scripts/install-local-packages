@@ -62,11 +62,13 @@ if [ "$ROOTFS" = "/" ] || [ -z "$ROOTFS" ]; then
   exit 1
 fi
 
-# Verify cidre-seed presence
-seed_check=$(find "$PACKAGES" -name "cidre-seed-*" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$seed_check" -eq 0 ]; then
-  echo "ERROR: Refusing installation. cidre-seed package artifact is missing in $PACKAGES." >&2
-  exit 1
+# Verify cidre-seed presence in apply mode
+if [ "$APPLY" -eq 1 ]; then
+  seed_check=$(find "$PACKAGES" -name "cidre-seed-*" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$seed_check" -eq 0 ]; then
+    echo "ERROR: Refusing installation. cidre-seed package artifact is missing in $PACKAGES." >&2
+    exit 1
+  fi
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then

@@ -19,7 +19,13 @@ m1n1/
 
 # Target Validation Logs & Output Staging
 /logs/target-validation/*.log
+/logs/image-build/*.log
 /packages/out/*.pkg.tar.*
 /work/
+/out/*.tar
+/out/*.tar.*
+/out/*.img
+/out/*.manifest
 /out/
+
 

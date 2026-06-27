@@ -1,5 +1,82 @@
 #!/bin/bash
-# lock-root: Skeleton script for root login locking rules
+# lock-root: Locks root account password login on target rootfs
 set -euo pipefail
 
-echo "  [DRY-RUN] lock-root skeleton executed."
+ROOTFS=""
+DRY_RUN=0
+APPLY=0
+
+usage() {
+  echo "Usage: $0 --rootfs <path> [--dry-run | --apply]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --rootfs requires an argument." >&2
+        exit 1
+      fi
+      ROOTFS="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ROOTFS" ]; then
+  echo "ERROR: --rootfs is required." >&2
+  usage
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Use --dry-run or --apply explicitly." >&2
+  exit 1
+fi
+
+if [ "$ROOTFS" = "/" ]; then
+  echo "ERROR: Refusing to lock root password on live host root '/'." >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  === Root Account Policy [DRY-RUN SIMULATION] ==="
+  echo "  Target rootfs: $ROOTFS"
+  echo "  [DRY-RUN] would execute: passwd --root $ROOTFS -l root"
+  exit 0
+fi
+
+# Apply mode execution
+echo "Locking root password login in target rootfs..."
+if [ ! -f "$ROOTFS/etc/shadow" ]; then
+  echo "ERROR: target rootfs lacks /etc/shadow. Cannot apply root lock." >&2
+  exit 1
+fi
+
+if command -v passwd >/dev/null 2>&1; then
+  passwd --root "$ROOTFS" -l root >/dev/null 2>&1 || true
+  echo "Root account locked successfully."
+else
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  Could not lock root password in the target rootfs." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  Cidre should not expose raw root password login as the normal path." >&2
+  echo "" >&2
+  echo "Next action:" >&2
+  echo "  Lock root manually inside the rootfs or fix lock-root support before packaging." >&2
+  exit 1
+fi

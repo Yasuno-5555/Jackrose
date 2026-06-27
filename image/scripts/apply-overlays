@@ -1,0 +1,96 @@
+#!/bin/bash
+# apply-overlays: Copies file overlays directly into target rootfs
+set -euo pipefail
+
+ROOTFS=""
+OVERLAY=""
+DRY_RUN=0
+APPLY=0
+ALLOW_OVERWRITE=0
+
+usage() {
+  echo "Usage: $0 --rootfs <path> --overlay <path> [--dry-run | --apply] [--allow-overwrite]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --rootfs requires an argument." >&2
+        exit 1
+      fi
+      ROOTFS="$2"
+      shift 2
+      ;;
+    --overlay)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --overlay requires an argument." >&2
+        exit 1
+      fi
+      OVERLAY="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    --allow-overwrite)
+      ALLOW_OVERWRITE=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ROOTFS" ] || [ -z "$OVERLAY" ]; then
+  echo "ERROR: Both --rootfs and --overlay are required." >&2
+  usage
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Use --dry-run or --apply explicitly." >&2
+  exit 1
+fi
+
+if [ "$ROOTFS" = "/" ]; then
+  echo "ERROR: Refusing to copy overlays directly into host root '/'." >&2
+  exit 1
+fi
+
+if [ ! -d "$OVERLAY" ]; then
+  echo "Overlay directory not found at $OVERLAY. Skipping overlay application."
+  exit 0
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  === Filesystem Overlays [DRY-RUN SIMULATION] ==="
+  echo "  Target rootfs: $ROOTFS"
+  echo "  Overlay source: $OVERLAY"
+  echo "  [DRY-RUN] would copy files recursively to target rootfs."
+  exit 0
+fi
+
+# Apply mode execution
+echo "Applying filesystem overlays..."
+# Check overwrite boundaries
+while IFS= read -r -d '' src_file; do
+  rel_path="${src_file#"$OVERLAY/"}"
+  dst_file="$ROOTFS/$rel_path"
+  if [ -f "$dst_file" ] && [ "$ALLOW_OVERWRITE" -eq 0 ]; then
+    echo "ERROR: Overlay file would overwrite existing target file: $dst_file" >&2
+    echo "Use --allow-overwrite to bypass." >&2
+    exit 1
+  fi
+done < <(find "$OVERLAY" -type f -print0)
+
+# Copy overlays
+cp -R "$OVERLAY"/* "$ROOTFS/"
+echo "Overlays applied successfully."

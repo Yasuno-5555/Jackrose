@@ -19,9 +19,13 @@ package() {
   # Install the systemd service file
   install -Dm644 "${_repo_root}/components/firstboot/systemd/cidre-firstboot.service" \
     "${pkgdir}/usr/lib/systemd/system/cidre-firstboot.service"
+  install -Dm644 "${_repo_root}/components/firstboot/systemd/cidre-firstboot-prep.service" \
+    "${pkgdir}/usr/lib/systemd/system/cidre-firstboot-prep.service"
 
   # Install the finish script
   install -Dm755 "${_repo_root}/components/firstboot/bin/cidre-firstboot-finish" \
     "${pkgdir}/usr/bin/cidre-firstboot-finish"
+  install -Dm755 "${_repo_root}/components/firstboot/bin/cidre-firstboot-prep" \
+    "${pkgdir}/usr/bin/cidre-firstboot-prep"
 }
 

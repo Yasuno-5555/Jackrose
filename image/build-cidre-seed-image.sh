@@ -1,16 +1,20 @@
 #!/bin/bash
-# build-cidre-seed-image.sh: Scaffold for Cidre target image assembly
+# build-cidre-seed-image.sh: Main orchestrator for Cidre target image assembly
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE=""
 DRY_RUN=0
+APPLY=0
+FORCE_CLEAN=0
 
 usage() {
-  echo "Usage: $0 --profile <name> --dry-run"
+  echo "Usage: $0 --profile <name> [--dry-run | --apply] [--force-clean]"
   echo "Options:"
   echo "  --profile <name>    Profile name to load (under image/profiles/<name>.conf)"
-  echo "  --dry-run           Perform dry-run simulation (REQUIRED in Phase 5)"
+  echo "  --dry-run           Perform dry-run simulation"
+  echo "  --apply             Perform real rootfs modification and packaging"
+  echo "  --force-clean       Overwrites existing work directory"
   exit 1
 }
 
@@ -29,6 +33,14 @@ while [ $# -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    --force-clean)
+      FORCE_CLEAN=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -41,14 +53,12 @@ if [ -z "$PROFILE" ]; then
   usage
 fi
 
-# Phase 5 Enforcement: --dry-run is strictly required
-if [ "$DRY_RUN" -ne 1 ]; then
-  echo "ERROR: Phase 5 only supports --dry-run." >&2
-  echo "Real image building is reserved for a later phase." >&2
+if [ "$DRY_RUN" -eq 0 ] && [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Use --dry-run or --apply explicitly." >&2
   exit 1
 fi
 
-# 1. Load profile configuration
+# Load profile configuration
 PROFILE_PATH="$SCRIPT_DIR/profiles/${PROFILE}.conf"
 if [ ! -f "$PROFILE_PATH" ]; then
   echo "ERROR: Profile config not found at $PROFILE_PATH" >&2
@@ -59,8 +69,26 @@ fi
 # shellcheck source=profiles/cidre-seed.conf
 source "$PROFILE_PATH"
 
-echo "=== Cidre Seed Image Builder [DRY-RUN SIMULATION] ==="
+# Safety path resolution guards
+TARGET_ROOTFS="${CIDRE_ROOTFS_DIR:-}"
+if [ -z "$TARGET_ROOTFS" ] || [ "$TARGET_ROOTFS" = "/" ]; then
+  echo "ERROR: TARGET_ROOTFS path resolves to host root '/' or empty. Aborting." >&2
+  exit 1
+fi
+
+# Validate variables in apply mode
+if [ "$APPLY" -eq 1 ] && [ -z "${CIDRE_BASE_ROOTFS:-}" ]; then
+  echo "ERROR: CIDRE_BASE_ROOTFS is required for --apply mode." >&2
+  exit 1
+fi
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOG_DIR="$REPO_ROOT/logs/image-build"
+LOG_FILE="$LOG_DIR/cidre-seed-$(date +%Y%m%d-%H%M).log"
+mkdir -p "$LOG_DIR"
+
+echo "=== Cidre Seed Image Builder ==="
 echo "Profile loaded: $CIDRE_PROFILE_NAME ($CIDRE_ARCH)"
+echo "Mode: $( [ "$DRY_RUN" -eq 1 ] && echo "DRY-RUN" || echo "APPLY" )"
 echo ""
 
 # 2. Check required host tools
@@ -73,13 +101,13 @@ for tool in "${REQUIRED_TOOLS[@]}"; do
   if command -v "$tool" >/dev/null 2>&1; then
     echo "  [OK] Required tool: $tool"
   else
-    echo "  [FAIL] Missing required tool: $tool"
+    echo "  [FAIL] Missing required tool: $tool" >&2
     missing_req=$((missing_req + 1))
   fi
 done
 
 if [ $missing_req -gt 0 ]; then
-  echo "ERROR: Missing required tools for dry-run simulation." >&2
+  echo "ERROR: Missing required tools for simulation." >&2
   exit 1
 fi
 
@@ -87,7 +115,7 @@ for tool in "${FUTURE_TOOLS[@]}"; do
   if command -v "$tool" >/dev/null 2>&1; then
     echo "  [OK] Future tool: $tool"
   else
-    echo "  [WARN] Missing future tool (required for real build): $tool"
+    echo "  [WARN] Missing tool (required for real apply mode): $tool"
   fi
 done
 echo ""
@@ -103,64 +131,96 @@ echo ""
 
 # 4. Working directory setup
 echo "[Step 3/10] Preparing workdir and out structures..."
-echo "  [DRY-RUN] would create workspace: $CIDRE_WORKDIR"
-echo "  [DRY-RUN] would create output dir: $CIDRE_OUTPUT_DIR"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would create workspace: $CIDRE_WORKDIR"
+  echo "  [DRY-RUN] would create output dir: $CIDRE_OUTPUT_DIR"
+else
+  echo "Preparing workdir and directories..."
+  mkdir -p "$CIDRE_OUTPUT_DIR"
+fi
 echo ""
 
 # 5. Extract rootfs
 echo "[Step 4/10] Extracting base rootfs..."
-echo "  [DRY-RUN] would extract rootfs tarball to workspace."
+PREPARE_SCRIPT="$SCRIPT_DIR/scripts/prepare-rootfs"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $PREPARE_SCRIPT --profile $PROFILE_PATH"
+else
+  CLEAN_FLAG=""
+  if [ "$FORCE_CLEAN" -eq 1 ]; then
+    CLEAN_FLAG="--force-clean"
+  fi
+  "$PREPARE_SCRIPT" --profile "$PROFILE_PATH" --apply $CLEAN_FLAG >> "$LOG_FILE" 2>&1
+fi
 echo ""
 
 # 6. Install local packages
 echo "[Step 5/10] Installing Cidre packages..."
-echo "  Local packages directory: $CIDRE_LOCAL_PACKAGE_DIR"
-echo "  [DRY-RUN] would install local Cidre packages:"
-for pkg in "${CIDRE_CIDRE_PACKAGES[@]}"; do
-  echo "    - $pkg"
-done
-echo "  [DRY-RUN] would install base system dependencies:"
-for pkg in "${CIDRE_BASE_PACKAGES[@]}"; do
-  echo "    - $pkg"
-done
+INSTALL_SCRIPT="$SCRIPT_DIR/scripts/install-local-packages"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $INSTALL_SCRIPT --rootfs $TARGET_ROOTFS --packages $CIDRE_LOCAL_PACKAGE_DIR --dry-run"
+  "$INSTALL_SCRIPT" --rootfs "$TARGET_ROOTFS" --packages "$CIDRE_LOCAL_PACKAGE_DIR" --dry-run
+else
+  "$INSTALL_SCRIPT" --rootfs "$TARGET_ROOTFS" --packages "$CIDRE_LOCAL_PACKAGE_DIR" --apply >> "$LOG_FILE" 2>&1
+fi
 echo ""
 
 # 7. Apply overlays
 echo "[Step 6/10] Injecting filesystem overlays..."
 OVERLAY_SRC="$SCRIPT_DIR/overlays/${PROFILE}"
-if [ -d "$OVERLAY_SRC" ]; then
-  echo "  Overlay source path: $OVERLAY_SRC"
-  echo "  [DRY-RUN] would copy overlays directly into target rootfs."
+OVERLAY_SCRIPT="$SCRIPT_DIR/scripts/apply-overlays"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $OVERLAY_SCRIPT --rootfs $TARGET_ROOTFS --overlay $OVERLAY_SRC --dry-run"
+  "$OVERLAY_SCRIPT" --rootfs "$TARGET_ROOTFS" --overlay "$OVERLAY_SRC" --dry-run
 else
-  echo "  No overlay directory found for profile."
+  "$OVERLAY_SCRIPT" --rootfs "$TARGET_ROOTFS" --overlay "$OVERLAY_SRC" --apply >> "$LOG_FILE" 2>&1
 fi
 echo ""
 
 # 8. Enable firstboot service
 echo "[Step 7/10] Registering firstboot services..."
-echo "  [DRY-RUN] would enable NetworkManager.service and cidre-firstboot.service."
-echo "  [DRY-RUN] would disable greetd.service in target rootfs."
+ENABLE_SCRIPT="$SCRIPT_DIR/scripts/enable-firstboot"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $ENABLE_SCRIPT --rootfs $TARGET_ROOTFS --dry-run"
+  "$ENABLE_SCRIPT" --rootfs "$TARGET_ROOTFS" --dry-run
+else
+  "$ENABLE_SCRIPT" --rootfs "$TARGET_ROOTFS" --apply >> "$LOG_FILE" 2>&1
+fi
 echo ""
 
 # 9. Lock root password login
 echo "[Step 8/10] Enforcing root password policy..."
-echo "  [DRY-RUN] would run 'passwd -l root' inside chroot."
+LOCK_SCRIPT="$SCRIPT_DIR/scripts/lock-root"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $LOCK_SCRIPT --rootfs $TARGET_ROOTFS --dry-run"
+  "$LOCK_SCRIPT" --rootfs "$TARGET_ROOTFS" --dry-run
+else
+  "$LOCK_SCRIPT" --rootfs "$TARGET_ROOTFS" --apply >> "$LOG_FILE" 2>&1
+fi
 echo ""
 
 # 10. Run validation scripts
 echo "[Step 9/10] Validating assembled rootfs..."
 VALIDATOR="$SCRIPT_DIR/scripts/validate-rootfs"
-if [ -x "$VALIDATOR" ]; then
-  "$VALIDATOR" --rootfs "$CIDRE_WORKDIR" --dry-run
+if [ "$DRY_RUN" -eq 1 ]; then
+  "$VALIDATOR" --rootfs "$TARGET_ROOTFS" --dry-run
 else
-  echo "  ERROR: Rootfs validator script missing or not executable at $VALIDATOR" >&2
-  exit 1
+  "$VALIDATOR" --rootfs "$TARGET_ROOTFS" >> "$LOG_FILE" 2>&1
 fi
 echo ""
 
 # 11. Pack image
 echo "[Step 10/10] Compressing output image..."
-echo "  [DRY-RUN] would archive workspace rootfs to $CIDRE_OUTPUT_DIR/cidre-seed-$CIDRE_ARCH.tar.xz"
+PACK_SCRIPT="$SCRIPT_DIR/scripts/pack-image"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [DRY-RUN] would execute: $PACK_SCRIPT --rootfs $TARGET_ROOTFS --output-dir $CIDRE_OUTPUT_DIR --name $CIDRE_IMAGE_NAME --dry-run"
+  "$PACK_SCRIPT" --rootfs "$TARGET_ROOTFS" --output-dir "$CIDRE_OUTPUT_DIR" --name "$CIDRE_IMAGE_NAME" --dry-run
+else
+  "$PACK_SCRIPT" --rootfs "$TARGET_ROOTFS" --output-dir "$CIDRE_OUTPUT_DIR" --name "$CIDRE_IMAGE_NAME" --apply >> "$LOG_FILE" 2>&1
+fi
 echo ""
 
-echo "=== Cidre Seed Image Builder Dry-Run Successful ==="
+echo "=== Cidre Seed Image Builder Process Successful ==="
+if [ "$APPLY" -eq 1 ]; then
+  echo "Build log written to: $LOG_FILE"
+fi

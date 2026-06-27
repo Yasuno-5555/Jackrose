@@ -1,5 +1,125 @@
 #!/bin/bash
-# prepare-rootfs: Skeleton script for rootfs workdir preparations
+# prepare-rootfs: Extracts the base ALARM rootfs tarball to target workspace
 set -euo pipefail
 
-echo "  [DRY-RUN] prepare-rootfs skeleton executed."
+PROFILE=""
+DRY_RUN=0
+APPLY=0
+FORCE_CLEAN=0
+
+usage() {
+  echo "Usage: $0 --profile <path> [--dry-run | --apply] [--force-clean]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --profile)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --profile requires an argument." >&2
+        exit 1
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    --force-clean)
+      FORCE_CLEAN=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$PROFILE" ]; then
+  echo "ERROR: --profile is required." >&2
+  usage
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Use --dry-run or --apply explicitly." >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$PROFILE"
+
+TARGET_ROOTFS="${CIDRE_ROOTFS_DIR:-}"
+BASE_ARCHIVE="${CIDRE_BASE_ROOTFS:-}"
+
+if [ -z "$TARGET_ROOTFS" ] || [ "$TARGET_ROOTFS" = "/" ]; then
+  echo "ERROR: TARGET_ROOTFS path resolves to host root '/' or empty. Aborting." >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  === Rootfs Preparation [DRY-RUN SIMULATION] ==="
+  echo "  Target rootfs: $TARGET_ROOTFS"
+  echo "  Base rootfs:   $BASE_ARCHIVE"
+  echo "  [DRY-RUN] would extract base archive to target rootfs directory."
+  exit 0
+fi
+
+# Apply mode execution
+echo "Preparing workspace rootfs directory..."
+
+if [ -d "$TARGET_ROOTFS" ]; then
+  if [ "$FORCE_CLEAN" -eq 1 ]; then
+    echo "Overwriting existing target rootfs directory..."
+    rm -rf "$TARGET_ROOTFS"
+  else
+    echo "ERROR: Target rootfs directory already exists: $TARGET_ROOTFS" >&2
+    echo "Use --force-clean to overwrite." >&2
+    exit 1
+  fi
+fi
+
+if [ -z "$BASE_ARCHIVE" ] || [ ! -f "$BASE_ARCHIVE" ]; then
+  echo "ERROR: Base rootfs archive is missing at: $BASE_ARCHIVE" >&2
+  exit 1
+fi
+
+# Verify format
+case "$BASE_ARCHIVE" in
+  *.tar|*.tar.gz|*.tgz|*.tar.xz|*.tar.zst)
+    echo "Format verified: tar-like archive."
+    ;;
+  *.img|*.iso)
+    echo "" >&2
+    echo "What happened:" >&2
+    echo "  Unsupported base rootfs format: $BASE_ARCHIVE" >&2
+    echo "" >&2
+    echo "Why it matters:" >&2
+    echo "  Phase 10 only supports tar-like ALARM rootfs archives." >&2
+    echo "" >&2
+    echo "Next action:" >&2
+    echo "  Provide a supported ALARM rootfs archive or add image extraction support in a later phase." >&2
+    exit 1
+    ;;
+  *)
+    echo "ERROR: Unknown archive extension." >&2
+    exit 1
+    ;;
+esac
+
+echo "Extracting base rootfs to $TARGET_ROOTFS..."
+mkdir -p "$TARGET_ROOTFS"
+
+if command -v tar >/dev/null 2>&1; then
+  tar -xf "$BASE_ARCHIVE" -C "$TARGET_ROOTFS"
+else
+  echo "ERROR: tar command not found." >&2
+  exit 1
+fi
+
+echo "Rootfs extraction completed successfully."

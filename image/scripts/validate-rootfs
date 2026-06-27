@@ -50,6 +50,20 @@ if [ -f "$MARKER_PATH" ]; then
   exit 2
 fi
 
+# Fatal error if welcome.done exists in seed rootfs
+WELCOME_MARKER_PATH="$ROOTFS/var/lib/cidre/welcome.done"
+if [ -f "$WELCOME_MARKER_PATH" ]; then
+  echo "Fatal:" >&2
+  echo "  welcome.done exists inside the rootfs." >&2
+  echo "" >&2
+  echo "Why this matters:" >&2
+  echo "  A seed image must not be pre-marked as welcome-complete." >&2
+  echo "" >&2
+  echo "Next step:" >&2
+  echo "  Remove the welcome.done marker from the rootfs." >&2
+  exit 2
+fi
+
 # Fatal error if optimized.done exists in seed rootfs
 OPT_MARKER_PATH="$ROOTFS/var/lib/cidre/optimized.done"
 if [ -f "$OPT_MARKER_PATH" ]; then
@@ -89,6 +103,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/cidre-build-niri-cidre exists"
   echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/cidre-setup-fish exists"
   echo "  [DRY-RUN] would verify: $ROOTFS/var/lib/cidre/firstboot.done does NOT exist (PASSED)"
+  echo "  [DRY-RUN] would verify: $ROOTFS/var/lib/cidre/welcome.done does NOT exist (PASSED)"
   echo "  [DRY-RUN] would verify: $ROOTFS/var/lib/cidre/optimized.done does NOT exist (PASSED)"
   echo "  Validation Simulation: PASSED"
   exit 0
@@ -165,6 +180,55 @@ else
   echo "  Verify networkmanager is installed in target rootfs." >&2
   errors=$((errors + 1))
 fi
+
+# NetworkManager enablement check
+if [ -L "$ROOTFS/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then
+  echo "  [OK] NetworkManager is enabled."
+else
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  NetworkManager is not enabled." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  NetworkManager must automatically start on boot." >&2
+  echo "" >&2
+  echo "Next step:" >&2
+  echo "  Run: systemctl --root $ROOTFS enable NetworkManager.service" >&2
+  errors=$((errors + 1))
+fi
+
+# Greetd (display-manager) enablement check
+if [ -L "$ROOTFS/etc/systemd/system/display-manager.service" ]; then
+  echo "  [OK] display-manager.service is enabled."
+else
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  display-manager.service (greetd) is not enabled." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  The graphical desktop session will not launch on boot." >&2
+  echo "" >&2
+  echo "Next step:" >&2
+  echo "  Run: systemctl --root $ROOTFS enable greetd.service" >&2
+  errors=$((errors + 1))
+fi
+
+# cidre-firstboot-prep enablement check
+if [ -L "$ROOTFS/etc/systemd/system/multi-user.target.wants/cidre-firstboot-prep.service" ]; then
+  echo "  [OK] cidre-firstboot-prep.service is enabled."
+else
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  cidre-firstboot-prep.service is not enabled." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  First-boot directory initialization will not occur." >&2
+  echo "" >&2
+  echo "Next step:" >&2
+  echo "  Run: systemctl --root $ROOTFS enable cidre-firstboot-prep.service" >&2
+  errors=$((errors + 1))
+fi
+
 
 if [ $errors -gt 0 ]; then
   echo "ERROR: Rootfs integration validation failed with $errors error(s)." >&2

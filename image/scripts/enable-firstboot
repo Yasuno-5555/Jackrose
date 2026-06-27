@@ -65,8 +65,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  === Firstboot Enablement [DRY-RUN SIMULATION] ==="
   echo "  Target rootfs: $ROOTFS"
   echo "  [DRY-RUN] would execute: systemctl --root $ROOTFS enable NetworkManager.service"
-  echo "  [DRY-RUN] would execute: systemctl --root $ROOTFS enable cidre-firstboot.service"
-  echo "  [DRY-RUN] would execute: systemctl --root $ROOTFS disable greetd.service"
+  echo "  [DRY-RUN] would execute: systemctl --root $ROOTFS enable greetd.service"
+  echo "  [DRY-RUN] would execute: systemctl --root $ROOTFS enable cidre-firstboot-prep.service"
   echo "  Simulation complete. No services started. No modifications performed."
   exit 0
 fi
@@ -100,5 +100,5 @@ _disable_unit_root() {
 }
 
 _enable_unit_root NetworkManager.service
-_enable_unit_root cidre-firstboot.service
-_disable_unit_root greetd.service
+_enable_unit_root greetd.service
+_enable_unit_root cidre-firstboot-prep.service

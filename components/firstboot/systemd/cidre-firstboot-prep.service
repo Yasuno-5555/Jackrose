@@ -1,0 +1,12 @@
+[Unit]
+Description=Cidre firstboot preparation
+ConditionPathExists=!/var/lib/cidre/firstboot.done
+Before=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/cidre-firstboot-prep
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
