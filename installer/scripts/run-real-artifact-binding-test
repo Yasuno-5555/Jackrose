@@ -1,0 +1,96 @@
+#!/bin/bash
+# run-real-artifact-binding-test: Performs Phase 13 integration test suite on real target artifacts
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA=""
+ID=""
+IMAGE=""
+MANIFEST=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> --image <path> --manifest <path>"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires an argument." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --image)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --image requires a path." >&2
+        exit 1
+      fi
+      IMAGE="$2"
+      shift 2
+      ;;
+    --manifest)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --manifest requires a path." >&2
+        exit 1
+      fi
+      MANIFEST="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ] || [ -z "$IMAGE" ] || [ -z "$MANIFEST" ]; then
+  echo "ERROR: All options (--metadata, --id, --image, --manifest) are required." >&2
+  usage
+fi
+
+echo "=== Running Real Artifact Binding Integration Test ==="
+
+# 1. Prerequisite Checks
+if [ ! -f "$IMAGE" ]; then
+  echo "ERROR: Real seed image file is missing at $IMAGE" >&2
+  echo "Why this matters: Phase 13 tests verification of real image artifact bindings." >&2
+  echo "Next step: Run the Phase 10 image builder first:" >&2
+  echo "  image/build-cidre-seed-image.sh --profile cidre-seed --apply" >&2
+  exit 2
+fi
+
+if [ ! -f "$MANIFEST" ]; then
+  echo "ERROR: Real build manifest file is missing at $MANIFEST" >&2
+  exit 2
+fi
+
+# 2. Trigger real binding
+echo "Binding image and manifest attributes into metadata..."
+"$SCRIPT_DIR/bind-local-seed-artifact" \
+  --metadata "$METADATA" \
+  --id "$ID" \
+  --image "$IMAGE" \
+  --manifest "$MANIFEST" \
+  --channel local
+
+# 3. Simulate selection with real constraints
+echo "Simulating installer selection with real artifact verification..."
+"$SCRIPT_DIR/simulate-installer-selection" \
+  --metadata "$METADATA" \
+  --id "$ID" \
+  --verify-artifact \
+  --require-real-artifact
+
+echo "=== Real Artifact Binding Integration Test PASSED ==="
+exit 0

@@ -27,5 +27,6 @@ m1n1/
 /out/*.img
 /out/*.manifest
 /out/
+/installer/metadata/backups/*.json
 
 

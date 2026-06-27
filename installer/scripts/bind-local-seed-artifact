@@ -1,0 +1,109 @@
+#!/bin/bash
+# bind-local-seed-artifact: Binds a real built image archive to metadata after making backup
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA=""
+ID=""
+IMAGE=""
+MANIFEST=""
+CHANNEL=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> --image <path> --manifest <path> [--channel <channel>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name argument." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --image)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --image requires a path argument." >&2
+        exit 1
+      fi
+      IMAGE="$2"
+      shift 2
+      ;;
+    --manifest)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --manifest requires a path argument." >&2
+        exit 1
+      fi
+      MANIFEST="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires an argument." >&2
+        exit 1
+      fi
+      CHANNEL="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ] || [ -z "$IMAGE" ] || [ -z "$MANIFEST" ]; then
+  echo "ERROR: --metadata, --id, --image, and --manifest are all required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ] || [ ! -f "$IMAGE" ] || [ ! -f "$MANIFEST" ]; then
+  echo "ERROR: Target input files must exist." >&2
+  exit 1
+fi
+
+if [[ ! "$IMAGE" =~ \.tar\.zst$ ]]; then
+  echo "ERROR: Image filename must end with .tar.zst (current: $IMAGE)." >&2
+  exit 1
+fi
+
+# 1. Create backup
+BACKUP_DIR="$SCRIPT_DIR/../metadata/backups"
+mkdir -p "$BACKUP_DIR"
+backup_file="$BACKUP_DIR/cidre-seed.local.$(date +%Y%m%d-%H%M).json"
+cp "$METADATA" "$backup_file"
+echo "Backup created at $backup_file"
+
+# 2. Trigger updates
+echo "Updating metadata attributes from build outputs..."
+current_chan="$CHANNEL"
+if [ -z "$current_chan" ]; then
+  current_chan=$(jq -r '.entries[0].channel' "$METADATA")
+fi
+
+"$SCRIPT_DIR/update-metadata-from-build" \
+  --metadata "$METADATA" \
+  --image "$IMAGE" \
+  --manifest "$MANIFEST" \
+  --channel "$current_chan"
+
+# 3. Validate and Verify bindings
+echo "Validating updated metadata schema..."
+"$SCRIPT_DIR/validate-installer-metadata" "$METADATA"
+
+echo "Verifying local image artifact bindings..."
+"$SCRIPT_DIR/verify-local-image-artifact" --metadata "$METADATA" --id "$ID"
+
+echo "Artifact successfully bound to installer metadata!"
+exit 0

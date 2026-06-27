@@ -34,6 +34,10 @@ while [ $# -gt 0 ]; do
       VERIFY=1
       shift
       ;;
+    --require-real-artifact)
+      REQUIRE_REAL_ARTIFACT=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -53,6 +57,26 @@ fi
 
 # Run selection resolution
 entry_json=$("$SCRIPT_DIR/resolve-installer-entry" --metadata "$METADATA" --id "$ID" --format json)
+
+if [ "${REQUIRE_REAL_ARTIFACT:-0}" -eq 1 ]; then
+  img_url=$(echo "$entry_json" | jq -r '.image.url')
+  img_sha=$(echo "$entry_json" | jq -r '.image.sha256')
+  
+  if [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+    echo "ERROR: PLACEHOLDER_SHA256 checksum is not allowed in real-artifact mode." >&2
+    exit 1
+  fi
+  
+  img_path="${img_url#file://}"
+  if [[ "$img_path" =~ ^out/ ]]; then
+    img_path="$SCRIPT_DIR/../../$img_path"
+  fi
+  
+  if [ ! -f "$img_path" ]; then
+    echo "ERROR: Image file is missing in real-artifact mode: $img_path" >&2
+    exit 1
+  fi
+fi
 
 echo "=== Installer Selection Simulation ==="
 echo ""

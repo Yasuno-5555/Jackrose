@@ -19,6 +19,7 @@ usage() {
   echo "  --apply             Perform real package install and firstboot enable (requires --rootfs)"
   echo "  --metadata-only     Run local installer metadata validation checks only"
   echo "  --installer-local-only Run local installer selection integration tests"
+  echo "  --real-artifact-only   Run real image artifact binding integration validation tests"
   exit 1
 }
 
@@ -52,6 +53,10 @@ while [ $# -gt 0 ]; do
       INSTALLER_LOCAL_ONLY=1
       shift
       ;;
+    --real-artifact-only)
+      REAL_ARTIFACT_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -68,6 +73,16 @@ fi
 if [ "${INSTALLER_LOCAL_ONLY:-0}" -eq 1 ]; then
   echo "Running installer local integration validation tests only..."
   "$REPO_ROOT/installer/scripts/run-local-integration-tests"
+  exit 0
+fi
+
+if [ "${REAL_ARTIFACT_ONLY:-0}" -eq 1 ]; then
+  echo "Running real artifact binding integration validation tests only..."
+  "$REPO_ROOT/installer/scripts/run-real-artifact-binding-test" \
+    --metadata "$REPO_ROOT/installer/metadata/cidre-seed.local.json" \
+    --id cidre-seed-aarch64 \
+    --image "$REPO_ROOT/out/cidre-seed-aarch64-v0.10.0.tar.zst" \
+    --manifest "$REPO_ROOT/out/cidre-seed-aarch64-v0.10.0.manifest"
   exit 0
 fi
 
