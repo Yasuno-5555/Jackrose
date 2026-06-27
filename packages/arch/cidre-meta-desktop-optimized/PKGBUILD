@@ -1,0 +1,27 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-meta-desktop-optimized
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre optimized desktop experience meta-package (Placeholder)'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=(
+  'cidre-meta-desktop-baseline'
+)
+optdepends=(
+  'ghostty: preferred Cidre terminal'
+  'fish: preferred Cidre shell'
+  'niri-cidre: Cidre-optimized compositor'
+)
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+_repo_root="${startdir}/../../.."
+
+package() {
+  # This is a placeholder meta-package; no files installed.
+  true
+}

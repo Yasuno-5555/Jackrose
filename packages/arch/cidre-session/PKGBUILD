@@ -5,10 +5,10 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc='Cidre session launcher and Wayland session entry'
 url='https://github.com/Yasuno-5555/Cidre'
-arch=('aarch64')
+arch=('any')
 license=('custom')
 depends=(
-  'niri-cidre'
+  'niri'
   'greetd'
   'greetd-tuigreet'
 )

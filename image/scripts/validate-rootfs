@@ -61,6 +61,15 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  [DRY-RUN] would verify: NetworkManager service unit is active/enabled"
   echo "  [DRY-RUN] would verify: root password policy is locked"
   echo "  [DRY-RUN] would verify: $ROOTFS/var/lib/cidre directory exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/niri exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/foot exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/fuzzel exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/waybar exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/firefox exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/fcitx5 exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/bin/cidre-session exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/usr/share/wayland-sessions/cidre.desktop exists"
+  echo "  [DRY-RUN] would verify: $ROOTFS/etc/xdg/autostart/cidre-welcome.desktop exists"
   echo "  [DRY-RUN] would verify: $ROOTFS/var/lib/cidre/firstboot.done does NOT exist (PASSED)"
   echo "  Validation Simulation: PASSED"
   exit 0
@@ -72,10 +81,19 @@ errors=0
 
 _check_file() {
   local file_path="$1"
+  local description="$2"
   if [ -f "$file_path" ]; then
     echo "  [OK] File exists: $file_path"
   else
-    echo "  [FAIL] File missing: $file_path" >&2
+    echo "" >&2
+    echo "What happened:" >&2
+    echo "  $description is missing from the rootfs at $file_path." >&2
+    echo "" >&2
+    echo "Why it matters:" >&2
+    echo "  It is part of the required baseline graphical Cidre desktop environment." >&2
+    echo "" >&2
+    echo "Next step:" >&2
+    echo "  Install cidre-meta-desktop-baseline into the rootfs and re-run validation." >&2
     errors=$((errors + 1))
   fi
 }
@@ -90,19 +108,38 @@ _check_dir() {
   fi
 }
 
-_check_file "$ROOTFS/usr/bin/cidre-oobe"
-_check_file "$ROOTFS/usr/bin/cidre-welcome"
-_check_file "$ROOTFS/usr/bin/cidre-user-setup"
-_check_file "$ROOTFS/usr/bin/cidre-healthcheck"
-_check_file "$ROOTFS/usr/lib/systemd/system/cidre-firstboot.service"
+_check_file "$ROOTFS/usr/bin/cidre-oobe" "TTY OOBE rescue tool"
+_check_file "$ROOTFS/usr/bin/cidre-welcome" "Cidre Welcome dashboard"
+_check_file "$ROOTFS/usr/bin/cidre-user-setup" "Cidre User configuration helper"
+_check_file "$ROOTFS/usr/bin/cidre-healthcheck" "Cidre Healthcheck diagnostics"
+_check_file "$ROOTFS/usr/lib/systemd/system/cidre-firstboot.service" "Firstboot systemd startup service"
 _check_dir "$ROOTFS/usr/share/cidre/defaults"
 _check_dir "$ROOTFS/var/lib/cidre"
+
+# Baseline graphical desktop binaries validation
+_check_file "$ROOTFS/usr/bin/niri" "Niri Wayland compositor"
+_check_file "$ROOTFS/usr/bin/foot" "Foot terminal emulator"
+_check_file "$ROOTFS/usr/bin/fuzzel" "Fuzzel application launcher"
+_check_file "$ROOTFS/usr/bin/waybar" "Waybar status bar"
+_check_file "$ROOTFS/usr/bin/firefox" "Firefox web browser"
+_check_file "$ROOTFS/usr/bin/fcitx5" "Fcitx5 input method editor"
+_check_file "$ROOTFS/usr/bin/cidre-session" "Cidre session launcher wrapper"
+_check_file "$ROOTFS/usr/share/wayland-sessions/cidre.desktop" "Wayland session entry file"
+_check_file "$ROOTFS/etc/xdg/autostart/cidre-welcome.desktop" "Cidre Welcome autostart configuration entry"
 
 # NetworkManager systemd unit check
 if [ -f "$ROOTFS/usr/lib/systemd/system/NetworkManager.service" ] || [ -f "$ROOTFS/lib/systemd/system/NetworkManager.service" ]; then
   echo "  [OK] NetworkManager service unit exists."
 else
-  echo "  [FAIL] NetworkManager service unit missing." >&2
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  NetworkManager.service unit is missing." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  NetworkManager is required to handle connections." >&2
+  echo "" >&2
+  echo "Next step:" >&2
+  echo "  Verify networkmanager is installed in target rootfs." >&2
   errors=$((errors + 1))
 fi
 

@@ -1,0 +1,35 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=cidre-meta-desktop-baseline
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Cidre minimum graphical desktop baseline meta-package'
+url='https://github.com/Yasuno-5555/Cidre'
+arch=('any')
+license=('custom')
+depends=(
+  'niri'
+  'foot'
+  'fuzzel'
+  'waybar'
+  'firefox'
+  'fcitx5'
+  'fcitx5-mozc'
+  'greetd'
+  'networkmanager'
+  'cidre-session'
+  'cidre-config'
+  'cidre-welcome'
+  'cidre-user-setup'
+  'cidre-healthcheck'
+)
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+_repo_root="${startdir}/../../.."
+
+package() {
+  # This is a meta-package; no files installed.
+  true
+}

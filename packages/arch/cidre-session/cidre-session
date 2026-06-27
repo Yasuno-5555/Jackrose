@@ -2,7 +2,12 @@
 
 # Detect if being run as a user service, which implies external session management,
 # exec compositor directly
-NIRI_BIN="${NIRI_BIN:-niri-cidre}"
+# Fallback to upstream niri if niri-cidre is missing
+if ! command -v "${NIRI_BIN:-niri-cidre}" >/dev/null 2>&1; then
+    NIRI_BIN="niri"
+else
+    NIRI_BIN="${NIRI_BIN:-niri-cidre}"
+fi
 NIRI_CONFIG="${NIRI_CONFIG:-$HOME/.config/niri/config.cidre.kdl}"
 
 run_niri() {

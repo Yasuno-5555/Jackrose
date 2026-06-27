@@ -13,12 +13,15 @@ fi
 NO_COLOR=false
 SKIP_INTRO=false
 
+FIRST_RUN=false
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-color) NO_COLOR=true; shift ;;
     --skip-intro) SKIP_INTRO=true; shift ;;
+    --first-run) FIRST_RUN=true; shift ;;
     --help|-h)
-      echo "Usage: cidre-welcome [--skip-intro] [--no-color]"
+      echo "Usage: cidre-welcome [--skip-intro] [--no-color] [--first-run]"
       echo "Cidre first-login welcome dashboard."
       exit 0
       ;;
@@ -291,4 +294,92 @@ main_loop() {
   done
 }
 
-main_loop
+action_optimized_experience() {
+  clear
+  show_banner
+  echo -e "${C_BOLD}=== Optimized Cidre Experience Upgrade (Placeholder) ===${C_RESET}"
+  echo ""
+  echo "Cidre can later build and configure the optimized desktop experience:"
+  echo "  - Terminal: Ghostty (custom build)"
+  echo "  - Compositor: niri-cidre (optimized build)"
+  echo "  - Shell: fish shell (modern friendly prompt)"
+  echo "  - Custom configuration tuning"
+  echo ""
+  echo "This feature is currently a placeholder and will be fully automated in the next phase."
+  echo "Currently falling back to: foot terminal + upstream niri compositor."
+  echo ""
+  read -r -p "Press Enter to return to setup..." _
+}
+
+first_run_flow() {
+  local welcome_done="/var/lib/cidre/welcome.done"
+  # If already done, skip first run but check state
+  if [ -f "$welcome_done" ]; then
+    echo "Cidre Welcome setup already completed."
+    exit 0
+  fi
+
+  while true; do
+    show_banner
+    echo -e "${C_BOLD}=== Cidre Desktop First-Run Setup ===${C_RESET}"
+    echo "You are currently running on the baseline Cidre desktop:"
+    echo "  - Compositor: upstream niri (installed)"
+    echo "  - Terminal: foot (installed)"
+    echo "  - Launcher: fuzzel (installed)"
+    echo "  - Bar: waybar (installed)"
+    echo ""
+    echo "Please configure your system or select optimized upgrade path."
+    echo ""
+    echo -e "  [1] ${C_GREEN}Upgrade to Optimized Cidre Experience${C_RESET} (Placeholder)"
+    echo "  [2] Configure Input Method"
+    echo "  [3] Test Audio"
+    echo "  [4] System Diagnostics"
+    echo "  [5] Finish Setup and Start Using Cidre"
+    echo ""
+    
+    read -r -p "Select option [1-5]: " opt
+    case "$opt" in
+      1)
+        action_optimized_experience
+        ;;
+      2)
+        action_input_method
+        ;;
+      3)
+        action_test_audio
+        ;;
+      4)
+        echo ""
+        echo "Running quick diagnostics..."
+        if [ -x "$SCRIPT_DIR/cidre-doctor" ]; then
+          "$SCRIPT_DIR/cidre-doctor" --daily
+        else
+          echo "[WARN] cidre-doctor not found"
+        fi
+        echo ""
+        read -r -p "Press Enter to return to return..." _
+        ;;
+      5)
+        # Create welcome.done completion marker
+        mkdir -p /var/lib/cidre
+        touch "$welcome_done"
+        echo ""
+        echo "Cidre setup completed successfully!"
+        echo "Enjoy your Cidre Desktop Experience."
+        echo ""
+        sleep 2
+        exit 0
+        ;;
+      *)
+        echo "Invalid option."
+        sleep 1
+        ;;
+    esac
+  done
+}
+
+if [ "$FIRST_RUN" = true ]; then
+  first_run_flow
+else
+  main_loop
+fi

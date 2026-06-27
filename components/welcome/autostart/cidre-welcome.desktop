@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Cidre Welcome
+Comment=Start Cidre first-use setup
+Exec=cidre-welcome --first-run
+X-GNOME-Autostart-enabled=true

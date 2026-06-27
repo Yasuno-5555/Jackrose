@@ -13,6 +13,7 @@ depends=(
   'cidre-healthcheck'
   'cidre-config'
   'cidre-user-setup'
+  'cidre-meta-desktop-baseline'
   'networkmanager'
   'sudo'
   'bash'
