@@ -1,0 +1,140 @@
+#!/bin/bash
+# cidre-installer-wrapper-plan: Evaluates wrapper decisions based on Phase 24/25 results and policy
+set -euo pipefail
+
+POLICY=""
+PHASE24_RES=""
+PHASE25_RES=""
+FORMAT="text"
+OUTPUT=""
+
+usage() {
+  echo "Usage: $0 --policy <path> --phase24-result <path> --phase25-result <path> [--format <format>] [--output <path>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --policy)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --policy requires a path." >&2
+        exit 1
+      fi
+      POLICY="$2"
+      shift 2
+      ;;
+    --phase24-result)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --phase24-result requires a path." >&2
+        exit 1
+      fi
+      PHASE24_RES="$2"
+      shift 2
+      ;;
+    --phase25-result)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --phase25-result requires a path." >&2
+        exit 1
+      fi
+      PHASE25_RES="$2"
+      shift 2
+      ;;
+    --format)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --format requires a type." >&2
+        exit 1
+      fi
+      FORMAT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$POLICY" ] || [ -z "$PHASE24_RES" ] || [ -z "$PHASE25_RES" ]; then
+  echo "ERROR: --policy, --phase24-result, and --phase25-result are required." >&2
+  usage
+fi
+
+if [ ! -f "$POLICY" ] || [ ! -f "$PHASE24_RES" ] || [ ! -f "$PHASE25_RES" ]; then
+  echo "ERROR: Input files must exist." >&2
+  exit 1
+fi
+
+# Load results
+phase24_ok=$(grep -q "A_SAFE_METADATA_PATH" "$PHASE24_RES" && echo 1 || echo 0)
+phase25_mode=""
+if grep -q "SAFE_MODE_FOUND" "$PHASE25_RES"; then
+  phase25_mode="SAFE_MODE_FOUND"
+elif grep -q "PATCH_REQUIRED" "$PHASE25_RES"; then
+  phase25_mode="PATCH_REQUIRED"
+else
+  phase25_mode="NO_SAFE_MODE"
+fi
+
+decision="WRAPPER_BLOCKED"
+rationale="Phase 24 metadata override harness check did not succeed."
+
+if [ "$phase24_ok" -eq 1 ]; then
+  if [ "$phase25_mode" = "NO_SAFE_MODE" ]; then
+    decision="WRAPPER_PREFLIGHT_READY"
+    rationale="Phase 24 passed and Phase 25 reports NO_SAFE_MODE. Wrapper strategy pivot is recommended."
+  elif [ "$phase25_mode" = "PATCH_REQUIRED" ]; then
+    decision="WRAPPER_NEEDS_PATCHED_INSTALLER"
+    rationale="Bootstrap script requires direct patches to separate metadata logic."
+  elif [ "$phase25_mode" = "SAFE_MODE_FOUND" ]; then
+    decision="WRAPPER_PREFLIGHT_READY"
+    rationale="Upstream safe-mode appears available. Wrapper may still be useful, but direct no-exec probe path should be evaluated separately."
+  fi
+fi
+
+# Print outputs
+if [ -n "$OUTPUT" ]; then
+  mkdir -p "$(dirname "$OUTPUT")"
+  cat <<EOF > "$OUTPUT"
+# Phase 26 Cidre Installer Wrapper Plan
+
+## Policy
+- strategy: cidre-owned-wrapper
+
+## Inputs
+- Phase 24 Result: $(basename "$PHASE24_RES")
+- Phase 25 Result: $(basename "$PHASE25_RES")
+
+## Decision
+$decision
+
+## Rationale
+$rationale
+
+## Safety Statement
+No bootstrap script was executed.
+No installer was invoked.
+No disk changes were made.
+EOF
+fi
+
+if [ "$FORMAT" = "json" ]; then
+  cat <<EOF
+{
+  "decision": "$decision",
+  "rationale": "$rationale"
+}
+EOF
+else
+  echo "Decision: $decision"
+  echo "Rationale: $rationale"
+fi
+
+exit 0

@@ -64,7 +64,7 @@ FATAL_PATTERNS=(
   "nvram"
   "gpt"
   "fdisk"
-  "dd "
+  "\\bdd\\b"
   "mkfs"
   "parted"
   "asr"

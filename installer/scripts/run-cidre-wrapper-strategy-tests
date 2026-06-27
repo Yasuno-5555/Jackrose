@@ -1,0 +1,147 @@
+#!/bin/bash
+# run-cidre-wrapper-strategy-tests: Phase 26 wrapper strategy tests runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-wrapper-strategy-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/generated"
+
+echo "=== Running Cidre Wrapper Strategy Tests ==="
+
+POLICY_DATA="$REPO_ROOT/installer/wrapper/wrapper-policy.json"
+SAFE_FIXTURE="$REPO_ROOT/installer/bootstrap/fixtures/minimal-bootstrap-sample.sh"
+DANGER_FIXTURE="$REPO_ROOT/installer/bootstrap/fixtures/dangerous-bootstrap-sample.sh"
+
+FIXTURE_DATA="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+LOCAL_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.localhost.json"
+
+# Stage required inputs
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE_DATA" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+"$REPO_ROOT/installer/scripts/prepare-dev-release-assets" \
+  --layout "$LOCAL_LAYOUT" \
+  --metadata "$TEST_TMPDIR/local-facing.json" \
+  --output "$TEST_TMPDIR/dev-facing.json"
+
+# Mock Phase 24 and 25 outputs
+P24_SAFE="$TEST_TMPDIR/phase24-safe.md"
+cat <<'EOF' > "$P24_SAFE"
+# Phase 24 Result
+## Decision
+A_SAFE_METADATA_PATH
+EOF
+
+P24_FAIL="$TEST_TMPDIR/phase24-fail.md"
+cat <<'EOF' > "$P24_FAIL"
+# Phase 24 Result
+## Decision
+C_ADAPTER_OR_LAYOUT_MISMATCH
+EOF
+
+P25_NO_SAFE="$TEST_TMPDIR/phase25-no-safe.md"
+cat <<'EOF' > "$P25_NO_SAFE"
+# Phase 25 Result
+## Decision
+NO_SAFE_MODE
+EOF
+
+P25_PATCH="$TEST_TMPDIR/phase25-patch.md"
+cat <<'EOF' > "$P25_PATCH"
+# Phase 25 Result
+## Decision
+PATCH_REQUIRED
+EOF
+
+# Test 1: Positive wrapper plan check
+echo "Test 1: Testing wrapper plan evaluation (WRAPPER_PREFLIGHT_READY)..."
+res1=$("$REPO_ROOT/installer/scripts/cidre-installer-wrapper-plan" \
+  --policy "$POLICY_DATA" \
+  --phase24-result "$P24_SAFE" \
+  --phase25-result "$P25_NO_SAFE" \
+  --format json | jq -r '.decision')
+
+if [ "$res1" != "WRAPPER_PREFLIGHT_READY" ]; then
+  echo "ERROR: Expected WRAPPER_PREFLIGHT_READY but got '$res1'." >&2
+  exit 1
+fi
+echo "  [OK] WRAPPER_PREFLIGHT_READY plan verified."
+
+# Test 2: Preflight validator checks on safe bootstrap
+echo "Test 2: Testing preflight validator on safe bootstrap..."
+res2=$("$REPO_ROOT/installer/scripts/validate-cidre-wrapper-preflight" \
+  --cidre-metadata "$TEST_TMPDIR/dev-facing.json" \
+  --repo-base "http://127.0.0.1:8761" \
+  --bootstrap-snapshot "$SAFE_FIXTURE" \
+  --policy "$POLICY_DATA")
+
+decision2=$(echo "$res2" | grep "^Decision:" | cut -d' ' -f2-)
+if [ "$decision2" != "WRAPPER_PREFLIGHT_READY" ]; then
+  echo "ERROR: Expected Decision: WRAPPER_PREFLIGHT_READY but got '$decision2'." >&2
+  exit 1
+fi
+echo "  [OK] Preflight validation matched successfully."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Wrapper Tests ==="
+
+# Neg 1: Phase 24 failed (expect WRAPPER_BLOCKED)
+echo "Neg 1: Testing wrapper plan evaluation on harness fail..."
+res_neg1=$("$REPO_ROOT/installer/scripts/cidre-installer-wrapper-plan" \
+  --policy "$POLICY_DATA" \
+  --phase24-result "$P24_FAIL" \
+  --phase25-result "$P25_NO_SAFE" \
+  --format json | jq -r '.decision')
+
+if [ "$res_neg1" != "WRAPPER_BLOCKED" ]; then
+  echo "ERROR: Expected WRAPPER_BLOCKED but got '$res_neg1'." >&2
+  exit 1
+fi
+echo "  [PASSED] Harness check failure blocked plan correctly."
+
+# Neg 2: Dangerous bootstrap snapshot (expect WRAPPER_BLOCKED decision)
+echo "Neg 2: Testing preflight validator on dangerous bootstrap snapshot..."
+if res_neg2=$( "$REPO_ROOT/installer/scripts/validate-cidre-wrapper-preflight" \
+  --cidre-metadata "$TEST_TMPDIR/dev-facing.json" \
+  --repo-base "http://127.0.0.1:8761" \
+  --bootstrap-snapshot "$DANGER_FIXTURE" \
+  --policy "$POLICY_DATA" 2>/dev/null ); then
+  
+  echo "ERROR: Expected preflight validation to fail on dangerous bootstrap, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Dangerous bootstrap successfully blocked preflight validation."
+
+# Neg 3: Missing manifest check (expect WRAPPER_BLOCKED decision)
+echo "Neg 3: Testing preflight validator on missing manifest layout..."
+jq 'del(.images[0].manifest)' "$TEST_TMPDIR/dev-facing.json" > "$TEST_TMPDIR/bad-facing.json"
+if res_neg3=$( "$REPO_ROOT/installer/scripts/validate-cidre-wrapper-preflight" \
+  --cidre-metadata "$TEST_TMPDIR/bad-facing.json" \
+  --repo-base "http://127.0.0.1:8761" \
+  --bootstrap-snapshot "$SAFE_FIXTURE" \
+  --policy "$POLICY_DATA" 2>/dev/null ); then
+  
+  echo "ERROR: Expected preflight validation to fail on missing manifest, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Missing manifest successfully blocked preflight validation."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil bless nvram gpt fdisk dd mkfs parted asr)
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Wrapper Strategy Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

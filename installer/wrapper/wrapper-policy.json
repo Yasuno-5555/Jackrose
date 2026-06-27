@@ -1,0 +1,41 @@
+{
+  "policy_version": "0.1",
+  "phase": "26",
+  "strategy": "cidre-owned-wrapper",
+  "upstream_bootstrap_direct_execution": "forbidden",
+  "real_installer_execution": "forbidden",
+  "disk_mutation": "forbidden",
+  "boot_policy_mutation": "forbidden",
+  "allowed_actions": [
+    "metadata_only_harness",
+    "asset_layout_validation",
+    "artifact_manifest_sha256_preflight",
+    "override_env_generation",
+    "danger_zone_guard",
+    "target_intent_validation_without_mutation"
+  ],
+  "forbidden_commands": [
+    "installer-bootstrap.sh",
+    "alx.sh",
+    "install.sh",
+    "curl | sh",
+    "diskutil",
+    "bless",
+    "nvram",
+    "gpt",
+    "fdisk",
+    "dd",
+    "mkfs",
+    "parted",
+    "asr"
+  ],
+  "required_previous_decisions": {
+    "phase24": "A_SAFE_METADATA_PATH",
+    "phase25": "NO_SAFE_MODE"
+  },
+  "next_decision": [
+    "WRAPPER_PREFLIGHT_READY",
+    "WRAPPER_BLOCKED",
+    "WRAPPER_NEEDS_PATCHED_INSTALLER"
+  ]
+}

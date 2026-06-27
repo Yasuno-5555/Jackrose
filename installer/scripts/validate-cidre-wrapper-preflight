@@ -1,0 +1,148 @@
+#!/bin/bash
+# validate-cidre-wrapper-preflight: Runs sandboxed validation metrics for wrapper strategy pivot
+set -euo pipefail
+
+CIDRE_METADATA=""
+REPO_BASE=""
+SNAPSHOT=""
+POLICY=""
+STRICT=0
+RESULT_OUT=""
+
+usage() {
+  echo "Usage: $0 --cidre-metadata <path> --repo-base <url> --bootstrap-snapshot <path> --policy <path> [--strict] [--result-output <path>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cidre-metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --cidre-metadata requires a path." >&2
+        exit 1
+      fi
+      CIDRE_METADATA="$2"
+      shift 2
+      ;;
+    --repo-base)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --repo-base requires a URL." >&2
+        exit 1
+      fi
+      REPO_BASE="$2"
+      shift 2
+      ;;
+    --bootstrap-snapshot)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --bootstrap-snapshot requires a path." >&2
+        exit 1
+      fi
+      SNAPSHOT="$2"
+      shift 2
+      ;;
+    --policy)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --policy requires a path." >&2
+        exit 1
+      fi
+      POLICY="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --result-output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --result-output requires a path." >&2
+        exit 1
+      fi
+      RESULT_OUT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CIDRE_METADATA" ] || [ -z "$REPO_BASE" ] || [ -z "$SNAPSHOT" ] || [ -z "$POLICY" ]; then
+  echo "ERROR: Missing required arguments." >&2
+  usage
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$REPO_ROOT/installer/scripts"
+
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+harness_env="$tmp_dir/harness.env"
+harness_res="$tmp_dir/harness.md"
+
+decision="WRAPPER_BLOCKED"
+rationale="Preflight validations failed."
+
+echo "=== Cidre Wrapper Preflight Validator ===" >&2
+
+# Step 1: Run metadata override harness
+echo "Step 1: Running metadata override harness..." >&2
+if ! "$SCRIPT_DIR/metadata-only-installer-override-harness" \
+  --cidre-metadata "$CIDRE_METADATA" \
+  --repo-base "$REPO_BASE" \
+  --port 8761 \
+  --bootstrap-snapshot "$SNAPSHOT" \
+  --output-env "$harness_env" \
+  --result-output "$harness_res" > "$tmp_dir/harness_run.log" 2>&1; then
+  
+  decision="WRAPPER_BLOCKED"
+  rationale="Metadata override harness failed to pass."
+else
+  # Verify override variables
+  if grep -q "CIDRE_METADATA_ONLY_OVERRIDE_READY=\"1\"" "$harness_env" && \
+     grep -q "INSTALLER_DATA=" "$harness_env" && \
+     grep -q "REPO_BASE=" "$harness_env"; then
+     
+     # Step 2: Danger zone scan on snapshot
+     echo "Step 2: Scanning bootstrap safety boundaries..." >&2
+     if ! "$SCRIPT_DIR/guard-installer-danger-zone" --input "$SNAPSHOT" > "$tmp_dir/guard.log" 2>&1; then
+       decision="WRAPPER_BLOCKED"
+       rationale="Danger zone commands detected in target bootstrap snapshot."
+     else
+       decision="WRAPPER_PREFLIGHT_READY"
+       rationale="All non-destructive preflight validations completed successfully. Override env is coherent."
+     fi
+  else
+    decision="WRAPPER_BLOCKED"
+    rationale="Metadata override environment block missing critical parameters."
+  fi
+fi
+
+# Write results
+if [ -n "$RESULT_OUT" ]; then
+  mkdir -p "$(dirname "$RESULT_OUT")"
+  cat <<EOF > "$RESULT_OUT"
+# Phase 26 Wrapper Preflight Results
+
+## Decision
+$decision
+
+## Rationale
+$rationale
+
+## Safety Statement
+No bootstrap script was executed.
+No installer was invoked.
+No disk changes were made.
+EOF
+fi
+
+echo "Decision: $decision"
+echo "Rationale: $rationale"
+
+if [ "$decision" = "WRAPPER_PREFLIGHT_READY" ]; then
+  exit 0
+else
+  exit 2
+fi

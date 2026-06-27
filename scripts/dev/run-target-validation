@@ -32,6 +32,7 @@ usage() {
   echo "  --installer-asset-layout-only   Run installer asset layout normalization tests"
   echo "  --metadata-only-override-harness-only Run metadata-only override harness tests"
   echo "  --bootstrap-safe-mode-probe-only      Run bootstrap safe-mode probe tests"
+  echo "  --cidre-wrapper-strategy-only         Run Cidre installer wrapper strategy tests"
   exit 1
 }
 
@@ -115,6 +116,10 @@ while [ $# -gt 0 ]; do
       ;;
     --bootstrap-safe-mode-probe-only)
       BOOTSTRAP_SAFE_MODE_PROBE_ONLY=1
+      shift
+      ;;
+    --cidre-wrapper-strategy-only)
+      CIDRE_WRAPPER_STRATEGY_ONLY=1
       shift
       ;;
     *)
@@ -215,6 +220,12 @@ fi
 if [ "${BOOTSTRAP_SAFE_MODE_PROBE_ONLY:-0}" -eq 1 ]; then
   echo "Running bootstrap safe-mode probe tests only..."
   "$REPO_ROOT/installer/scripts/run-bootstrap-safe-mode-probe-tests"
+  exit 0
+fi
+
+if [ "${CIDRE_WRAPPER_STRATEGY_ONLY:-0}" -eq 1 ]; then
+  echo "Running Cidre installer wrapper strategy tests only..."
+  "$REPO_ROOT/installer/scripts/run-cidre-wrapper-strategy-tests"
   exit 0
 fi
 
