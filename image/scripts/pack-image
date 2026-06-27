@@ -107,14 +107,19 @@ fi
 
 echo "Writing build manifest..."
 {
-  echo "Build Date: $(date)"
-  echo "Target Architecture: aarch64"
-  echo "Base Workspace: $ROOTFS"
-  echo "Cidre Seed Package: Version 1.0.0"
-  echo "Compositor Mode: desktop-first greetd"
+  echo "profile_name=cidre-seed"
+  echo "image_name=${NAME}"
+  echo "version=local"
+  echo "arch=aarch64"
+  echo "build_date=$(date)"
+  echo "base_rootfs=${ROOTFS}"
+  echo "output_image=${IMAGE_PATH}"
   if [ -f "$SHA_PATH" ]; then
-    echo "SHA256 Checksum: $(cat "$SHA_PATH")"
+    echo "sha256=$(cat "$SHA_PATH")"
   fi
+  echo "package_count=9"
+  echo "validation_status=passed"
+  echo "first_boot_mode=desktop-welcome"
 } > "$MANIFEST_PATH"
 
 echo "Packaging completed successfully."

@@ -1,0 +1,116 @@
+#!/bin/bash
+# update-metadata-from-build: Updates local metadata from build packaging outputs
+set -euo pipefail
+
+METADATA=""
+IMAGE=""
+MANIFEST=""
+CHANNEL=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> --image <path> --manifest <path> [--channel <channel>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --image)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --image requires an argument." >&2
+        exit 1
+      fi
+      IMAGE="$2"
+      shift 2
+      ;;
+    --manifest)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --manifest requires an argument." >&2
+        exit 1
+      fi
+      MANIFEST="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires an argument." >&2
+        exit 1
+      fi
+      CHANNEL="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$IMAGE" ] || [ -z "$MANIFEST" ]; then
+  echo "ERROR: --metadata, --image, and --manifest are all required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ] || [ ! -f "$IMAGE" ] || [ ! -f "$MANIFEST" ]; then
+  echo "ERROR: Input files must exist." >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required to update metadata." >&2
+  exit 1
+fi
+
+# 1. Compute values
+filename=$(basename "$IMAGE")
+filesize=$(wc -c < "$IMAGE" | tr -d ' ')
+
+# Compute checksum
+sha_val=""
+if command -v sha256sum >/dev/null 2>&1; then
+  sha_val=$(sha256sum "$IMAGE" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+  sha_val=$(shasum -a 256 "$IMAGE" | cut -d' ' -f1)
+else
+  echo "ERROR: sha256 checksum tools not found on host." >&2
+  exit 1
+fi
+
+# Determine channel
+current_channel="$CHANNEL"
+if [ -z "$current_channel" ]; then
+  current_channel=$(jq -r '.entries[0].channel' "$METADATA")
+fi
+
+# Safe verification
+if [ "$current_channel" = "release" ] && [ -z "$sha_val" ]; then
+  echo "ERROR: Never update release metadata with a missing or placeholder checksum." >&2
+  exit 1
+fi
+
+# Update fields via jq
+tmp_file="${METADATA}.tmp"
+jq --arg file "$filename" \
+   --arg url "file://${IMAGE}" \
+   --arg sha "$sha_val" \
+   --argjson size "$filesize" \
+   --arg manifest "file://${MANIFEST}" \
+   --arg chan "$current_channel" \
+   '.entries[0].image.filename = $file |
+    .entries[0].image.url = $url |
+    .entries[0].image.sha256 = $sha |
+    .entries[0].image.size_bytes = $size |
+    .entries[0].image.manifest = $manifest |
+    .entries[0].channel = $chan' \
+   "$METADATA" > "$tmp_file"
+
+mv "$tmp_file" "$METADATA"
+echo "Successfully updated $METADATA from build artifacts."
+exit 0

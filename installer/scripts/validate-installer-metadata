@@ -1,0 +1,130 @@
+#!/bin/bash
+# validate-installer-metadata: Validates installer metadata schema and rules
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <metadata-file.json>"
+  exit 1
+fi
+
+METADATA_FILE="$1"
+
+if [ ! -f "$METADATA_FILE" ]; then
+  echo "ERROR: Metadata file not found at $METADATA_FILE" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "" >&2
+  echo "jq was not found." >&2
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  Metadata validation requires jq for JSON inspection." >&2
+  echo "" >&2
+  echo "Next action:" >&2
+  echo "  Install jq or run validation on an environment where jq is available." >&2
+  exit 1
+fi
+
+# Basic JSON format check
+if ! jq . "$METADATA_FILE" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON formatting in $METADATA_FILE" >&2
+  exit 1
+fi
+
+# Validate Required Root Properties
+schema_version=$(jq -r '.schema_version' "$METADATA_FILE")
+if [ "$schema_version" = "null" ]; then
+  echo "ERROR: Missing 'schema_version' key." >&2
+  exit 1
+fi
+
+entries_count=$(jq '.entries | length' "$METADATA_FILE")
+if [ "$entries_count" = "null" ] || [ "$entries_count" -eq 0 ]; then
+  echo "ERROR: 'entries' is missing or empty." >&2
+  exit 1
+fi
+
+# Loop and validate each entry
+errors=0
+for ((i=0; i<entries_count; i++)); do
+  entry_id=$(jq -r ".entries[$i].id" "$METADATA_FILE")
+  entry_name=$(jq -r ".entries[$i].name" "$METADATA_FILE")
+  entry_ver=$(jq -r ".entries[$i].version" "$METADATA_FILE")
+  entry_chan=$(jq -r ".entries[$i].channel" "$METADATA_FILE")
+  entry_arch=$(jq -r ".entries[$i].arch" "$METADATA_FILE")
+  entry_base=$(jq -r ".entries[$i].base" "$METADATA_FILE")
+  
+  # Image properties
+  img_file=$(jq -r ".entries[$i].image.filename" "$METADATA_FILE")
+  img_url=$(jq -r ".entries[$i].image.url" "$METADATA_FILE")
+  img_sha=$(jq -r ".entries[$i].image.sha256" "$METADATA_FILE")
+  img_manifest=$(jq -r ".entries[$i].image.manifest" "$METADATA_FILE")
+  
+  # Compatibility
+  comp_plat=$(jq -r ".entries[$i].compatibility.platform" "$METADATA_FILE")
+  comp_asahi=$(jq -r ".entries[$i].compatibility.requires_asahi_boot_chain" "$METADATA_FILE")
+  
+  # First Boot
+  fb_mode=$(jq -r ".entries[$i].first_boot.mode" "$METADATA_FILE")
+
+  echo "Validating entry: $entry_id ($entry_name)..."
+
+  # Structural checks
+  if [ "$entry_id" = "null" ] || [ "$entry_name" = "null" ] || [ "$entry_ver" = "null" ] || \
+     [ "$entry_chan" = "null" ] || [ "$entry_arch" = "null" ] || [ "$entry_base" = "null" ]; then
+    echo "  [FAIL] Missing required core field (id, name, version, channel, arch, base)." >&2
+    errors=$((errors + 1))
+    continue
+  fi
+
+  # Image structure
+  if [ "$img_file" = "null" ] || [ "$img_url" = "null" ] || [ "$img_sha" = "null" ] || [ "$img_manifest" = "null" ]; then
+    echo "  [FAIL] Missing required image fields (filename, url, sha256, manifest)." >&2
+    errors=$((errors + 1))
+    continue
+  fi
+
+  # Filename suffix check
+  if [[ ! "$img_file" =~ \.tar\.zst$ ]]; then
+    echo "  [FAIL] Image filename must end with .tar.zst (current: $img_file)." >&2
+    errors=$((errors + 1))
+  fi
+
+  # Channel enumerations check
+  if [[ ! "$entry_chan" =~ ^(local|dev|release)$ ]]; then
+    echo "  [FAIL] Channel must be one of 'local', 'dev', 'release' (current: $entry_chan)." >&2
+    errors=$((errors + 1))
+  fi
+
+  # Compatibility platform checks
+  if [ "$comp_plat" != "apple-silicon" ]; then
+    echo "  [FAIL] Compatibility platform must be 'apple-silicon' (current: $comp_plat)." >&2
+    errors=$((errors + 1))
+  fi
+
+  # First Boot mode checks
+  if [ "$fb_mode" != "desktop-welcome" ]; then
+    echo "  [FAIL] First boot mode must be 'desktop-welcome' (current: $fb_mode)." >&2
+    errors=$((errors + 1))
+  fi
+
+  # Warnings check
+  if [[ "$img_url" =~ ^file:// || "$img_url" =~ ^placeholder:// ]]; then
+    echo "  [WARN] Local testing URL pattern detected: $img_url"
+  fi
+
+  # Strict release constraints
+  if [ "$entry_chan" = "release" ] && [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+    echo "  [FAIL] Release channel must not use PLACEHOLDER_SHA256 checksum." >&2
+    errors=$((errors + 1))
+  fi
+done
+
+if [ $errors -gt 0 ]; then
+  echo "Metadata validation failed with $errors error(s)." >&2
+  exit 2
+fi
+
+echo "Metadata validation successful."
+exit 0

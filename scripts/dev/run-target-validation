@@ -17,6 +17,7 @@ usage() {
   echo "  --packages-only     Only build and collect packages"
   echo "  --rootfs <path>     Path to test rootfs to validate"
   echo "  --apply             Perform real package install and firstboot enable (requires --rootfs)"
+  echo "  --metadata-only     Run local installer metadata validation checks only"
   exit 1
 }
 
@@ -42,12 +43,22 @@ while [ $# -gt 0 ]; do
       APPLY=1
       shift
       ;;
+    --metadata-only)
+      METADATA_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
       ;;
   esac
 done
+
+if [ "${METADATA_ONLY:-0}" -eq 1 ]; then
+  echo "Running metadata validation only..."
+  "$REPO_ROOT/installer/scripts/validate-installer-metadata" "$REPO_ROOT/installer/metadata/cidre-seed.local.json"
+  exit 0
+fi
 
 # Prerequisite: verify host environment contains required tools
 echo "Checking target environment prerequisites..."

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CidreInstallerMetadata",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "version",
+          "channel",
+          "arch",
+          "base",
+          "description",
+          "image",
+          "compatibility",
+          "first_boot"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "channel": {
+            "type": "string",
+            "enum": ["local", "dev", "release"]
+          },
+          "arch": { "type": "string" },
+          "base": { "type": "string" },
+          "description": { "type": "string" },
+          "image": {
+            "type": "object",
+            "required": ["filename", "url", "sha256", "size_bytes", "manifest"],
+            "properties": {
+              "filename": { "type": "string" },
+              "url": { "type": "string" },
+              "sha256": { "type": "string" },
+              "size_bytes": { "type": "integer" },
+              "manifest": { "type": "string" }
+            }
+          },
+          "compatibility": {
+            "type": "object",
+            "required": ["platform", "devices", "requires_asahi_boot_chain"],
+            "properties": {
+              "platform": { "type": "string" },
+              "devices": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "requires_asahi_boot_chain": { "type": "boolean" }
+            }
+          },
+          "first_boot": {
+            "type": "object",
+            "required": ["mode", "session", "welcome"],
+            "properties": {
+              "mode": { "type": "string" },
+              "session": { "type": "string" },
+              "welcome": { "type": "string" }
+            }
+          },
+          "features": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

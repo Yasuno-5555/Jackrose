@@ -37,3 +37,13 @@ Seed images must remain uninitialized. The validation process will fail immediat
 - `/var/lib/cidre/firstboot.done`
 - `/var/lib/cidre/welcome.done`
 - `/var/lib/cidre/optimized.done`
+
+---
+
+## 3. Relationship to Installer Metadata
+
+- **Phase 10** produces local image artifacts.
+- **Phase 11** describes those artifacts in a unified JSON layout format.
+- Exposing installer metadata does not imply the image has been published to a public mirror.
+- A release channel entry must never use `PLACEHOLDER_SHA256` under any circumstances.
+
