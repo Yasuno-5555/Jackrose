@@ -57,3 +57,13 @@ To run the boundary probe tests suite:
 ```bash
 installer/scripts/run-controlled-installer-boundary-probe-tests
 ```
+
+---
+
+## 6. Metadata-only Installer Override Harness
+
+To run the override harness tests suite:
+
+```bash
+installer/scripts/run-metadata-only-override-harness-tests
+```

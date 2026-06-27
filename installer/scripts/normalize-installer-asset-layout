@@ -114,6 +114,18 @@ for ((i=0; i<length; i++)); do
     exit 1
   fi
 
+  manifest=$(jq -r ".os_list[$i].manifest" "$tmp_json")
+  if [ "$manifest" = "null" ] || [ -z "$manifest" ]; then
+    echo "ERROR: Missing manifest field for entry $i." >&2
+    exit 1
+  fi
+
+  sha256=$(jq -r ".os_list[$i].sha256" "$tmp_json")
+  if [ "$sha256" = "null" ] || [ -z "$sha256" ]; then
+    echo "ERROR: Missing sha256 field for entry $i." >&2
+    exit 1
+  fi
+
   # Get filename from package path
   filename=$(basename "$pkg")
 

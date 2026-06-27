@@ -1,0 +1,301 @@
+#!/bin/bash
+# metadata-only-installer-override-harness: Orchestrates the metadata-only override chain and env output
+set -euo pipefail
+
+CIDRE_METADATA=""
+REPO_BASE=""
+PORT=8765
+SNAPSHOT=""
+ASAHI_OUT=""
+NORM_OUT=""
+POLICY=""
+HOST="127.0.0.1"
+OUTPUT_ENV=""
+RESULT_OUT=""
+KEEP_SERVER=0
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --cidre-metadata <path> --repo-base <url> --port <port> --bootstrap-snapshot <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cidre-metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --cidre-metadata requires a path." >&2
+        exit 1
+      fi
+      CIDRE_METADATA="$2"
+      shift 2
+      ;;
+    --repo-base)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --repo-base requires a URL." >&2
+        exit 1
+      fi
+      REPO_BASE="$2"
+      shift 2
+      ;;
+    --port)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --port requires a port." >&2
+        exit 1
+      fi
+      PORT="$2"
+      shift 2
+      ;;
+    --bootstrap-snapshot)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --bootstrap-snapshot requires a path." >&2
+        exit 1
+      fi
+      SNAPSHOT="$2"
+      shift 2
+      ;;
+    --asahi-output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --asahi-output requires a path." >&2
+        exit 1
+      fi
+      ASAHI_OUT="$2"
+      shift 2
+      ;;
+    --normalized-output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --normalized-output requires a path." >&2
+        exit 1
+      fi
+      NORM_OUT="$2"
+      shift 2
+      ;;
+    --asset-policy)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --asset-policy requires a path." >&2
+        exit 1
+      fi
+      POLICY="$2"
+      shift 2
+      ;;
+    --host)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --host requires a host." >&2
+        exit 1
+      fi
+      HOST="$2"
+      shift 2
+      ;;
+    --output-env)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output-env requires a path." >&2
+        exit 1
+      fi
+      OUTPUT_ENV="$2"
+      shift 2
+      ;;
+    --result-output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --result-output requires a path." >&2
+        exit 1
+      fi
+      RESULT_OUT="$2"
+      shift 2
+      ;;
+    --keep-server)
+      KEEP_SERVER=1
+      shift
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CIDRE_METADATA" ] || [ -z "$REPO_BASE" ] || [ -z "$SNAPSHOT" ]; then
+  echo "ERROR: --cidre-metadata, --repo-base, and --bootstrap-snapshot are required." >&2
+  usage
+fi
+
+if [ ! -f "$CIDRE_METADATA" ]; then
+  echo "ERROR: Cidre metadata file not found: $CIDRE_METADATA" >&2
+  exit 1
+fi
+
+if [ ! -f "$SNAPSHOT" ]; then
+  echo "ERROR: Bootstrap snapshot file not found: $SNAPSHOT" >&2
+  exit 1
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$REPO_ROOT/installer/scripts"
+
+# Default paths if not provided
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+if [ -z "$ASAHI_OUT" ]; then
+  ASAHI_OUT="$tmp_dir/asahi-raw.json"
+fi
+if [ -z "$NORM_OUT" ]; then
+  NORM_OUT="$tmp_dir/asahi-normalized.json"
+fi
+
+# Step 1: Export Asahi-like candidate formats
+echo "Step 1: Exporting Asahi-like metadata..." >&2
+"$SCRIPT_DIR/export-asahi-installer-data" \
+  --input "$CIDRE_METADATA" \
+  --output "$ASAHI_OUT" \
+  --channel dev \
+  --repo-base "$REPO_BASE"
+
+# Step 2: Normalize asset layout
+echo "Step 2: Normalizing asset layout..." >&2
+norm_args=("--input" "$ASAHI_OUT" "--output" "$NORM_OUT" "--repo-base" "$REPO_BASE" "--force")
+if [ -n "$POLICY" ]; then
+  norm_args+=("--policy" "$POLICY")
+fi
+"$SCRIPT_DIR/normalize-installer-asset-layout" "${norm_args[@]}"
+
+# Stage normalized file for serving
+serve_dir="$tmp_dir/serve"
+mkdir -p "$serve_dir"
+cp "$NORM_OUT" "$serve_dir/asahi-installer-data.cidre.dev.normalized.json"
+
+# Step 3: Serve metadata over localhost
+echo "Step 3: Starting mock HTTP server on port $PORT..." >&2
+python3 -m http.server "$PORT" --bind "$HOST" --directory "$serve_dir" >/dev/null 2>&1 &
+SERVER_PID=$!
+
+server_cleanup() {
+  if [ "$KEEP_SERVER" -eq 0 ]; then
+    echo "Stopping mock HTTP server (PID: $SERVER_PID)..." >&2
+    kill "$SERVER_PID" || true
+  fi
+}
+trap 'server_cleanup; rm -rf "$tmp_dir"' EXIT
+
+# Wait a moment for server to boot
+sleep 2
+
+# Step 4: Run controlled boundary probe
+echo "Step 4: Running boundary probe..." >&2
+probe_out_file="$tmp_dir/probe_result.md"
+probe_args=(
+  --installer-data-url "http://$HOST:$PORT/asahi-installer-data.cidre.dev.normalized.json"
+  --repo-base "$REPO_BASE"
+  --bootstrap-snapshot "$SNAPSHOT"
+  --output "$probe_out_file"
+)
+probe_stdout_log="$tmp_dir/probe_stdout.log"
+"$SCRIPT_DIR/controlled-installer-boundary-probe" "${probe_args[@]}" > "$probe_stdout_log" 2>&1 || true
+
+# Parse decision
+decision_line=$(grep -E "^Decision:" "$probe_stdout_log" || echo "")
+decision=$(echo "$decision_line" | cut -d' ' -f2-)
+rationale_line=$(grep -E "^Rationale:" "$probe_stdout_log" || echo "")
+rationale=$(echo "$rationale_line" | cut -d' ' -f2-)
+
+if [ -z "$decision" ]; then
+  # Fallback to result file parsing
+  decision=$(grep -E "^\#\# Decision" -A 2 "$probe_out_file" | tail -n 1 || echo "")
+  decision=$(echo "$decision" | tr -d '[:space:]')
+fi
+
+echo "Boundary probe outcome: $decision" >&2
+
+# Step 5: Decision handling
+if [ "$decision" = "A_SAFE_METADATA_PATH" ]; then
+  echo "Metadata-only override harness passed successfully." >&2
+  
+  # Generate override environment variable definition block
+  env_block=$(cat <<EOF
+# Cidre bootstrap override environment variables
+export INSTALLER_DATA="http://$HOST:$PORT/asahi-installer-data.cidre.dev.normalized.json"
+export REPO_BASE="$REPO_BASE"
+export CIDRE_METADATA_ONLY_OVERRIDE_READY="1"
+EOF
+)
+  
+  if [ -n "$OUTPUT_ENV" ]; then
+    mkdir -p "$(dirname "$OUTPUT_ENV")"
+    echo "$env_block" > "$OUTPUT_ENV"
+    echo "Saved override env to $OUTPUT_ENV" >&2
+  fi
+  
+  # Write Phase 24 result
+  if [ -n "$RESULT_OUT" ]; then
+    mkdir -p "$(dirname "$RESULT_OUT")"
+    cat <<EOF > "$RESULT_OUT"
+# Phase 24 Metadata-only Override Harness Result
+
+## Inputs
+- cidre metadata:     $CIDRE_METADATA
+- repo base:          $REPO_BASE
+- port:               $PORT
+- bootstrap snapshot: $SNAPSHOT
+
+## Generated Artifacts
+- Asahi-like metadata: $ASAHI_OUT
+- normalized metadata: $NORM_OUT
+- INSTALLER_DATA URL:  http://$HOST:$PORT/asahi-installer-data.cidre.dev.normalized.json
+
+## Validation Results
+- boundary probe decision: $decision
+
+## Decision
+$decision
+
+## Override Environment
+$env_block
+
+## Safety Statement
+No bootstrap script was executed.
+No installer was invoked.
+No disk changes were made.
+EOF
+  fi
+
+  # Output environment block to stdout
+  echo "$env_block"
+  exit 0
+else
+  echo "ERROR: Boundary probe did not return a safe path." >&2
+  echo "Decision: $decision" >&2
+  echo "Rationale: $rationale" >&2
+  
+  # Write Phase 24 failed result
+  if [ -n "$RESULT_OUT" ]; then
+    mkdir -p "$(dirname "$RESULT_OUT")"
+    cat <<EOF > "$RESULT_OUT"
+# Phase 24 Metadata-only Override Harness Result
+
+## Inputs
+- cidre metadata:     $CIDRE_METADATA
+- repo base:          $REPO_BASE
+- port:               $PORT
+- bootstrap snapshot: $SNAPSHOT
+
+## Validation Results
+- boundary probe decision: $decision
+
+## Decision
+$decision
+
+## Rationale
+$rationale
+
+## Safety Statement
+No bootstrap script was executed.
+No installer was invoked.
+No disk changes were made.
+EOF
+  fi
+
+  exit 2
+fi
