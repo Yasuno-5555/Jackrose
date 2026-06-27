@@ -107,3 +107,13 @@ To run the sandbox extraction tests suite:
 ```bash
 installer/scripts/run-cidre-wrapper-extraction-tests
 ```
+
+---
+
+## 11. Cidre Rootfs Validation and Review-only Install Plan
+
+To run the rootfs content and plan tests suite:
+
+```bash
+installer/scripts/run-cidre-rootfs-plan-tests
+```

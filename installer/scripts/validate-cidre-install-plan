@@ -1,0 +1,134 @@
+#!/bin/bash
+# validate-cidre-install-plan: Validates install-plan.json parameters and safety structures
+set -euo pipefail
+
+PLAN=""
+STRICT=0
+REQ_ROOTFS=0
+
+usage() {
+  echo "Usage: $0 --plan <path> [--strict] [--require-rootfs]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --plan)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --plan requires a path." >&2
+        exit 1
+      fi
+      PLAN="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --require-rootfs)
+      REQ_ROOTFS=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$PLAN" ]; then
+  echo "ERROR: --plan is required." >&2
+  usage
+fi
+
+if [ ! -f "$PLAN" ]; then
+  echo "ERROR: Install plan file not found: $PLAN" >&2
+  exit 1
+fi
+
+if ! jq . "$PLAN" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape in install plan file." >&2
+  exit 1
+fi
+
+# Load variables
+p_ver=$(jq -r '.plan_version' "$PLAN")
+phase=$(jq -r '.phase' "$PLAN")
+kind=$(jq -r '.plan_kind' "$PLAN")
+s_id=$(jq -r '.selected_id' "$PLAN")
+root_d=$(jq -r '.rootfs_dir' "$PLAN")
+valid=$(jq -r '.rootfs_valid' "$PLAN")
+target=$(jq -r '.target' "$PLAN")
+selected=$(jq -r '.target_selected' "$PLAN")
+disc_ok=$(jq -r '.target_discovery_allowed' "$PLAN")
+mut_ok=$(jq -r '.target_mutation_allowed' "$PLAN")
+stage_ok=$(jq -r '.staging_allowed' "$PLAN")
+plan_ok=$(jq -r '.install_plan_allowed' "$PLAN")
+inst_ok=$(jq -r '.install_allowed' "$PLAN")
+blocked_steps=$(jq -r '.blocked_steps | join(",")' "$PLAN")
+
+# Existence check
+if [ "$p_ver" = "null" ] || [ "$phase" = "null" ] || [ "$kind" = "null" ] || [ "$s_id" = "null" ] || \
+   [ "$root_d" = "null" ] || [ "$valid" = "null" ] || [ "$selected" = "null" ] || [ "$disc_ok" = "null" ] || \
+   [ "$mut_ok" = "null" ] || [ "$stage_ok" = "null" ] || [ "$plan_ok" = "null" ] || [ "$inst_ok" = "null" ]; then
+  echo "ERROR: Missing required fields in install plan JSON." >&2
+  exit 1
+fi
+
+# Value checks
+if [ "$phase" != "30" ]; then
+  echo "ERROR: Plan phase version mismatch: $phase" >&2
+  exit 1
+fi
+
+if [ "$kind" != "review-only" ]; then
+  echo "ERROR: Plan kind must be review-only." >&2
+  exit 1
+fi
+
+if [ "$valid" != "true" ]; then
+  echo "ERROR: Plan states rootfs is invalid." >&2
+  exit 1
+fi
+
+if [ "$target" != "null" ] && [ -n "$target" ]; then
+  echo "ERROR: Real target disks must not be selected in Phase 30." >&2
+  exit 1
+fi
+
+if [ "$selected" != "false" ]; then
+  echo "ERROR: target_selected must be false." >&2
+  exit 1
+fi
+
+if [ "$disc_ok" != "false" ] || [ "$mut_ok" != "false" ] || [ "$stage_ok" != "false" ] || [ "$plan_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: All discovery, staging, and installation permissions must be disabled." >&2
+  exit 1
+fi
+
+# Blocked steps validation
+for step in "target mounting" "rootfs staging" "boot policy changes" "installer execution"; do
+  if [[ "$blocked_steps" != *"$step"* ]]; then
+    echo "ERROR: Required blocked step '$step' is missing from blocked_steps." >&2
+    exit 1
+  fi
+done
+
+# Rootfs check on disk
+if [ "$REQ_ROOTFS" -eq 1 ]; then
+  if [ ! -d "$root_d" ]; then
+    echo "ERROR: Configured rootfs directory does not exist: $root_d" >&2
+    exit 1
+  fi
+fi
+
+# Strict rules
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$selected" = "true" ] || [ "$inst_ok" = "true" ] || [ "$stage_ok" = "true" ]; then
+    echo "ERROR: Plan permissions must be strictly false." >&2
+    exit 2
+  fi
+fi
+
+echo "Install plan validates successfully."
+exit 0

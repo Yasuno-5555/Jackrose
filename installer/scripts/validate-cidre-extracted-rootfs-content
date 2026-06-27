@@ -1,0 +1,233 @@
+#!/bin/bash
+# validate-cidre-extracted-rootfs-content: Asserts rootfs consistency inside the temporary sandbox
+set -euo pipefail
+
+EXTRACTED=""
+OUTPUT=""
+STRICT=0
+REQ_DESKTOP=0
+REQ_WELCOME=0
+REQ_DOCTOR=0
+
+usage() {
+  echo "Usage: $0 --extracted <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --extracted)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --extracted requires a path." >&2
+        exit 1
+      fi
+      EXTRACTED="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --require-desktop-baseline)
+      REQ_DESKTOP=1
+      shift
+      ;;
+    --require-welcome)
+      REQ_WELCOME=1
+      shift
+      ;;
+    --require-doctor)
+      REQ_DOCTOR=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$EXTRACTED" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --extracted and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$EXTRACTED" ]; then
+  echo "ERROR: Extracted rootfs config not found: $EXTRACTED" >&2
+  exit 1
+fi
+
+# Load variables
+ext_ok=$(jq -r '.extracted' "$EXTRACTED")
+target_stage_ok=$(jq -r '.target_staging_allowed' "$EXTRACTED")
+install_ok=$(jq -r '.install_allowed' "$EXTRACTED")
+root_d=$(jq -r '.rootfs_dir' "$EXTRACTED")
+sand_d=$(jq -r '.sandbox_dir' "$EXTRACTED")
+
+if [ "$ext_ok" != "true" ] || [ "$target_stage_ok" != "false" ] || [ "$install_ok" != "false" ]; then
+  echo "ERROR: Precondition fail. Extracted rootfs must be validated with staging permissions disabled." >&2
+  exit 1
+fi
+
+if [ ! -d "$root_d" ] || [ "$root_d" = "/" ] || [[ "$root_d" != "$sand_d"* ]]; then
+  echo "ERROR: Sandbox rootfs path validation failed: $root_d" >&2
+  exit 1
+fi
+
+rootfs_valid=1
+warnings=()
+
+# 1. Base folders
+has_usr=0; [ -d "$root_d/usr" ] && has_usr=1
+has_etc=0; [ -d "$root_d/etc" ] && has_etc=1
+has_var=0; [ -d "$root_d/var" ] && has_var=1
+has_defaults=0; [ -d "$root_d/usr/share/cidre/defaults" ] && has_defaults=1
+
+if [ $has_usr -eq 0 ] || [ $has_etc -eq 0 ] || [ $has_var -eq 0 ] || [ $has_defaults -eq 0 ]; then
+  echo "ERROR: Required base folders missing." >&2
+  rootfs_valid=0
+fi
+
+# 2. Cidre components check
+has_welcome=0
+[ -f "$root_d/usr/bin/cidre-welcome" ] || [ -f "$root_d/usr/local/bin/cidre-welcome" ] && has_welcome=1
+
+has_doctor=0
+[ -f "$root_d/usr/bin/cidre-doctor" ] || [ -f "$root_d/usr/local/bin/cidre-doctor" ] && has_doctor=1
+
+has_session=0
+[ -f "$root_d/usr/bin/cidre-session" ] || [ -f "$root_d/usr/local/bin/cidre-session" ] && has_session=1
+
+if [ $has_welcome -eq 0 ] && [ "$REQ_WELCOME" -eq 1 ]; then
+  echo "ERROR: cidre-welcome missing." >&2
+  rootfs_valid=0
+elif [ $has_welcome -eq 0 ]; then
+  warnings+=("cidre-welcome component missing")
+fi
+
+if [ $has_doctor -eq 0 ] && [ "$REQ_DOCTOR" -eq 1 ]; then
+  echo "ERROR: cidre-doctor missing." >&2
+  rootfs_valid=0
+elif [ $has_doctor -eq 0 ]; then
+  warnings+=("cidre-doctor component missing")
+fi
+
+if [ $has_session -eq 0 ] && [ "$STRICT" -eq 1 ]; then
+  echo "ERROR: cidre-session missing in strict mode." >&2
+  rootfs_valid=0
+elif [ $has_session -eq 0 ]; then
+  warnings+=("cidre-session component missing")
+fi
+
+# 3. Desktop first baseline check
+has_wayland_sessions=0
+[ -d "$root_d/usr/share/wayland-sessions" ] && has_wayland_sessions=1
+
+has_niri_session=0
+if [ $has_wayland_sessions -eq 1 ]; then
+  if [ -f "$root_d/usr/share/wayland-sessions/niri.desktop" ] || \
+     [ -f "$root_d/usr/share/wayland-sessions/cidre.desktop" ] || \
+     [ -f "$root_d/usr/share/wayland-sessions/niri-cidre.desktop" ]; then
+    has_niri_session=1
+  fi
+fi
+
+has_niri=0; [ -f "$root_d/usr/bin/niri" ] && has_niri=1
+has_foot=0; [ -f "$root_d/usr/bin/foot" ] && has_foot=1
+has_fuzzel=0; [ -f "$root_d/usr/bin/fuzzel" ] && has_fuzzel=1
+has_firefox=0; [ -f "$root_d/usr/bin/firefox" ] && has_firefox=1
+has_fcitx5=0; [ -f "$root_d/usr/bin/fcitx5" ] && has_fcitx5=1
+
+if [ "$REQ_DESKTOP" -eq 1 ]; then
+  if [ $has_wayland_sessions -eq 0 ] || [ $has_niri_session -eq 0 ] || [ $has_niri -eq 0 ] || [ $has_foot -eq 0 ] || [ $has_fuzzel -eq 0 ] || [ $has_firefox -eq 0 ] || [ $has_fcitx5 -eq 0 ]; then
+    echo "ERROR: Desktop baseline indicators check failed." >&2
+    rootfs_valid=0
+  fi
+fi
+
+# 4. Forbidden welcome markers check
+forbidden_markers_present=0
+if [ -f "$root_d/var/lib/cidre/firstboot.done" ] || [ -f "$root_d/var/lib/cidre/welcome.done" ] || [ -f "$root_d/var/lib/cidre/optimized.done" ]; then
+  forbidden_markers_present=1
+  rootfs_valid=0
+  echo "ERROR: Contaminated rootfs. Completed welcome markers present on disk." >&2
+fi
+
+# Convert warnings array to JSON array format
+warn_json="[]"
+if [ ${#warnings[@]} -gt 0 ]; then
+  warn_json=$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)
+fi
+
+# Build results JSON
+validation_json=$(jq -n \
+  --arg v_ver "0.1" \
+  --arg s_id "$(jq -r '.selected_id' "$EXTRACTED")" \
+  --arg root_d "$root_d" \
+  --argjson valid "$rootfs_valid" \
+  --argjson has_usr "$has_usr" \
+  --argjson has_etc "$has_etc" \
+  --argjson has_var "$has_var" \
+  --argjson defaults "$has_defaults" \
+  --argjson welcome "$has_welcome" \
+  --argjson doctor "$has_doctor" \
+  --argjson session "$has_session" \
+  --argjson w_sessions "$has_wayland_sessions" \
+  --argjson n_session "$has_niri_session" \
+  --argjson niri "$has_niri" \
+  --argjson foot "$has_foot" \
+  --argjson fuzzel "$has_fuzzel" \
+  --argjson firefox "$has_firefox" \
+  --argjson fcitx5 "$has_fcitx5" \
+  --argjson markers "$forbidden_markers_present" \
+  --argjson warns "$warn_json" \
+  --arg reason "Rootfs content validated in sandbox only. Target discovery and installation are not enabled in Phase 30." \
+  '{
+    validation_version: $v_ver,
+    selected_id: $s_id,
+    rootfs_dir: $root_d,
+    rootfs_valid: ($valid == 1),
+    sandbox_valid: true,
+    required_paths: {
+      usr: ($has_usr == 1),
+      etc: ($has_etc == 1),
+      var: ($has_var == 1),
+      usr_share_cidre_defaults: ($defaults == 1)
+    },
+    cidre_components: {
+      cidre_welcome: ($welcome == 1),
+      cidre_doctor: ($doctor == 1),
+      cidre_session: ($session == 1)
+    },
+    desktop_baseline: {
+      wayland_sessions: ($w_sessions == 1),
+      niri_session: ($n_session == 1),
+      niri: ($niri == 1),
+      foot: ($foot == 1),
+      fuzzel: ($fuzzel == 1),
+      firefox: ($firefox == 1),
+      fcitx5: ($fcitx5 == 1)
+    },
+    forbidden_markers_present: ($markers == 1),
+    warnings: $warns,
+    target_discovery_allowed: false,
+    target_mutation_allowed: false,
+    install_allowed: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$validation_json" > "$OUTPUT"
+
+echo "Sandbox rootfs content validation completed." >&2
+echo "$validation_json"
+exit 0

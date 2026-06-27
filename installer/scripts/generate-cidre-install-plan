@@ -1,0 +1,116 @@
+#!/bin/bash
+# generate-cidre-install-plan: Formulates a review-only install plan from rootfs-validation.json
+set -euo pipefail
+
+VALIDATION=""
+OUTPUT=""
+TARGET_PLACEHOLDER="UNSELECTED"
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --rootfs-validation <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs-validation)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --rootfs-validation requires a path." >&2
+        exit 1
+      fi
+      VALIDATION="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --target-placeholder)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --target-placeholder requires a value." >&2
+        exit 1
+      fi
+      TARGET_PLACEHOLDER="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$VALIDATION" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --rootfs-validation and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$VALIDATION" ]; then
+  echo "ERROR: Rootfs validation file not found: $VALIDATION" >&2
+  exit 1
+fi
+
+# Load variables
+valid=$(jq -r '.rootfs_valid' "$VALIDATION")
+disc_ok=$(jq -r '.target_discovery_allowed' "$VALIDATION")
+mut_ok=$(jq -r '.target_mutation_allowed' "$VALIDATION")
+inst_ok=$(jq -r '.install_allowed' "$VALIDATION")
+root_d=$(jq -r '.rootfs_dir' "$VALIDATION")
+
+if [ "$valid" != "true" ] || [ "$disc_ok" != "false" ] || [ "$mut_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: Precondition fail. Rootfs validation must pass with mutation and discovery disabled." >&2
+  exit 1
+fi
+
+if [ ! -d "$root_d" ]; then
+  echo "ERROR: Rootfs directory does not exist: $root_d" >&2
+  exit 1
+fi
+
+echo "Formulating review-only installation plan..." >&2
+
+# Build plan JSON
+plan_json=$(jq -n \
+  --arg p_ver "0.1" \
+  --arg phase "30" \
+  --arg kind "review-only" \
+  --arg s_id "$(jq -r '.selected_id' "$VALIDATION")" \
+  --arg root_d "$root_d" \
+  --argjson p_steps '["validate rootfs content", "defer target discovery to Phase 31", "defer target mutation to later controlled staging phase"]' \
+  --argjson b_steps '["target discovery", "target mounting", "rootfs staging", "boot policy changes", "installer execution"]' \
+  --arg reason "Install plan generated for review only. Target discovery, staging, and mutation are not enabled in Phase 30." \
+  '{
+    plan_version: $p_ver,
+    phase: $phase,
+    plan_kind: $kind,
+    selected_id: $s_id,
+    rootfs_dir: $root_d,
+    rootfs_valid: true,
+    target: null,
+    target_selected: false,
+    target_discovery_allowed: false,
+    target_mutation_allowed: false,
+    staging_allowed: false,
+    install_plan_allowed: false,
+    install_allowed: false,
+    planned_steps: $p_steps,
+    blocked_steps: $b_steps,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$plan_json" > "$OUTPUT"
+
+echo "Installation plan generated successfully." >&2
+echo "$plan_json"
+exit 0

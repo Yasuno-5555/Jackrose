@@ -36,6 +36,7 @@ usage() {
   echo "  --cidre-wrapper-selection-only        Run Cidre installer wrapper selection tests"
   echo "  --cidre-wrapper-artifact-only         Run Cidre installer wrapper artifact fetch tests"
   echo "  --cidre-wrapper-extraction-only       Run Cidre installer wrapper sandbox extraction tests"
+  echo "  --cidre-rootfs-plan-only              Run Cidre installer wrapper rootfs plan tests"
   exit 1
 }
 
@@ -135,6 +136,10 @@ while [ $# -gt 0 ]; do
       ;;
     --cidre-wrapper-extraction-only)
       CIDRE_WRAPPER_EXTRACTION_ONLY=1
+      shift
+      ;;
+    --cidre-rootfs-plan-only)
+      CIDRE_ROOTFS_PLAN_ONLY=1
       shift
       ;;
     *)
@@ -259,6 +264,12 @@ fi
 if [ "${CIDRE_WRAPPER_EXTRACTION_ONLY:-0}" -eq 1 ]; then
   echo "Running Cidre installer wrapper sandbox extraction tests only..."
   "$REPO_ROOT/installer/scripts/run-cidre-wrapper-extraction-tests"
+  exit 0
+fi
+
+if [ "${CIDRE_ROOTFS_PLAN_ONLY:-0}" -eq 1 ]; then
+  echo "Running Cidre installer wrapper rootfs plan tests only..."
+  "$REPO_ROOT/installer/scripts/run-cidre-rootfs-plan-tests"
   exit 0
 fi
 

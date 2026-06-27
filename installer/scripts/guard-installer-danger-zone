@@ -77,6 +77,10 @@ FATAL_PATTERNS=(
   "\\bmount\\b"
   "\\bchroot\\b"
   "pacman.*\\-\\-root"
+  "\\blsblk\\b"
+  "diskutil.*list"
+  "\\brsync\\b"
+  "cp.*\\-[aR]"
 )
 
 blocked=0

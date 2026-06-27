@@ -1,0 +1,199 @@
+#!/bin/bash
+# run-cidre-rootfs-plan-tests: Phase 30 rootfs content and install plan tests runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-rootfs-plan-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/valid-rootfs"
+mkdir -p "$TEST_TMPDIR/generated"
+
+echo "=== Running Cidre Rootfs & Install Plan Tests ==="
+
+# Create valid mock rootfs structures
+create_valid_rootfs_files() {
+  local base="$1"
+  mkdir -p "$base/usr/bin"
+  mkdir -p "$base/usr/local/bin"
+  mkdir -p "$base/usr/share/cidre/defaults"
+  mkdir -p "$base/usr/share/wayland-sessions"
+  mkdir -p "$base/etc"
+  mkdir -p "$base/var"
+  
+  # Populate components
+  touch "$base/usr/bin/cidre-welcome"
+  touch "$base/usr/bin/cidre-doctor"
+  touch "$base/usr/bin/cidre-session"
+  
+  # Wayland niri sessions
+  touch "$base/usr/share/wayland-sessions/niri.desktop"
+  
+  # Executables
+  touch "$base/usr/bin/niri"
+  touch "$base/usr/bin/foot"
+  touch "$base/usr/bin/fuzzel"
+  touch "$base/usr/bin/firefox"
+  touch "$base/usr/bin/fcitx5"
+}
+
+create_valid_rootfs_files "$TEST_TMPDIR/valid-rootfs"
+
+# Create mock extracted-rootfs.json
+write_mock_extracted() {
+  local id="$1"
+  local rootfs_path="$2"
+  local out="$3"
+  cat <<EOF > "$out"
+{
+  "extraction_version": "0.1",
+  "selected_id": "$id",
+  "artifact_path": "/tmp/dummy.tar.zst",
+  "sandbox_dir": "$TEST_TMPDIR",
+  "rootfs_dir": "$rootfs_path",
+  "extracted": true,
+  "rootfs_exists": true,
+  "required_paths": {
+    "usr": true,
+    "etc": true,
+    "var": true
+  },
+  "forbidden_markers_present": false,
+  "target_staging_allowed": false,
+  "install_allowed": false,
+  "reason": "Extracted"
+}
+EOF
+}
+
+# Test 1: Positive verification & install plan generation
+echo "Test 1: Testing valid rootfs content validation and install plan generation..."
+write_mock_extracted "valid-seed" "$TEST_TMPDIR/valid-rootfs" "$TEST_TMPDIR/extracted-valid.json"
+
+"$REPO_ROOT/installer/scripts/validate-cidre-extracted-rootfs-content" \
+  --extracted "$TEST_TMPDIR/extracted-valid.json" \
+  --output "$TEST_TMPDIR/generated/rootfs-validation.json"
+
+# Confirm validations success
+rootfs_valid=$(jq -r '.rootfs_valid' "$TEST_TMPDIR/generated/rootfs-validation.json")
+if [ "$rootfs_valid" != "true" ]; then
+  echo "ERROR: Expected rootfs_valid=true but got '$rootfs_valid'." >&2
+  exit 1
+fi
+
+"$REPO_ROOT/installer/scripts/generate-cidre-install-plan" \
+  --rootfs-validation "$TEST_TMPDIR/generated/rootfs-validation.json" \
+  --output "$TEST_TMPDIR/generated/install-plan.json"
+
+# Confirm plan variables
+jq_val=$(jq -r '.target' "$TEST_TMPDIR/generated/install-plan.json")
+if [ "$jq_val" != "null" ]; then
+  echo "ERROR: Target must be null in Phase 30, got '$jq_val'." >&2
+  exit 1
+fi
+
+# Run plan validator
+"$REPO_ROOT/installer/scripts/validate-cidre-install-plan" \
+  --plan "$TEST_TMPDIR/generated/install-plan.json" \
+  --require-rootfs
+
+echo "  [OK] Valid rootfs and review-only install plan generation passed."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Content and Plan Tests ==="
+
+# Neg 1: Contaminated welcome markers
+echo "Neg 1: Contaminated welcome markers..."
+mkdir -p "$TEST_TMPDIR/marker-rootfs"
+create_valid_rootfs_files "$TEST_TMPDIR/marker-rootfs"
+mkdir -p "$TEST_TMPDIR/marker-rootfs/var/lib/cidre"
+touch "$TEST_TMPDIR/marker-rootfs/var/lib/cidre/firstboot.done"
+
+write_mock_extracted "marker-seed" "$TEST_TMPDIR/marker-rootfs" "$TEST_TMPDIR/extracted-marker.json"
+
+"$REPO_ROOT/installer/scripts/validate-cidre-extracted-rootfs-content" \
+  --extracted "$TEST_TMPDIR/extracted-marker.json" \
+  --output "$TEST_TMPDIR/generated/rootfs-validation-marker.json"
+
+# Try plan generation (expect validation fail preflight)
+if "$REPO_ROOT/installer/scripts/generate-cidre-install-plan" \
+  --rootfs-validation "$TEST_TMPDIR/generated/rootfs-validation-marker.json" \
+  --output "$TEST_TMPDIR/generated/install-plan-marker.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected plan generation to fail on contaminated markers validation, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Contaminated markers successfully blocked."
+
+# Neg 2: Missing required cidre welcome tool
+echo "Neg 2: Missing required welcome tool..."
+mkdir -p "$TEST_TMPDIR/missing-welcome-rootfs"
+create_valid_rootfs_files "$TEST_TMPDIR/missing-welcome-rootfs"
+rm -f "$TEST_TMPDIR/missing-welcome-rootfs/usr/bin/cidre-welcome"
+rm -f "$TEST_TMPDIR/missing-welcome-rootfs/usr/local/bin/cidre-welcome"
+
+write_mock_extracted "missing-welcome" "$TEST_TMPDIR/missing-welcome-rootfs" "$TEST_TMPDIR/extracted-missing.json"
+
+# Try validating with welcome required (expect fail)
+"$REPO_ROOT/installer/scripts/validate-cidre-extracted-rootfs-content" \
+  --extracted "$TEST_TMPDIR/extracted-missing.json" \
+  --output "$TEST_TMPDIR/generated/rootfs-validation-missing.json" \
+  --require-welcome
+
+is_valid=$(jq -r '.rootfs_valid' "$TEST_TMPDIR/generated/rootfs-validation-missing.json")
+if [ "$is_valid" = "true" ]; then
+  echo "ERROR: Expected validation to fail on missing cidre-welcome under --require-welcome, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Missing welcome tool successfully blocked."
+
+# Neg 3: Mutation flags in install plan (expect validator fail)
+echo "Neg 3: Rejection of mutation flags in plan validator..."
+cat <<EOF > "$TEST_TMPDIR/generated/install-plan-bad.json"
+{
+  "plan_version": "0.1",
+  "phase": "30",
+  "plan_kind": "review-only",
+  "selected_id": "valid-seed",
+  "rootfs_dir": "$TEST_TMPDIR/valid-rootfs",
+  "rootfs_valid": true,
+  "target": "/dev/disk0s1",
+  "target_selected": true,
+  "target_discovery_allowed": true,
+  "target_mutation_allowed": true,
+  "staging_allowed": true,
+  "install_allowed": true,
+  "planned_steps": [],
+  "blocked_steps": [
+    "target mounting",
+    "rootfs staging",
+    "boot policy changes",
+    "installer execution"
+  ],
+  "reason": "Corrupted plan."
+}
+EOF
+
+if "$REPO_ROOT/installer/scripts/validate-cidre-install-plan" \
+  --plan "$TEST_TMPDIR/generated/install-plan-bad.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected validator to reject mutating plan configuration, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutation plan configurations successfully rejected."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil bless nvram gpt fdisk dd mkfs parted mount chroot "pacman --root" "rsync" "cp -a" "cp -R" "lsblk" "diskutil list")
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Rootfs and Plan Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0
