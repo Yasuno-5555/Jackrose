@@ -1,0 +1,140 @@
+#!/bin/bash
+# validate-cidre-wrapper-extracted-rootfs: Validates extracted-rootfs.json parameters and structures
+set -euo pipefail
+
+EXTRACTED=""
+STRICT=0
+REQ_FILES=0
+
+usage() {
+  echo "Usage: $0 --extracted <path> [--strict] [--require-files]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --extracted)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --extracted requires a path." >&2
+        exit 1
+      fi
+      EXTRACTED="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --require-files)
+      REQ_FILES=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$EXTRACTED" ]; then
+  echo "ERROR: --extracted is required." >&2
+  usage
+fi
+
+if [ ! -f "$EXTRACTED" ]; then
+  echo "ERROR: Extracted rootfs file not found: $EXTRACTED" >&2
+  exit 1
+fi
+
+if ! jq . "$EXTRACTED" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape in extracted rootfs file." >&2
+  exit 1
+fi
+
+# Load variables
+e_ver=$(jq -r '.extraction_version' "$EXTRACTED")
+s_id=$(jq -r '.selected_id' "$EXTRACTED")
+art_p=$(jq -r '.artifact_path' "$EXTRACTED")
+sand_d=$(jq -r '.sandbox_dir' "$EXTRACTED")
+root_d=$(jq -r '.rootfs_dir' "$EXTRACTED")
+extracted=$(jq -r '.extracted' "$EXTRACTED")
+exists=$(jq -r '.rootfs_exists' "$EXTRACTED")
+has_usr=$(jq -r '.required_paths.usr' "$EXTRACTED")
+has_etc=$(jq -r '.required_paths.etc' "$EXTRACTED")
+has_var=$(jq -r '.required_paths.var' "$EXTRACTED")
+markers=$(jq -r '.forbidden_markers_present' "$EXTRACTED")
+staging=$(jq -r '.target_staging_allowed' "$EXTRACTED")
+allowed=$(jq -r '.install_allowed' "$EXTRACTED")
+reason=$(jq -r '.reason' "$EXTRACTED")
+
+# Existence check
+if [ "$e_ver" = "null" ] || [ "$s_id" = "null" ] || [ "$art_p" = "null" ] || [ "$sand_d" = "null" ] || \
+   [ "$root_d" = "null" ] || [ "$extracted" = "null" ] || [ "$exists" = "null" ] || [ "$reason" = "null" ]; then
+  echo "ERROR: Missing required fields in extracted rootfs JSON." >&2
+  exit 1
+fi
+
+# Value checks
+if [ "$extracted" != "true" ] || [ "$exists" != "true" ]; then
+  echo "ERROR: Extraction was not successful or rootfs missing." >&2
+  exit 1
+fi
+
+if [ "$root_d" = "/" ] || [ -z "$root_d" ]; then
+  echo "ERROR: Invalid rootfs_dir location: $root_d" >&2
+  exit 1
+fi
+
+# Verify rootfs_dir is inside sandbox_dir
+if [[ "$root_d" != "$sand_d"* ]]; then
+  echo "ERROR: Escape hazard. rootfs_dir '$root_d' must be under sandbox_dir '$sand_d'." >&2
+  exit 1
+fi
+
+if [ "$has_usr" != "true" ] || [ "$has_etc" != "true" ] || [ "$has_var" != "true" ]; then
+  echo "ERROR: Required rootfs entries usr, etc, or var missing from metadata." >&2
+  exit 1
+fi
+
+if [ "$markers" != "false" ]; then
+  echo "ERROR: Forbidden welcome markers present in metadata." >&2
+  exit 1
+fi
+
+if [ "$staging" != "false" ]; then
+  echo "ERROR: target_staging_allowed must be false in Phase 29." >&2
+  exit 1
+fi
+
+if [ "$allowed" != "false" ]; then
+  echo "ERROR: install_allowed must be false in Phase 29." >&2
+  exit 1
+fi
+
+# Disk checks
+if [ "$REQ_FILES" -eq 1 ]; then
+  if [ ! -d "$root_d" ]; then
+    echo "ERROR: Extracted rootfs directory does not exist at $root_d." >&2
+    exit 1
+  fi
+  if [ ! -d "$root_d/usr" ] || [ ! -d "$root_d/etc" ] || [ ! -d "$root_d/var" ]; then
+    echo "ERROR: Missing required usr, etc, or var sub-directories in sandbox." >&2
+    exit 1
+  fi
+  # Forbidden markers checks
+  if [ -f "$root_d/var/lib/cidre/firstboot.done" ] || [ -f "$root_d/var/lib/cidre/welcome.done" ] || [ -f "$root_d/var/lib/cidre/optimized.done" ]; then
+    echo "ERROR: Contaminated rootfs. Forbidden firstboot welcome markers exist on disk." >&2
+    exit 1
+  fi
+fi
+
+# Strict rules
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$staging" = "true" ] || [ "$allowed" = "true" ]; then
+    echo "ERROR: Target permissions must be strictly false." >&2
+    exit 2
+  fi
+fi
+
+echo "Extracted rootfs JSON validates successfully."
+exit 0

@@ -1,0 +1,177 @@
+#!/bin/bash
+# cidre-wrapper-extract-sandbox: Unpacks the verified rootfs into a temporary sandbox location
+set -euo pipefail
+
+ARTIFACT=""
+STRUCTURE=""
+SANDBOX_DIR=""
+OUTPUT=""
+FORCE=0
+STRICT=0
+KEEP_SANDBOX=0
+
+usage() {
+  echo "Usage: $0 --artifact <path> --structure <path> --sandbox-dir <dir> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --artifact requires a path." >&2
+        exit 1
+      fi
+      ARTIFACT="$2"
+      shift 2
+      ;;
+    --structure)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --structure requires a path." >&2
+        exit 1
+      fi
+      STRUCTURE="$2"
+      shift 2
+      ;;
+    --sandbox-dir)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --sandbox-dir requires a directory path." >&2
+        exit 1
+      fi
+      SANDBOX_DIR="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --keep-sandbox)
+      KEEP_SANDBOX=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ARTIFACT" ] || [ -z "$STRUCTURE" ] || [ -z "$SANDBOX_DIR" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --artifact, --structure, --sandbox-dir, and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$ARTIFACT" ] || [ ! -f "$STRUCTURE" ]; then
+  echo "ERROR: Input json metadata files must exist." >&2
+  exit 1
+fi
+
+# Validate sandbox dir boundaries
+if [ -z "$SANDBOX_DIR" ] || [ "$SANDBOX_DIR" = "/" ] || [ "$SANDBOX_DIR" = "/boot" ] || \
+   [ "$SANDBOX_DIR" = "/efi" ] || [ "$SANDBOX_DIR" = "/EFI" ] || [ "$SANDBOX_DIR" = "/System" ] || \
+   [ "$SANDBOX_DIR" = "/Volumes" ] || [ "$SANDBOX_DIR" = "/mnt" ] || [ "$SANDBOX_DIR" = "/var" ] || \
+   [ "$SANDBOX_DIR" = "/usr" ] || [ "$SANDBOX_DIR" = "/etc" ] || [ "$SANDBOX_DIR" = "/home" ]; then
+  echo "ERROR: Forbidden sandbox directory target: $SANDBOX_DIR" >&2
+  exit 1
+fi
+
+# Load structure inspection outcomes
+s_listed=$(jq -r '.archive_listed' "$STRUCTURE")
+s_rootfs=$(jq -r '.rootfs_like' "$STRUCTURE")
+s_markers=$(jq -r '.forbidden_markers_present' "$STRUCTURE")
+s_unsafe=$(jq -r '.unsafe_paths_present' "$STRUCTURE")
+
+if [ "$s_listed" != "true" ] || [ "$s_rootfs" != "true" ] || [ "$s_markers" != "false" ] || [ "$s_unsafe" != "false" ]; then
+  echo "ERROR: Preflight structure validation checks not satisfied. Sandbox extraction aborted." >&2
+  exit 1
+fi
+
+# Load artifact info
+art_p=$(jq -r '.artifact_path' "$ARTIFACT")
+selected_id=$(jq -r '.selected_id' "$ARTIFACT")
+if [ ! -f "$art_p" ]; then
+  echo "ERROR: Seed artifact archive not found: $art_p" >&2
+  exit 1
+fi
+
+# Setup unique sandbox run directory
+run_id="run-$(date +%Y%m%d-%H%M%S)-$$"
+unique_sandbox="$SANDBOX_DIR/$run_id"
+rootfs_dir="$unique_sandbox/rootfs"
+
+mkdir -p "$rootfs_dir"
+
+echo "Extracting archive safely into temp sandbox: $rootfs_dir ..." >&2
+
+# Extract using tar / bsdtar.
+# Note: tar extraction is globally blocked by guard-installer-danger-zone unless --allow-sandbox-extract is used.
+# Since this script executes the command, we verify dependencies first.
+if ! tar --zstd -xf "$art_p" -C "$rootfs_dir" >/dev/null 2>&1; then
+  if ! zstdcat "$art_p" | tar -xf - -C "$rootfs_dir" >/dev/null 2>&1; then
+    echo "ERROR: Sandbox extraction failed." >&2
+    # Cleanup sandbox if not forced
+    if [ "$KEEP_SANDBOX" -eq 0 ]; then
+      rm -rf "$unique_sandbox"
+    fi
+    exit 1
+  fi
+fi
+
+# Verify directory layout in sandbox
+has_usr=0
+has_etc=0
+has_var=0
+[ -d "$rootfs_dir/usr" ] && has_usr=1
+[ -d "$rootfs_dir/etc" ] && has_etc=1
+[ -d "$rootfs_dir/var" ] && has_var=1
+
+# Output extracted configuration
+extracted_json=$(jq -n \
+  --arg v_ver "0.1" \
+  --arg s_id "$selected_id" \
+  --arg art_p "$art_p" \
+  --arg sand_d "$unique_sandbox" \
+  --arg root_d "$rootfs_dir" \
+  --argjson ext_ok 1 \
+  --argjson usr "$has_usr" \
+  --argjson etc "$has_etc" \
+  --argjson var "$has_var" \
+  --arg reason "Artifact extracted into sandbox only. Target staging and installation are not enabled in Phase 29." \
+  '{
+    extraction_version: $v_ver,
+    selected_id: $s_id,
+    artifact_path: $art_p,
+    sandbox_dir: $sand_d,
+    rootfs_dir: $root_d,
+    extracted: ($ext_ok == 1),
+    rootfs_exists: true,
+    required_paths: {
+      usr: ($usr == 1),
+      etc: ($etc == 1),
+      var: ($var == 1)
+    },
+    forbidden_markers_present: false,
+    target_staging_allowed: false,
+    install_allowed: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$extracted_json" > "$OUTPUT"
+
+echo "Sandbox extraction completed successfully." >&2
+echo "$extracted_json"
+exit 0

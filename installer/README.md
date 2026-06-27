@@ -97,3 +97,13 @@ To run the wrapper artifact fetch tests suite:
 ```bash
 installer/scripts/run-cidre-wrapper-artifact-tests
 ```
+
+---
+
+## 10. Cidre Wrapper Artifact Structure Inspection and Sandbox Extraction
+
+To run the sandbox extraction tests suite:
+
+```bash
+installer/scripts/run-cidre-wrapper-extraction-tests
+```

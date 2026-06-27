@@ -1,0 +1,199 @@
+#!/bin/bash
+# cidre-wrapper-inspect-artifact: Inspects archive entries and checks safety constraints
+set -euo pipefail
+
+ARTIFACT=""
+OUTPUT=""
+MAX_ENTRIES=200000
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --artifact <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --artifact requires a path." >&2
+        exit 1
+      fi
+      ARTIFACT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --max-entries)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --max-entries requires an integer." >&2
+        exit 1
+      fi
+      MAX_ENTRIES="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ARTIFACT" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --artifact and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$ARTIFACT" ]; then
+  echo "ERROR: Verified artifact file not found: $ARTIFACT" >&2
+  exit 1
+fi
+
+# Load variables
+sha_ver=$(jq -r '.sha256_verified' "$ARTIFACT")
+e_allow=$(jq -r '.extract_allowed' "$ARTIFACT")
+i_allow=$(jq -r '.install_allowed' "$ARTIFACT")
+fmt=$(jq -r '.artifact_format' "$ARTIFACT")
+art_p=$(jq -r '.artifact_path' "$ARTIFACT")
+
+if [ "$sha_ver" != "true" ] || [ "$e_allow" != "false" ] || [ "$i_allow" != "false" ] || [ "$fmt" != "tar.zst" ]; then
+  echo "ERROR: Precondition fail. Artifact must be verified with mutation permissions disabled." >&2
+  exit 1
+fi
+
+if [ ! -f "$art_p" ]; then
+  echo "ERROR: Artifact file not found on disk at $art_p" >&2
+  exit 1
+fi
+
+echo "Listing archive entries for structure inspection..." >&2
+
+# Fetch listing without extraction
+list_file=$(mktemp)
+trap 'rm -f "$list_file"' EXIT
+
+if ! tar --zstd -tf "$art_p" > "$list_file" 2>/dev/null; then
+  if ! zstdcat "$art_p" | tar -tf - > "$list_file" 2>/dev/null; then
+    echo "ERROR: Failed to read zstd archive structure." >&2
+    exit 1
+  fi
+fi
+
+entry_count=$(wc -l < "$list_file" | tr -d ' ')
+if [ "$entry_count" -eq 0 ]; then
+  echo "ERROR: Archive appears to be empty." >&2
+  exit 1
+fi
+
+if [ "$entry_count" -gt "$MAX_ENTRIES" ]; then
+  echo "ERROR: Archive contains $entry_count entries, exceeding max limit: $MAX_ENTRIES." >&2
+  exit 1
+fi
+
+# 1. Unsafe paths check
+unsafe_paths_present=0
+if grep -q -E "^/|^\.\.|/\.\./|/\.\.$" "$list_file"; then
+  unsafe_paths_present=1
+fi
+if grep -q -E "^dev/|^proc/|^sys/|^run/" "$list_file"; then
+  unsafe_paths_present=1
+fi
+
+# 2. Required rootfs directories check
+has_usr=0
+has_etc=0
+has_var=0
+if grep -q -E "^usr/|^./usr/" "$list_file"; then has_usr=1; fi
+if grep -q -E "^etc/|^./etc/" "$list_file"; then has_etc=1; fi
+if grep -q -E "^var/|^./var/" "$list_file"; then has_var=1; fi
+
+rootfs_like=0
+if [ $has_usr -eq 1 ] && [ $has_etc -eq 1 ] && [ $has_var -eq 1 ]; then
+  rootfs_like=1
+fi
+
+# Recommended directories check
+has_bin=0
+has_lib=0
+has_sbin=0
+has_boot=0
+if grep -q -E "^bin/|^./bin/" "$list_file"; then has_bin=1; fi
+if grep -q -E "^lib/|^./lib/" "$list_file"; then has_lib=1; fi
+if grep -q -E "^sbin/|^./sbin/" "$list_file"; then has_sbin=1; fi
+if grep -q -E "^boot/|^./boot/" "$list_file"; then has_boot=1; fi
+
+# 3. Forbidden markers check
+forbidden_markers_present=0
+if grep -q -E "var/lib/cidre/firstboot.done|var/lib/cidre/welcome.done|var/lib/cidre/optimized.done" "$list_file"; then
+  forbidden_markers_present=1
+fi
+
+# Build results
+structure_json=$(jq -n \
+  --arg s_ver "0.1" \
+  --arg s_id "$(jq -r '.selected_id' "$ARTIFACT")" \
+  --arg art_p "$art_p" \
+  --arg fmt "$fmt" \
+  --argjson listed 1 \
+  --argjson count "$entry_count" \
+  --argjson rootfs "$rootfs_like" \
+  --argjson has_usr "$has_usr" \
+  --argjson has_etc "$has_etc" \
+  --argjson has_var "$has_var" \
+  --argjson has_bin "$has_bin" \
+  --argjson has_lib "$has_lib" \
+  --argjson has_sbin "$has_sbin" \
+  --argjson has_boot "$has_boot" \
+  --argjson markers "$forbidden_markers_present" \
+  --argjson unsafe "$unsafe_paths_present" \
+  --arg reason "Archive structure inspected. Extraction requires the sandbox extraction step." \
+  '{
+    structure_version: $s_ver,
+    selected_id: $s_id,
+    artifact_path: $art_p,
+    artifact_format: $fmt,
+    archive_listed: ($listed == 1),
+    entry_count: $count,
+    rootfs_like: ($rootfs == 1),
+    required_entries: {
+      usr: ($has_usr == 1),
+      etc: ($has_etc == 1),
+      var: ($has_var == 1)
+    },
+    recommended_entries: {
+      bin: ($has_bin == 1),
+      lib: ($has_lib == 1),
+      sbin: ($has_sbin == 1),
+      boot: ($has_boot == 1)
+    },
+    forbidden_markers_present: ($markers == 1),
+    unsafe_paths_present: ($unsafe == 1),
+    extract_allowed: false,
+    install_allowed: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$structure_json" > "$OUTPUT"
+
+echo "Archive structure inspection completed." >&2
+if [ $unsafe_paths_present -eq 1 ]; then
+  echo "WARNING: Unsafe paths detected in archive." >&2
+fi
+if [ $forbidden_markers_present -eq 1 ]; then
+  echo "WARNING: Forbidden firstboot welcome markers detected." >&2
+fi
+
+echo "$structure_json"
+exit 0

@@ -34,6 +34,10 @@ while [ $# -gt 0 ]; do
       STRICT=1
       shift
       ;;
+    --allow-sandbox-extract)
+      ALLOW_SANDBOX_EXTRACT=1
+      shift
+      ;;
     --format)
       if [ $# -lt 2 ]; then
         echo "ERROR: --format requires a type." >&2
@@ -70,6 +74,9 @@ FATAL_PATTERNS=(
   "asr"
   "tar.*\\-x"
   "tar.*\\-\\-extract"
+  "\\bmount\\b"
+  "\\bchroot\\b"
+  "pacman.*\\-\\-root"
 )
 
 blocked=0
@@ -80,6 +87,9 @@ snippet=""
 # Analyze command string if provided
 if [ -n "$COMMAND" ]; then
   for pattern in "${FATAL_PATTERNS[@]}"; do
+    if [ "${ALLOW_SANDBOX_EXTRACT:-0}" -eq 1 ] && [[ "$pattern" == *"tar."* ]]; then
+      continue
+    fi
     if echo "$COMMAND" | grep -q -E "$pattern"; then
       blocked=1
       reason="forbidden command pattern detected: $pattern"
@@ -96,6 +106,9 @@ if [ -n "$INPUT" ] && [ $blocked -eq 0 ]; then
     exit 1
   fi
   for pattern in "${FATAL_PATTERNS[@]}"; do
+    if [ "${ALLOW_SANDBOX_EXTRACT:-0}" -eq 1 ] && [[ "$pattern" == *"tar."* ]]; then
+      continue
+    fi
     match_line=$(grep -n -E "$pattern" "$INPUT" | head -n 1 || echo "")
     if [ -n "$match_line" ]; then
       blocked=1

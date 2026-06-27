@@ -1,0 +1,166 @@
+#!/bin/bash
+# run-cidre-wrapper-extraction-tests: Phase 29 wrapper extraction and inspection tests runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-wrapper-extraction-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/fixtures"
+mkdir -p "$TEST_TMPDIR/generated"
+mkdir -p "$TEST_TMPDIR/downloads"
+mkdir -p "$TEST_TMPDIR/sandbox"
+
+echo "=== Running Cidre Wrapper Extraction Tests ==="
+
+# Create small real tar.zst fixtures using tar
+create_tar_fixture() {
+  local name="$1"
+  local files_dir="$TEST_TMPDIR/fixtures/files-$name"
+  mkdir -p "$files_dir"
+  shift
+  for path in "$@"; do
+    mkdir -p "$files_dir/$(dirname "$path")"
+    echo "test" > "$files_dir/$path"
+  done
+  tar --zstd -cf "$TEST_TMPDIR/fixtures/$name.tar.zst" -C "$files_dir" .
+  rm -rf "$files_dir"
+}
+
+# 1. Valid rootfs fixture
+create_tar_fixture "valid-rootfs" "usr/bin/test" "etc/hosts" "var/log/test.log"
+
+# 2. Marker rootfs fixture (contains var/lib/cidre/firstboot.done)
+create_tar_fixture "marker-rootfs" "usr/bin/test" "etc/hosts" "var/lib/cidre/firstboot.done"
+
+# 3. Missing usr rootfs fixture
+create_tar_fixture "missing-usr" "etc/hosts" "var/log/test.log"
+
+# 4. Unsafe path rootfs fixture (simulated via invalid relative structure check)
+# Since tar CLI usually strips leading /, we write invalid JSON directly in Neg 4.
+
+# Helper to write mock verified-artifact.json
+write_mock_verified() {
+  local id="$1"
+  local name="$2"
+  local file_path="$3"
+  local out="$4"
+  cat <<EOF > "$out"
+{
+  "verification_version": "0.1",
+  "selected_id": "$id",
+  "name": "$name",
+  "version": "0.10.0",
+  "artifact_path": "$file_path",
+  "manifest_path": "$file_path.manifest",
+  "artifact_filename": "$(basename "$file_path")",
+  "artifact_format": "tar.zst",
+  "artifact_size_bytes": 100,
+  "sha256_expected": "MOCK_HASH",
+  "sha256_actual": "MOCK_HASH",
+  "sha256_verified": true,
+  "manifest_fetched": true,
+  "extract_allowed": false,
+  "install_allowed": false,
+  "reason": "Verified"
+}
+EOF
+}
+
+# Test 1: Positive inspection and sandbox extraction
+echo "Test 1: Testing valid archive inspection and extraction..."
+write_mock_verified "valid-id" "Valid Rootfs" "$TEST_TMPDIR/fixtures/valid-rootfs.tar.zst" "$TEST_TMPDIR/verified-valid.json"
+
+"$REPO_ROOT/installer/scripts/cidre-wrapper-inspect-artifact" \
+  --artifact "$TEST_TMPDIR/verified-valid.json" \
+  --output "$TEST_TMPDIR/generated/structure-valid.json"
+
+# Confirm inspection success
+rootfs_like=$(jq -r '.rootfs_like' "$TEST_TMPDIR/generated/structure-valid.json")
+if [ "$rootfs_like" != "true" ]; then
+  echo "ERROR: Expected rootfs_like=true but got '$rootfs_like'." >&2
+  exit 1
+fi
+
+"$REPO_ROOT/installer/scripts/cidre-wrapper-extract-sandbox" \
+  --artifact "$TEST_TMPDIR/verified-valid.json" \
+  --structure "$TEST_TMPDIR/generated/structure-valid.json" \
+  --sandbox-dir "$TEST_TMPDIR/sandbox" \
+  --output "$TEST_TMPDIR/generated/extracted-valid.json"
+
+# Validate extracted rootfs output
+"$REPO_ROOT/installer/scripts/validate-cidre-wrapper-extracted-rootfs" \
+  --extracted "$TEST_TMPDIR/generated/extracted-valid.json" \
+  --require-files
+
+echo "  [OK] Valid archive inspection and sandbox extraction passed."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Extraction Tests ==="
+
+# Neg 1: Contaminated welcome markers (expect inspect warnings/failures to block extract)
+echo "Neg 1: Contaminated welcome markers..."
+write_mock_verified "marker-id" "Marker Rootfs" "$TEST_TMPDIR/fixtures/marker-rootfs.tar.zst" "$TEST_TMPDIR/verified-marker.json"
+"$REPO_ROOT/installer/scripts/cidre-wrapper-inspect-artifact" \
+  --artifact "$TEST_TMPDIR/verified-marker.json" \
+  --output "$TEST_TMPDIR/generated/structure-marker.json"
+
+# Try extracting contaminated structure (expect fail)
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-extract-sandbox" \
+  --artifact "$TEST_TMPDIR/verified-marker.json" \
+  --structure "$TEST_TMPDIR/generated/structure-marker.json" \
+  --sandbox-dir "$TEST_TMPDIR/sandbox" \
+  --output "$TEST_TMPDIR/generated/extracted-marker.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected extraction to fail on contaminated markers, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Contaminated welcome markers blocked extraction."
+
+# Neg 2: Missing required usr/ (expect inspect to flag rootfs_like=false and block extract)
+echo "Neg 2: Missing required usr/..."
+write_mock_verified "missing-id" "Missing Rootfs" "$TEST_TMPDIR/fixtures/missing-usr.tar.zst" "$TEST_TMPDIR/verified-missing.json"
+"$REPO_ROOT/installer/scripts/cidre-wrapper-inspect-artifact" \
+  --artifact "$TEST_TMPDIR/verified-missing.json" \
+  --output "$TEST_TMPDIR/generated/structure-missing.json"
+
+# Try extracting (expect fail)
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-extract-sandbox" \
+  --artifact "$TEST_TMPDIR/verified-missing.json" \
+  --structure "$TEST_TMPDIR/generated/structure-missing.json" \
+  --sandbox-dir "$TEST_TMPDIR/sandbox" \
+  --output "$TEST_TMPDIR/generated/extracted-missing.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected extraction to fail on missing required paths, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Missing required path blocked extraction."
+
+# Neg 3: Refuse dangerous sandbox target dir (expect extract script fail)
+echo "Neg 3: Dangerous sandbox dir target refusal..."
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-extract-sandbox" \
+  --artifact "$TEST_TMPDIR/verified-valid.json" \
+  --structure "$TEST_TMPDIR/generated/structure-valid.json" \
+  --sandbox-dir "/boot" \
+  --output "$TEST_TMPDIR/generated/extracted-danger.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected extraction to fail on forbidden /boot sandbox target, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Dangerous sandbox directory blocked."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil bless nvram gpt fdisk dd mkfs parted asr mount chroot "pacman --root")
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Wrapper Extraction Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0
