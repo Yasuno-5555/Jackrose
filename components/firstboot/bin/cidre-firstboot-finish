@@ -1,0 +1,20 @@
+#!/bin/bash
+# cidre-firstboot-finish: Finalizes the OOBE setup and transition to graphical login
+set -euo pipefail
+
+echo "Finalizing Cidre Firstboot OOBE..."
+
+mkdir -p /var/lib/cidre
+touch /var/lib/cidre/firstboot.done
+
+if systemctl is-active --quiet cidre-firstboot.service 2>/dev/null || systemctl is-enabled --quiet cidre-firstboot.service 2>/dev/null; then
+  echo "Disabling cidre-firstboot.service..."
+  systemctl disable cidre-firstboot.service || true
+fi
+
+echo "Enabling greetd.service..."
+systemctl enable greetd.service || true
+
+echo "OOBE complete. Rebooting system in 3 seconds..."
+sleep 3
+reboot

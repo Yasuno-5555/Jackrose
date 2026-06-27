@@ -1,0 +1,19 @@
+[Unit]
+Description=Cidre First Boot OOBE
+After=systemd-user-sessions.service NetworkManager.service
+Wants=NetworkManager.service
+Conflicts=getty@tty1.service
+ConditionPathExists=!/var/lib/cidre/firstboot.done
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/cidre/cidre-oobe
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
