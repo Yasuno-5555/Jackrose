@@ -1,0 +1,63 @@
+#!/bin/bash
+# serve-local-release-assets: Starts a simple non-daemon HTTP server for local simulations
+set -euo pipefail
+
+DIRECTORY=""
+PORT="8765"
+
+usage() {
+  echo "Usage: $0 --directory <path> [--port <port>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --directory)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --directory requires a path." >&2
+        exit 1
+      fi
+      DIRECTORY="$2"
+      shift 2
+      ;;
+    --port)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --port requires an argument." >&2
+        exit 1
+      fi
+      PORT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$DIRECTORY" ]; then
+  echo "ERROR: --directory is required." >&2
+  usage
+fi
+
+if [ ! -d "$DIRECTORY" ]; then
+  echo "ERROR: Target directory does not exist: $DIRECTORY" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required to run the local server." >&2
+  exit 1
+fi
+
+echo "Serving local Cidre release assets:"
+echo "  Port:      $PORT"
+echo "  Directory: $DIRECTORY"
+echo ""
+echo "Access endpoints:"
+echo "  http://127.0.0.1:${PORT}/"
+echo ""
+echo "Press Ctrl-C to stop."
+
+# Start non-daemon Python HTTP server
+exec python3 -m http.server "$PORT" --directory "$DIRECTORY"

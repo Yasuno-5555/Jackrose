@@ -2,12 +2,30 @@
 # validate-exported-installer-metadata: Validates simplified installer-facing metadata schema
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-  echo "Usage: $0 <exported-metadata.json>"
+STRICT=0
+METADATA_FILE=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      if [ -n "$METADATA_FILE" ]; then
+        echo "ERROR: Multiple metadata files specified." >&2
+        exit 1
+      fi
+      METADATA_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$METADATA_FILE" ]; then
+  echo "Usage: $0 [--strict] <exported-metadata.json>"
   exit 1
 fi
-
-METADATA_FILE="$1"
 
 if [ ! -f "$METADATA_FILE" ]; then
   echo "ERROR: Exported metadata file not found at $METADATA_FILE" >&2
@@ -89,13 +107,39 @@ for ((i=0; i<images_count; i++)); do
     errors=$((errors + 1))
   fi
 
-  if [[ "$img_url" =~ ^file:// || "$img_url" =~ ^placeholder:// ]]; then
-    echo "  [WARN] Local testing URL pattern detected: $img_url"
+  # Check Schemes matching channel constraints
+  if [[ "$img_url" =~ ^file:// || "$img_url" =~ ^placeholder:// || "$img_url" =~ ^http://127.0.0.1 || "$img_url" =~ ^http://localhost ]]; then
+    if [ "$channel" = "release" ]; then
+      echo "  [FAIL] Release channel must not use local/placeholder URLs: $img_url" >&2
+      errors=$((errors + 1))
+    elif [ "$channel" = "dev" ] && [[ "$img_url" =~ ^placeholder:// ]]; then
+      if [ "$STRICT" -eq 1 ]; then
+        echo "  [FAIL] Strict mode: Dev channel does not allow placeholder URLs: $img_url" >&2
+        errors=$((errors + 1))
+      else
+        echo "  [WARN] Dev channel placeholder URL detected: $img_url"
+      fi
+    else
+      echo "  [WARN] Local/testing URL scheme detected: $img_url"
+    fi
+  elif [[ "$img_url" =~ ^https:// ]]; then
+    echo "  [OK] Remote HTTPS URL scheme verified: $img_url"
+  else
+    echo "  [FAIL] Unsupported URL scheme in target: $img_url" >&2
+    errors=$((errors + 1))
   fi
 
-  if [ "$channel" = "release" ] && [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
-    echo "  [FAIL] Release channel must not use PLACEHOLDER_SHA256 checksum." >&2
-    errors=$((errors + 1))
+  # Check checksum
+  if [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+    if [ "$channel" = "release" ]; then
+      echo "  [FAIL] Release channel must not use PLACEHOLDER_SHA256 checksum." >&2
+      errors=$((errors + 1))
+    elif [ "$STRICT" -eq 1 ]; then
+      echo "  [FAIL] Strict mode: Checksum cannot be PLACEHOLDER_SHA256." >&2
+      errors=$((errors + 1))
+    else
+      echo "  [WARN] Placeholder checksum detected: PLACEHOLDER_SHA256"
+    fi
   fi
 done
 

@@ -1,0 +1,192 @@
+#!/bin/bash
+# verify-hosted-release-assets: Downloads and verifies release assets from URLs
+set -euo pipefail
+
+METADATA=""
+ID=""
+DOWNLOAD_DIR="${CIDRE_FETCH_DIR:-/tmp/cidre-release-fetch}"
+STRICT=0
+NO_DOWNLOAD=0
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> [--download-dir <dir>] [--strict] [--no-download]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --download-dir)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --download-dir requires a path." >&2
+        exit 1
+      fi
+      DOWNLOAD_DIR="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --no-download)
+      NO_DOWNLOAD=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ]; then
+  echo "ERROR: Both --metadata and --id are required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ]; then
+  echo "ERROR: Metadata file not found at $METADATA" >&2
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "ERROR: curl is required." >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# 1. Resolve entry variables from installer-facing metadata
+echo "Resolving image entry parameters..."
+img_entry=$(jq -r ".images[] | select(.id == \"$ID\")" "$METADATA")
+if [ -z "$img_entry" ]; then
+  echo "ERROR: Entry ID '$ID' not found in $METADATA." >&2
+  exit 1
+fi
+
+img_url=$(echo "$img_entry" | jq -r '.url')
+img_sha=$(echo "$img_entry" | jq -r '.sha256')
+img_manifest_url=$(echo "$img_entry" | jq -r '.manifest')
+img_size=$(echo "$img_entry" | jq -r '.size_bytes')
+
+echo "Target assets:"
+echo "  URL:      $img_url"
+echo "  Manifest: $img_manifest_url"
+echo "  Checksum: $img_sha"
+
+# Strict check for placeholders
+if [ "$STRICT" -eq 1 ] && [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+  echo "ERROR: PLACEHOLDER_SHA256 checksum is not allowed in strict mode." >&2
+  exit 1
+fi
+
+# 2. Check accessibility (Header queries)
+echo "Querying assets accessibility..."
+if ! curl -sI -L --fail "$img_url" >/dev/null 2>&1; then
+  echo "ERROR: Unable to connect or fetch image asset headers from: $img_url" >&2
+  exit 1
+fi
+echo "  [OK] Image asset is accessible."
+
+if ! curl -sI -L --fail "$img_manifest_url" >/dev/null 2>&1; then
+  echo "ERROR: Unable to connect or fetch manifest asset headers from: $img_manifest_url" >&2
+  exit 1
+fi
+echo "  [OK] Manifest asset is accessible."
+
+if [ "$NO_DOWNLOAD" -eq 1 ]; then
+  echo "Skipping archive download verification (--no-download set)."
+  echo "Hosted assets verification passed (Headers checks only)."
+  exit 0
+fi
+
+# 3. Perform download and checksum verify
+mkdir -p "$DOWNLOAD_DIR"
+downloaded_img="$DOWNLOAD_DIR/$(basename "$img_url")"
+downloaded_manifest="$DOWNLOAD_DIR/$(basename "$img_manifest_url")"
+
+echo "Downloading manifest to $downloaded_manifest..."
+curl -s -L -o "$downloaded_manifest" "$img_manifest_url"
+
+# Verify manifest properties
+REQUIRED_MANIFEST_KEYS=(
+  profile_name=
+  image_name=
+  version=
+  arch=
+  build_date=
+  base_rootfs=
+  output_image=
+  sha256=
+  package_count=
+  validation_status=
+  first_boot_mode=desktop-welcome
+)
+for key in "${REQUIRED_MANIFEST_KEYS[@]}"; do
+  if ! grep -q "^${key}" "$downloaded_manifest"; then
+    echo "ERROR: Downloaded manifest is missing key prefix: ${key}" >&2
+    exit 1
+  fi
+done
+echo "  [OK] Manifest verification passed."
+
+# If checksum is placeholder and strict is off, skip strict checksum validation
+if [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+  echo "  [WARN] Skipping image download and sha256 checks because checksum is PLACEHOLDER_SHA256."
+  exit 0
+fi
+
+echo "Downloading image archive to $downloaded_img..."
+curl -L -o "$downloaded_img" "$img_url"
+
+# Verify size matches
+downloaded_size=$(wc -c < "$downloaded_img" | tr -d ' ')
+if [ "$img_size" -ne 0 ] && [ "$downloaded_size" -ne "$img_size" ]; then
+  echo "ERROR: Mapped size mismatch." >&2
+  echo "  Metadata size: $img_size bytes" >&2
+  echo "  Actual size:   $downloaded_size bytes" >&2
+  exit 1
+fi
+
+echo "Computing image sha256 checksum..."
+computed_sha=""
+if command -v sha256sum >/dev/null 2>&1; then
+  computed_sha=$(sha256sum "$downloaded_img" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+  computed_sha=$(shasum -a 256 "$downloaded_img" | cut -d' ' -f1)
+fi
+
+if [ "$computed_sha" != "$img_sha" ]; then
+  echo "" >&2
+  echo "What happened:" >&2
+  echo "  Downloaded image checksum does not match metadata." >&2
+  echo "" >&2
+  echo "Why it matters:" >&2
+  echo "  The installer must not select or install an image whose integrity cannot be verified." >&2
+  echo "" >&2
+  echo "Next action:" >&2
+  echo "  Rebuild the image, update metadata, or replace the release asset." >&2
+  exit 1
+fi
+
+echo "  [OK] Checksum validation match."
+echo "Hosted assets verification completed successfully!"
+exit 0

@@ -1,0 +1,86 @@
+#!/bin/bash
+# run-release-hosting-tests: Phase 15 release asset hosting integration test runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-release-hosting-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR"
+
+echo "=== Running Release Asset Hosting Tests ==="
+echo "Staging test fixtures under $TEST_TMPDIR..."
+
+FIXTURE="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+DEV_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.dev.json"
+LOCAL_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.localhost.json"
+
+# Staging initial local metadata facing format
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+# Test 1: Positive Rewrite dev layout
+echo "Test 1: Rewriting local metadata urls to dev (https)..."
+"$REPO_ROOT/installer/scripts/rewrite-metadata-release-urls" \
+  --input "$TEST_TMPDIR/local-facing.json" \
+  --layout "$DEV_LAYOUT" \
+  --output "$TEST_TMPDIR/dev-facing.json"
+
+# Verify dev facing schema
+echo "Test 2: Validating dev-facing metadata schema..."
+"$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/dev-facing.json"
+
+# Test 3: Positive Rewrite localhost layout
+echo "Test 3: Rewriting local metadata urls to localhost..."
+"$REPO_ROOT/installer/scripts/rewrite-metadata-release-urls" \
+  --input "$TEST_TMPDIR/local-facing.json" \
+  --layout "$LOCAL_LAYOUT" \
+  --output "$TEST_TMPDIR/localhost-facing.json"
+
+# Verify localhost facing schema
+echo "Test 4: Validating localhost-facing metadata schema..."
+"$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/localhost-facing.json"
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Hosting Tests ==="
+
+# Neg 1: Missing layout configuration
+echo "Neg 1: Missing layout check..."
+if "$REPO_ROOT/installer/scripts/rewrite-metadata-release-urls" --input "$TEST_TMPDIR/local-facing.json" --layout "$TEST_TMPDIR/nonexistent.json" --output "$TEST_TMPDIR/out.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on missing layout, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught missing layout config."
+
+# Neg 2: Release channel with file:// URL
+echo "Neg 2: Release channel with local URLs check..."
+jq '.channel = "release" | .images[0].url = "file://out/image.tar.zst"' "$TEST_TMPDIR/localhost-facing.json" > "$TEST_TMPDIR/rel_file.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/rel_file.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on release channel with local URL, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught local URL inside release channel."
+
+# Neg 3: Placeholder checksum under strict mode
+echo "Neg 3: Strict mode placeholder checksum check..."
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" --strict "$TEST_TMPDIR/dev-facing.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on strict mode with placeholder hash, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught strict mode placeholder checksum."
+
+# Neg 4: Unsupported URL scheme
+echo "Neg 4: Unsupported URL scheme check..."
+jq '.images[0].url = "ftp://server/image.tar.zst"' "$TEST_TMPDIR/localhost-facing.json" > "$TEST_TMPDIR/bad_scheme.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/bad_scheme.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on unsupported URL scheme, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught unsupported URL scheme."
+
+echo "All Release Hosting Integration Tests passed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

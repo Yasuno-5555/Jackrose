@@ -1,0 +1,99 @@
+#!/bin/bash
+# rewrite-metadata-release-urls: Maps local file urls in metadata to release assets urls using JQ
+set -euo pipefail
+
+INPUT=""
+LAYOUT=""
+OUTPUT=""
+
+usage() {
+  echo "Usage: $0 --input <path> --layout <path> --output <path>"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --input)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --input requires a path." >&2
+        exit 1
+      fi
+      INPUT="$2"
+      shift 2
+      ;;
+    --layout)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --layout requires a path." >&2
+        exit 1
+      fi
+      LAYOUT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INPUT" ] || [ -z "$LAYOUT" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --input, --layout, and --output are all required." >&2
+  usage
+fi
+
+if [ ! -f "$INPUT" ] || [ ! -f "$LAYOUT" ]; then
+  echo "ERROR: Input target files must exist." >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Parse layout variables
+base_url=$(jq -r '.base_url' "$LAYOUT")
+img_name=$(jq -r '.assets.image' "$LAYOUT")
+manifest_name=$(jq -r '.assets.manifest' "$LAYOUT")
+channel=$(jq -r '.channel' "$LAYOUT")
+
+if [ "$base_url" = "null" ] || [ "$img_name" = "null" ] || [ "$manifest_name" = "null" ] || [ "$channel" = "null" ]; then
+  echo "ERROR: Missing layout properties base_url, assets, or channel." >&2
+  exit 1
+fi
+
+img_url="${base_url}/${img_name}"
+manifest_url="${base_url}/${manifest_name}"
+
+# Assert release placeholders
+if [ "$channel" = "release" ]; then
+  placeholders=$(jq -r '.images[].sha256' "$INPUT")
+  for sha in $placeholders; do
+    if [ "$sha" = "PLACEHOLDER_SHA256" ]; then
+      echo "ERROR: Release channels cannot containing PLACEHOLDER_SHA256 checksums." >&2
+      exit 1
+    fi
+  done
+fi
+
+echo "Rewriting metadata URLs pointing to: $base_url ..."
+
+# Apply updates
+tmp_file="${OUTPUT}.tmp"
+jq --arg url "$img_url" \
+   --arg manifest "$manifest_url" \
+   --arg chan "$channel" \
+   '.channel = $chan | .images[].url = $url | .images[].manifest = $manifest' \
+   "$INPUT" > "$tmp_file"
+
+mv "$tmp_file" "$OUTPUT"
+echo "URLs rewrite completed successfully."
+exit 0
