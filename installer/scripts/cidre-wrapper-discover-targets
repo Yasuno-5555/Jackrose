@@ -1,0 +1,246 @@
+#!/bin/bash
+# cidre-wrapper-discover-targets: Performs target discovery in read-only mode and classifies drives
+set -euo pipefail
+
+PLAN=""
+OUTPUT=""
+FIXTURE=""
+PLATFORM="auto"
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --install-plan <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --install-plan)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --install-plan requires a path." >&2
+        exit 1
+      fi
+      PLAN="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --fixture)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --fixture requires a path." >&2
+        exit 1
+      fi
+      FIXTURE="$2"
+      shift 2
+      ;;
+    --platform)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --platform requires a value." >&2
+        exit 1
+      fi
+      PLATFORM="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$PLAN" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --install-plan and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$PLAN" ]; then
+  echo "ERROR: Install plan not found: $PLAN" >&2
+  exit 1
+fi
+
+# Validate plan variables
+p_kind=$(jq -r '.plan_kind' "$PLAN")
+p_valid=$(jq -r '.rootfs_valid' "$PLAN")
+p_sel=$(jq -r '.target_selected' "$PLAN")
+p_mut=$(jq -r '.target_mutation_allowed' "$PLAN")
+p_stage=$(jq -r '.staging_allowed' "$PLAN")
+p_inst=$(jq -r '.install_allowed' "$PLAN")
+
+if [ "$p_kind" != "review-only" ] || [ "$p_valid" != "true" ] || [ "$p_sel" != "false" ] || \
+   [ "$p_mut" != "false" ] || [ "$p_stage" != "false" ] || [ "$p_inst" != "false" ]; then
+  echo "ERROR: Precondition fail. Install plan must be review-only and non-mutating." >&2
+  exit 1
+fi
+
+echo "Discovering read-only target devices..." >&2
+
+MIN_SIZE_BYTES=34359738368 # 32 GiB
+temp_raw_devices=$(mktemp)
+trap 'rm -f "$temp_raw_devices"' EXIT
+
+# Load device list from fixture or live system
+if [ -n "$FIXTURE" ]; then
+  if [ ! -f "$FIXTURE" ]; then
+    echo "ERROR: Fixture file not found: $FIXTURE" >&2
+    exit 1
+  fi
+  cat "$FIXTURE" > "$temp_raw_devices"
+else
+  # Live discovery (if under Linux/ALARM/Asahi)
+  if command -v lsblk >/dev/null 2>&1; then
+    lsblk --json --bytes --output NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,MOUNTPOINTS,LABEL,PARTLABEL,PARTUUID,UUID,MODEL,TRAN,RM,RO > "$temp_raw_devices"
+  else
+    # Fallback/Dummy JSON structure if tool is missing and no fixture passed
+    echo '{"blockdevices":[]}' > "$temp_raw_devices"
+  fi
+fi
+
+# Ensure JSON is valid
+if ! jq . "$temp_raw_devices" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape in discovery data source." >&2
+  exit 1
+fi
+
+# Flatten devices array. We need recursively flattened partitions list
+# since lsblk json nest partitions inside parent "children" array.
+flat_devices=$(jq -c '
+  def flatten_devs:
+    [.] + (if .children then (.children | map(flatten_devs) | add) else [] end);
+  if .blockdevices then [.blockdevices[] | flatten_devs] | add else [] end
+' "$temp_raw_devices")
+
+# Run classification logic using jq
+classified_candidates=$(echo "$flat_devices" | jq -c --argjson min_sz "$MIN_SIZE_BYTES" '
+  map(
+    # Normalize mountpoints array
+    # mountpoints can be array, null, or string depending on lsblk versions
+    # Normalize to string array
+    def get_mountpoints:
+      if .mountpoints == null then []
+      elif (.mountpoints | type) == "array" then .mountpoints
+      else [.mountpoints]
+      end;
+      
+    def get_size:
+      if (.size | type) == "number" then .size
+      elif (.size | type) == "string" then (.size | tonumber)
+      else 0
+      end;
+      
+    def is_readonly:
+      if .ro == true or .ro == 1 or .ro == "1" or .ro == "true" then true else false end;
+
+    def get_parent:
+      if .kname != null and .name != null and .kname != .name then
+        # parent kname estimation
+        # e.g., kname=nvme0n1p7 parent=/dev/nvme0n1
+        if (.kname | contains("p")) then
+          "/dev/" + (.kname | split("p")[0])
+        else
+          "/dev/" + (.kname | sub("[0-9]+$"; ""))
+        end
+      else null
+      end;
+
+    def classify:
+      get_mountpoints as $mounts |
+      get_size as $sz |
+      is_readonly as $ro |
+      .partlabel as $plabel |
+      .label as $label |
+      
+      # 1. Mounted root system checking
+      if ($mounts | contains(["/"])) or ($mounts | contains(["/boot"])) or ($mounts | contains(["/efi"])) or ($mounts | contains(["/System"])) or ($mounts | contains(["/Volumes/Macintosh HD"])) then
+        { cls: "unsafe_active_system", reasons: ["mounted as active system"] }
+      # 2. Mounted checking
+      elif ($mounts | length) > 0 then
+        { cls: "unsafe_mounted", reasons: ["device is currently mounted"] }
+      # 3. EFI Check
+      elif ($plabel != null and ($plabel | ascii_upcase | contains("EFI"))) or ($label != null and ($label | ascii_upcase | contains("EFI"))) or (.fstype != null and (.fstype == "vfat" or .fstype == "msdos") and (($plabel != null and ($plabel | ascii_upcase | contains("EFI"))) or ($label != null and ($label | ascii_upcase | contains("EFI"))))) then
+        { cls: "unsafe_efi", reasons: ["EFI/ESP partition detected"] }
+      # 4. Recovery checking
+      elif ($plabel != null and ($plabel | ascii_upcase | contains("RECOVERY"))) or ($label != null and ($label | ascii_upcase | contains("RECOVERY"))) or ($plabel != null and ($plabel | ascii_upcase | contains("PREBOOT"))) then
+        { cls: "unsafe_recovery", reasons: ["recovery partition detected"] }
+      # 5. Readonly checking
+      elif $ro then
+        { cls: "unsafe_readonly", reasons: ["readonly partition"] }
+      # 6. Size boundary check
+      elif $sz < $min_sz then
+        { cls: "unsafe_too_small", reasons: ["size below minimum limit"] }
+      elif .type == "part" then
+        { cls: "safe_candidate", reasons: ["not mounted", "not active system", "not EFI", "not recovery", "size above minimum"] }
+      else
+        { cls: "unknown", reasons: ["unsupported device type"] }
+      end;
+
+    classify as $c |
+    {
+      id: .name,
+      path: (if .path != null then .path else "/dev/" + .name end),
+      parent: get_parent,
+      type: .type,
+      size_bytes: get_size,
+      fstype: .fstype,
+      label: .label,
+      partlabel: .partlabel,
+      mountpoints: get_mountpoints,
+      readonly: is_readonly,
+      classification: $c.cls,
+      eligible: ($c.cls == "safe_candidate"),
+      reasons: $c.reasons
+    }
+  ) | map(select(.type == "part"))
+')
+
+safe_count=$(echo "$classified_candidates" | jq 'map(select(.classification == "safe_candidate")) | length')
+unsafe_count=$(echo "$classified_candidates" | jq 'map(select(.classification != "safe_candidate")) | length')
+
+# Build final output candidates config
+target_candidates_json=$(jq -n \
+  --arg v_ver "0.1" \
+  --arg phase "31" \
+  --arg plan "$PLAN" \
+  --argjson min_sz "$MIN_SIZE_BYTES" \
+  --argjson cand "$classified_candidates" \
+  --argjson total "$(echo "$classified_candidates" | jq 'length')" \
+  --argjson safe "$safe_count" \
+  --argjson unsafe "$unsafe_count" \
+  --arg reason "Read-only target discovery completed. No target was selected and no disk mutation is enabled in Phase 31." \
+  '{
+    discovery_version: $v_ver,
+    phase: $phase,
+    source_plan: $plan,
+    readonly_discovery: true,
+    target_selected: false,
+    target_selection_allowed: false,
+    target_mutation_allowed: false,
+    staging_allowed: false,
+    install_allowed: false,
+    minimum_target_size_bytes: $min_sz,
+    candidates: $cand,
+    summary: {
+      total: $total,
+      safe_candidates: $safe,
+      unsafe_candidates: $unsafe,
+      unknown_candidates: 0
+    },
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$target_candidates_json" > "$OUTPUT"
+
+echo "Read-only target discovery finished." >&2
+echo "$target_candidates_json"
+exit 0

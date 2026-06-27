@@ -1,0 +1,140 @@
+#!/bin/bash
+# validate-cidre-target-candidates: Validates target-candidates.json parameters and classifications
+set -euo pipefail
+
+CANDIDATES=""
+STRICT=0
+REQ_SAFE=0
+
+usage() {
+  echo "Usage: $0 --candidates <path> [--strict] [--require-safe-candidate]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --candidates)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --candidates requires a path." >&2
+        exit 1
+      fi
+      CANDIDATES="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --require-safe-candidate)
+      REQ_SAFE=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CANDIDATES" ]; then
+  echo "ERROR: --candidates is required." >&2
+  usage
+fi
+
+if [ ! -f "$CANDIDATES" ]; then
+  echo "ERROR: Target candidates file not found: $CANDIDATES" >&2
+  exit 1
+fi
+
+if ! jq . "$CANDIDATES" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape in target candidates file." >&2
+  exit 1
+fi
+
+# Load variables
+d_ver=$(jq -r '.discovery_version' "$CANDIDATES")
+phase=$(jq -r '.phase' "$CANDIDATES")
+source_plan=$(jq -r '.source_plan' "$CANDIDATES")
+readonly=$(jq -r '.readonly_discovery' "$CANDIDATES")
+selected=$(jq -r '.target_selected' "$CANDIDATES")
+sel_ok=$(jq -r '.target_selection_allowed' "$CANDIDATES")
+mut_ok=$(jq -r '.target_mutation_allowed' "$CANDIDATES")
+stage_ok=$(jq -r '.staging_allowed' "$CANDIDATES")
+inst_ok=$(jq -r '.install_allowed' "$CANDIDATES")
+min_size=$(jq -r '.minimum_target_size_bytes' "$CANDIDATES")
+
+# Existence check
+if [ "$d_ver" = "null" ] || [ "$phase" = "null" ] || [ "$source_plan" = "null" ] || [ "$readonly" = "null" ] || \
+   [ "$selected" = "null" ] || [ "$sel_ok" = "null" ] || [ "$mut_ok" = "null" ] || [ "$stage_ok" = "null" ] || \
+   [ "$inst_ok" = "null" ] || [ "$min_size" = "null" ]; then
+  echo "ERROR: Missing required fields in target candidates JSON." >&2
+  exit 1
+fi
+
+# Value checks
+if [ "$phase" != "31" ]; then
+  echo "ERROR: Candidate phase version mismatch: $phase" >&2
+  exit 1
+fi
+
+if [ "$readonly" != "true" ] || [ "$selected" != "false" ]; then
+  echo "ERROR: Target selection must be disabled in Phase 31." >&2
+  exit 1
+fi
+
+if [ "$sel_ok" != "false" ] || [ "$mut_ok" != "false" ] || [ "$stage_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: All mutation, selection, staging, and installation permissions must be disabled." >&2
+  exit 1
+fi
+
+# Candidates validation
+has_safe=0
+candidate_count=$(jq '.candidates | length' "$CANDIDATES")
+
+for ((i=0; i<candidate_count; i++)); do
+  c_path=$(jq -r ".candidates[$i].path" "$CANDIDATES")
+  c_type=$(jq -r ".candidates[$i].type" "$CANDIDATES")
+  c_size=$(jq -r ".candidates[$i].size_bytes" "$CANDIDATES")
+  c_class=$(jq -r ".candidates[$i].classification" "$CANDIDATES")
+  c_eligible=$(jq -r ".candidates[$i].eligible" "$CANDIDATES")
+  
+  if [ "$c_path" = "null" ] || [ "$c_type" = "null" ] || [ "$c_size" = "null" ] || [ "$c_class" = "null" ] || [ "$c_eligible" = "null" ]; then
+    echo "ERROR: Candidate at index $i is missing required attributes." >&2
+    exit 1
+  fi
+  
+  # Classification eligibility consistency check
+  if [ "$c_class" = "safe_candidate" ]; then
+    if [ "$c_eligible" != "true" ]; then
+      echo "ERROR: Candidate '$c_path' classified as safe but eligible=false." >&2
+      exit 1
+    fi
+    # Check minimum size limit
+    if [ "$c_size" -lt "$min_size" ]; then
+      echo "ERROR: Candidate '$c_path' is eligible but size $c_size is below minimum $min_size bytes." >&2
+      exit 1
+    fi
+    has_safe=1
+  else
+    if [ "$c_eligible" = "true" ]; then
+      echo "ERROR: Unsafe candidate '$c_path' marked eligible=true." >&2
+      exit 1
+    fi
+  fi
+done
+
+if [ "$REQ_SAFE" -eq 1 ] && [ $has_safe -eq 0 ]; then
+  echo "ERROR: Discovery contains no eligible safe candidates." >&2
+  exit 1
+fi
+
+# Strict rules
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$selected" = "true" ] || [ "$inst_ok" = "true" ] || [ "$stage_ok" = "true" ] || [ "$sel_ok" = "true" ]; then
+    echo "ERROR: Plan permissions must be strictly false." >&2
+    exit 2
+  fi
+fi
+
+echo "Target candidates config validates successfully."
+exit 0

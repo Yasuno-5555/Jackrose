@@ -1,0 +1,242 @@
+#!/bin/bash
+# run-cidre-target-discovery-tests: Phase 31 target discovery tests runner using mock fixtures
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-target-discovery-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/fixtures"
+mkdir -p "$TEST_TMPDIR/output"
+
+echo "=== Running Cidre Target Discovery Tests ==="
+
+# Write mock install-plan.json
+cat <<EOF > "$TEST_TMPDIR/install-plan.json"
+{
+  "plan_version": "0.1",
+  "phase": "30",
+  "plan_kind": "review-only",
+  "selected_id": "cidre-seed-aarch64",
+  "rootfs_dir": "$TEST_TMPDIR",
+  "rootfs_valid": true,
+  "target": null,
+  "target_selected": false,
+  "target_discovery_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false,
+  "planned_steps": [],
+  "blocked_steps": [],
+  "reason": "MOCK"
+}
+EOF
+
+# Helpers to build mock lsblk JSON formats
+# Size defaults: 50 GB (53687091200 bytes)
+cat <<EOF > "$TEST_TMPDIR/fixtures/lsblk.valid.json"
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "kname": "nvme0n1",
+      "path": "/dev/nvme0n1",
+      "type": "disk",
+      "size": 53687091200,
+      "children": [
+        {
+          "name": "nvme0n1p7",
+          "kname": "nvme0n1p7",
+          "path": "/dev/nvme0n1p7",
+          "type": "part",
+          "size": 53687091200,
+          "fstype": "ext4",
+          "mountpoints": [],
+          "label": "CIDRE-TARGET",
+          "partlabel": "Cidre Target",
+          "ro": false
+        }
+      ]
+    }
+  ]
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/lsblk.active-root.json"
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "children": [
+        {
+          "name": "nvme0n1p1",
+          "path": "/dev/nvme0n1p1",
+          "type": "part",
+          "size": 53687091200,
+          "mountpoints": ["/"]
+        }
+      ]
+    }
+  ]
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/lsblk.efi-recovery.json"
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "children": [
+        {
+          "name": "nvme0n1p2",
+          "path": "/dev/nvme0n1p2",
+          "type": "part",
+          "size": 53687091200,
+          "partlabel": "EFI System Partition"
+        },
+        {
+          "name": "nvme0n1p3",
+          "path": "/dev/nvme0n1p3",
+          "type": "part",
+          "size": 53687091200,
+          "label": "Recovery"
+        }
+      ]
+    }
+  ]
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/lsblk.too-small.json"
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "children": [
+        {
+          "name": "nvme0n1p4",
+          "path": "/dev/nvme0n1p4",
+          "type": "part",
+          "size": 10737418240,
+          "mountpoints": []
+        }
+      ]
+    }
+  ]
+}
+EOF
+
+# Test 1: Positive verification
+echo "Test 1: Testing target discovery with safe candidate partition..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-discover-targets" \
+  --install-plan "$TEST_TMPDIR/install-plan.json" \
+  --fixture "$TEST_TMPDIR/fixtures/lsblk.valid.json" \
+  --output "$TEST_TMPDIR/output/candidates-valid.json"
+
+# Confirm validations success
+eligible=$(jq -r '.candidates[0].eligible' "$TEST_TMPDIR/output/candidates-valid.json")
+if [ "$eligible" != "true" ]; then
+  echo "ERROR: Expected eligible=true but got '$eligible'." >&2
+  exit 1
+fi
+
+"$REPO_ROOT/installer/scripts/validate-cidre-target-candidates" \
+  --candidates "$TEST_TMPDIR/output/candidates-valid.json" \
+  --require-safe-candidate
+
+echo "  [OK] Safe candidate target discovery passed."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Discovery Tests ==="
+
+# Neg 1: Active root partition
+echo "Neg 1: Active root partition..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-discover-targets" \
+  --install-plan "$TEST_TMPDIR/install-plan.json" \
+  --fixture "$TEST_TMPDIR/fixtures/lsblk.active-root.json" \
+  --output "$TEST_TMPDIR/output/candidates-root.json"
+
+cls=$(jq -r '.candidates[0].classification' "$TEST_TMPDIR/output/candidates-root.json")
+if [ "$cls" != "unsafe_active_system" ]; then
+  echo "ERROR: Expected classification 'unsafe_active_system', got '$cls'." >&2
+  exit 1
+fi
+echo "  [PASSED] Active root system device filtered correctly."
+
+# Neg 2: EFI and Recovery partitions
+echo "Neg 2: EFI and Recovery partitions..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-discover-targets" \
+  --install-plan "$TEST_TMPDIR/install-plan.json" \
+  --fixture "$TEST_TMPDIR/fixtures/lsblk.efi-recovery.json" \
+  --output "$TEST_TMPDIR/output/candidates-efi.json"
+
+cls1=$(jq -r '.candidates[0].classification' "$TEST_TMPDIR/output/candidates-efi.json")
+cls2=$(jq -r '.candidates[1].classification' "$TEST_TMPDIR/output/candidates-efi.json")
+if [ "$cls1" != "unsafe_efi" ] || [ "$cls2" != "unsafe_recovery" ]; then
+  echo "ERROR: Expected unsafe_efi and unsafe_recovery, got '$cls1' and '$cls2'." >&2
+  exit 1
+fi
+echo "  [PASSED] EFI and Recovery partitions filtered correctly."
+
+# Neg 3: Too small targets
+echo "Neg 3: Too-small targets..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-discover-targets" \
+  --install-plan "$TEST_TMPDIR/install-plan.json" \
+  --fixture "$TEST_TMPDIR/fixtures/lsblk.too-small.json" \
+  --output "$TEST_TMPDIR/output/candidates-small.json"
+
+cls=$(jq -r '.candidates[0].classification' "$TEST_TMPDIR/output/candidates-small.json")
+if [ "$cls" != "unsafe_too_small" ]; then
+  echo "ERROR: Expected classification 'unsafe_too_small', got '$cls'." >&2
+  exit 1
+fi
+echo "  [PASSED] Too-small targets filtered correctly."
+
+# Neg 4: Rejection of mutation flags in candidates validator
+echo "Neg 4: Rejection of mutation flags in candidates validator..."
+cat <<EOF > "$TEST_TMPDIR/output/candidates-bad.json"
+{
+  "discovery_version": "0.1",
+  "phase": "31",
+  "source_plan": "MOCK",
+  "readonly_discovery": true,
+  "target_selected": true,
+  "target_selection_allowed": true,
+  "target_mutation_allowed": true,
+  "staging_allowed": true,
+  "install_allowed": true,
+  "minimum_target_size_bytes": 34359738368,
+  "candidates": [],
+  "summary": {
+    "total": 0,
+    "safe_candidates": 0,
+    "unsafe_candidates": 0,
+    "unknown_candidates": 0
+  },
+  "reason": "MOCK"
+}
+EOF
+
+if "$REPO_ROOT/installer/scripts/validate-cidre-target-candidates" \
+  --candidates "$TEST_TMPDIR/output/candidates-bad.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected validator to reject mutating configuration, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutating candidates configurations successfully rejected."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil "diskutil erase" "diskutil partition" "diskutil apfs" bless nvram gpt fdisk dd mkfs parted mount chroot "pacman --root" rsync "cp -a" "cp -R")
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Target Discovery Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

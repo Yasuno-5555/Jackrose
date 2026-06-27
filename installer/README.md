@@ -117,3 +117,13 @@ To run the rootfs content and plan tests suite:
 ```bash
 installer/scripts/run-cidre-rootfs-plan-tests
 ```
+
+---
+
+## 12. Cidre Read-only Target Discovery
+
+To run the read-only target discovery tests suite:
+
+```bash
+installer/scripts/run-cidre-target-discovery-tests
+```
