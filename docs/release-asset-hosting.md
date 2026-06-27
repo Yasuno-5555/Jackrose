@@ -31,3 +31,10 @@ installer/scripts/verify-hosted-release-assets \
   --metadata installer/generated/cidre-installer-data.dev.json \
   --id cidre-seed-aarch64
 ```
+
+---
+
+## 4. Hosted Dev Artifact Fetch
+
+Cidre utilizes `verify-dev-release-fetch` to query hosted dev release tags (e.g. `v0.10.0-dev`).
+It fetches image binaries over HTTPS using `curl -L`, validating sizes and SHA256 checksums before resolving candidates. Strict checking mode rejects placeholder checksum parameters.

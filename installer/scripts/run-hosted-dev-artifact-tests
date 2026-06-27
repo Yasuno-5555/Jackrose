@@ -1,0 +1,140 @@
+#!/bin/bash
+# run-hosted-dev-artifact-tests: Phase 16 hosted dev artifact tests runner using mock server
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-dev-release-fetch}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/out"
+mkdir -p "$TEST_TMPDIR/fetch"
+
+echo "=== Running Hosted Dev Artifact Tests ==="
+echo "Staging mock dev release assets under $TEST_TMPDIR/out..."
+
+# Write mock seed image archive
+echo "mock tarball payload" > "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.tar.zst"
+
+# Write mock build manifest
+{
+  echo "profile_name=cidre-seed"
+  echo "image_name=cidre-seed-aarch64"
+  echo "version=0.10.0"
+  echo "arch=aarch64"
+  echo "build_date=2026-06-27"
+  echo "base_rootfs=/"
+  echo "output_image=/"
+  echo "sha256=MOCK_SHA256"
+  echo "package_count=1"
+  echo "validation_status=passed"
+  echo "first_boot_mode=desktop-welcome"
+} > "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.manifest"
+
+# Start mock Python HTTP server
+echo "Starting mock HTTP dev server on port 8765..."
+python3 -m http.server 8765 --bind 127.0.0.1 --directory "$TEST_TMPDIR/out" >/dev/null 2>&1 &
+SERVER_PID=$!
+
+cleanup() {
+  echo "Stopping mock HTTP dev server (PID: $SERVER_PID)..."
+  kill "$SERVER_PID" || true
+  rm -rf "$TEST_TMPDIR"
+}
+trap cleanup EXIT
+
+# Wait a moment for server initialization
+echo "Waiting for server to spin up..."
+sleep 3
+
+FIXTURE="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+LOCAL_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.localhost.json"
+
+# Staging initial local metadata facing format
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+# Test 1: Positive URL preparation using localhost layout
+echo "Test 1: Preparing dev release metadata urls..."
+"$REPO_ROOT/installer/scripts/prepare-dev-release-assets" \
+  --layout "$LOCAL_LAYOUT" \
+  --metadata "$TEST_TMPDIR/local-facing.json" \
+  --output "$TEST_TMPDIR/dev-facing.json" \
+  --print-gh-command
+
+# Test 2: Verify dev metadata validation (Warnings only as placeholder exists)
+echo "Test 2: Validating dev metadata..."
+"$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/dev-facing.json"
+
+# Test 3: Verify dev release fetch (placeholder skip mode, fetches headers only)
+echo "Test 3: Simulating fetch with warning placeholder..."
+"$REPO_ROOT/installer/scripts/verify-dev-release-fetch" \
+  --metadata "$TEST_TMPDIR/dev-facing.json" \
+  --id cidre-seed-aarch64 \
+  --download-dir "$TEST_TMPDIR/fetch"
+
+# Test 4: Positive real fetch with real bound checksums
+echo "Test 4: Simulating real fetch with real bound checksum..."
+# Update checksum in metadata using file size and actual sha
+computed_sha=""
+if command -v sha256sum >/dev/null 2>&1; then
+  computed_sha=$(sha256sum "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.tar.zst" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+  computed_sha=$(shasum -a 256 "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.tar.zst" | cut -d' ' -f1)
+fi
+computed_size=$(wc -c < "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.tar.zst" | tr -d ' ')
+
+# Update manifest sha256 to match computed
+sed -i.bak "s/sha256=MOCK_SHA256/sha256=${computed_sha}/" "$TEST_TMPDIR/out/cidre-seed-aarch64-v0.10.0.manifest"
+
+jq --arg sha "$computed_sha" --argjson size "$computed_size" \
+  '.images[0].sha256 = $sha | .images[0].size_bytes = $size' \
+  "$TEST_TMPDIR/dev-facing.json" > "$TEST_TMPDIR/dev-facing-bound.json"
+
+"$REPO_ROOT/installer/scripts/verify-dev-release-fetch" \
+  --metadata "$TEST_TMPDIR/dev-facing-bound.json" \
+  --id cidre-seed-aarch64 \
+  --download-dir "$TEST_TMPDIR/fetch" \
+  --strict \
+  --require-real
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Hosted Dev Tests ==="
+
+# Neg 1: Missing dev metadata file
+echo "Neg 1: Missing metadata check..."
+if "$REPO_ROOT/installer/scripts/verify-dev-release-fetch" --metadata "$TEST_TMPDIR/nonexistent.json" --id cidre-seed-aarch64 >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on missing metadata, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught missing metadata file."
+
+# Neg 2: Placeholder checksum under strict validation
+echo "Neg 2: Strict metadata validation check..."
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" --strict "$TEST_TMPDIR/dev-facing.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on strict mode with placeholder hash, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught strict mode placeholder checksum."
+
+# Neg 3: Placeholder checksum under require-real fetch mode
+echo "Neg 3: Real fetch requirements check..."
+if "$REPO_ROOT/installer/scripts/verify-dev-release-fetch" --metadata "$TEST_TMPDIR/dev-facing.json" --id cidre-seed-aarch64 --require-real >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on real mode with placeholder hash, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught real mode placeholder checksum."
+
+# Neg 4: Non-https URL scheme in real mode
+echo "Neg 4: Non-https URL scheme check..."
+jq '.images[0].url = "file://out/image.tar.zst"' "$TEST_TMPDIR/dev-facing-bound.json" > "$TEST_TMPDIR/bad_scheme.json"
+if "$REPO_ROOT/installer/scripts/verify-dev-release-fetch" --metadata "$TEST_TMPDIR/bad_scheme.json" --id cidre-seed-aarch64 --require-real >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on non-https URL scheme in real mode, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught non-https URL scheme in real mode."
+
+echo "All Hosted Dev Artifact Tests passed successfully!"
+exit 0

@@ -1,0 +1,130 @@
+#!/bin/bash
+# verify-dev-release-fetch: Fetch verifier wrapper targeting dev release assets
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA=""
+ID=""
+DOWNLOAD_DIR="${CIDRE_FETCH_DIR:-/tmp/cidre-dev-release-fetch}"
+STRICT=0
+NO_DOWNLOAD=0
+REQUIRE_REAL=0
+
+usage() {
+  echo "Usage: $0 --metadata <path> --id <id> [--download-dir <dir>] [--strict] [--no-download] [--require-real]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires an argument." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --download-dir)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --download-dir requires a path." >&2
+        exit 1
+      fi
+      DOWNLOAD_DIR="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --no-download)
+      NO_DOWNLOAD=1
+      shift
+      ;;
+    --require-real)
+      REQUIRE_REAL=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$ID" ]; then
+  echo "ERROR: Both --metadata and --id are required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ]; then
+  echo "ERROR: Metadata file not found at $METADATA" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Parse entry values
+img_entry=$(jq -r ".images[] | select(.id == \"$ID\")" "$METADATA")
+if [ -z "$img_entry" ]; then
+  echo "ERROR: Entry ID '$ID' not found in $METADATA." >&2
+  exit 1
+fi
+
+img_url=$(echo "$img_entry" | jq -r '.url')
+img_sha=$(echo "$img_entry" | jq -r '.sha256')
+
+if [ "$REQUIRE_REAL" -eq 1 ]; then
+  if [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+    echo "ERROR: PLACEHOLDER_SHA256 checksum is not allowed in strict hosted verification." >&2
+    exit 1
+  fi
+  
+  if [[ ! "$img_url" =~ ^https:// && ! "$img_url" =~ ^http://127.0.0.1 && ! "$img_url" =~ ^http://localhost ]]; then
+    echo "ERROR: Hosted dev fetch must point to remote/local web servers URLs in real mode (current: $img_url)." >&2
+    exit 1
+  fi
+fi
+
+# Invoke asset verifier
+echo "Executing hosted dev assets verifications..."
+verify_args=(--metadata "$METADATA" --id "$ID" --download-dir "$DOWNLOAD_DIR")
+if [ "$STRICT" -eq 1 ]; then
+  verify_args+=("--strict")
+fi
+if [ "$NO_DOWNLOAD" -eq 1 ]; then
+  verify_args+=("--no-download")
+fi
+
+# Check placeholder skips logic
+if [ "$img_sha" = "PLACEHOLDER_SHA256" ] && [ "$REQUIRE_REAL" -eq 0 ]; then
+  echo "  [WARN] Checksum is PLACEHOLDER_SHA256. Simulating fetch headers validation only."
+  verify_args+=("--no-download")
+fi
+
+"$SCRIPT_DIR/verify-hosted-release-assets" "${verify_args[@]}"
+
+echo ""
+echo "=== Hosted Dev Fetch Verification Result ==="
+if [ "$NO_DOWNLOAD" -eq 1 ] || { [ "$img_sha" = "PLACEHOLDER_SHA256" ] && [ "$REQUIRE_REAL" -eq 0 ]; }; then
+  echo "  Status: Headers check passed (download skipped)."
+else
+  echo "  Status: Full checksum integrity verified successfully."
+fi
+echo "  Candidate Selected: $(echo "$img_entry" | jq -r '.label')"
+echo "  URL:                $img_url"
+echo "  Architecture:       $(echo "$img_entry" | jq -r '.arch')"
+echo "  Boot Mode:          $(echo "$img_entry" | jq -r '.first_boot_mode')"
+echo "============================================"
+exit 0

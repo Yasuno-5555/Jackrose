@@ -1,0 +1,129 @@
+#!/bin/bash
+# prepare-dev-release-assets: Prepares dev metadata mapping release targets and prints gh commands
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAYOUT=""
+METADATA=""
+OUTPUT=""
+TAG=""
+PRINT_CMD=0
+UPLOAD=0
+
+usage() {
+  echo "Usage: $0 --layout <path> --metadata <path> --output <path> [--tag <tag>] [--print-gh-command] [--upload]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --layout)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --layout requires a path." >&2
+        exit 1
+      fi
+      LAYOUT="$2"
+      shift 2
+      ;;
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires a path." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --tag)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --tag requires a tag name." >&2
+        exit 1
+      fi
+      TAG="$2"
+      shift 2
+      ;;
+    --print-gh-command)
+      PRINT_CMD=1
+      shift
+      ;;
+    --upload)
+      UPLOAD=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$LAYOUT" ] || [ -z "$METADATA" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --layout, --metadata, and --output are all required." >&2
+  usage
+fi
+
+if [ ! -f "$LAYOUT" ] || [ ! -f "$METADATA" ]; then
+  echo "ERROR: Input target files must exist." >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# 1. Rewrite URL endpoints to dev channel layouts
+echo "Rewriting metadata URLs pointing to dev release targets..."
+"$SCRIPT_DIR/rewrite-metadata-release-urls" \
+  --input "$METADATA" \
+  --layout "$LAYOUT" \
+  --output "$OUTPUT"
+
+# Parse tag name if empty
+current_tag="$TAG"
+if [ -z "$current_tag" ]; then
+  current_tag=$(jq -r '.tag' "$LAYOUT")
+fi
+
+if [ "$PRINT_CMD" -eq 1 ]; then
+  img_file=$(jq -r '.assets.image' "$LAYOUT")
+  manifest_file=$(jq -r '.assets.manifest' "$LAYOUT")
+  
+  echo ""
+  echo "Prepared dev release metadata:"
+  echo "  $OUTPUT"
+  echo ""
+  echo "Upload assets manually:"
+  echo "  gh release upload $current_tag \\"
+  echo "    out/$img_file \\"
+  echo "    out/${img_file}.sha256 \\"
+  echo "    out/$manifest_file \\"
+  echo "    $OUTPUT"
+  echo ""
+fi
+
+if [ "$UPLOAD" -eq 1 ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "ERROR: gh (GitHub CLI) is not installed. Upload aborted." >&2
+    exit 1
+  fi
+  
+  img_file=$(jq -r '.assets.image' "$LAYOUT")
+  manifest_file=$(jq -r '.assets.manifest' "$LAYOUT")
+  
+  echo "Executing gh release upload for tag $current_tag..."
+  gh release upload "$current_tag" \
+    "out/$img_file" \
+    "out/${img_file}.sha256" \
+    "out/$manifest_file" \
+    "$OUTPUT"
+fi
+
+exit 0

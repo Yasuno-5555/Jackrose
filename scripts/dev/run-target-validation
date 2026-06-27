@@ -22,6 +22,7 @@ usage() {
   echo "  --real-artifact-only   Run real image artifact binding integration validation tests"
   echo "  --metadata-wiring-only Run local installer wiring integration tests"
   echo "  --release-hosting-only Run local release asset hosting integration tests"
+  echo "  --hosted-dev-only      Run hosted dev release fetch integration tests"
   exit 1
 }
 
@@ -67,6 +68,10 @@ while [ $# -gt 0 ]; do
       RELEASE_HOSTING_ONLY=1
       shift
       ;;
+    --hosted-dev-only)
+      HOSTED_DEV_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -105,6 +110,12 @@ fi
 if [ "${RELEASE_HOSTING_ONLY:-0}" -eq 1 ]; then
   echo "Running release asset hosting integration validation tests only..."
   "$REPO_ROOT/installer/scripts/run-release-hosting-tests"
+  exit 0
+fi
+
+if [ "${HOSTED_DEV_ONLY:-0}" -eq 1 ]; then
+  echo "Running hosted dev release fetch integration validation tests only..."
+  "$REPO_ROOT/installer/scripts/run-hosted-dev-artifact-tests"
   exit 0
 fi
 
