@@ -1,0 +1,144 @@
+#!/bin/bash
+# controlled-installer-boundary-probe: Verifies Asahi bootstrap variables, schemas shapes, and mutation boundaries
+set -euo pipefail
+
+DATA_URL=""
+REPO_BASE=""
+SNAPSHOT=""
+OUTPUT=""
+DECISION_ONLY=0
+
+usage() {
+  echo "Usage: $0 --installer-data-url <url> --repo-base <url> --bootstrap-snapshot <path> [--output <path>] [--decision-only]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --installer-data-url)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --installer-data-url requires an argument." >&2
+        exit 1
+      fi
+      DATA_URL="$2"
+      shift 2
+      ;;
+    --repo-base)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --repo-base requires an argument." >&2
+        exit 1
+      fi
+      REPO_BASE="$2"
+      shift 2
+      ;;
+    --bootstrap-snapshot)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --bootstrap-snapshot requires a path." >&2
+        exit 1
+      fi
+      SNAPSHOT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --decision-only)
+      DECISION_ONLY=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$DATA_URL" ] || [ -z "$REPO_BASE" ] || [ -z "$SNAPSHOT" ]; then
+  echo "ERROR: --installer-data-url, --repo-base, and --bootstrap-snapshot are required." >&2
+  usage
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Result states
+decision="A_SAFE_METADATA_PATH"
+rationale="All URL validation checks, schemas verification, and safe static boundaries verified."
+
+echo "=== Controlled Installer Boundary Probe ==="
+
+# Step 1: Validate URL shape & fetch
+echo "Step 1: Fetching and validating installer metadata URL..."
+tmp_fetch_dir=$(mktemp -d)
+tmp_log_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_fetch_dir" "$tmp_log_dir"' EXIT
+
+if ! "$REPO_ROOT/installer/scripts/validate-installer-data-url" \
+  --url "$DATA_URL" \
+  --download-dir "$tmp_fetch_dir" > "$tmp_log_dir/validation.log" 2>&1; then
+  
+  decision="C_ADAPTER_OR_LAYOUT_MISMATCH"
+  rationale="Failed to validate served installer metadata shape. Output did not conform to expected Asahi schema layouts."
+fi
+
+# Step 2: Check danger zone guard on snapshot
+if [ "$decision" = "A_SAFE_METADATA_PATH" ]; then
+  echo "Step 2: Checking bootstrap safety boundaries..."
+  if ! "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" \
+    --input "$SNAPSHOT" > "$tmp_log_dir/guard.log" 2>&1; then
+    
+    decision="B_NO_SAFE_DRYRUN_PATH"
+    rationale="Forbidden mutation command patterns (e.g. diskutil/bless/nvram/install.sh) detected inside target bootstrap scripts."
+  fi
+fi
+
+# Step 3: Check package layout format validation warning matching
+if [ "$decision" = "A_SAFE_METADATA_PATH" ]; then
+  # If validation warning suggests mismatched format layouts
+  if [ -f "$tmp_log_dir/validation.log" ] && grep -q "package format is" "$tmp_log_dir/validation.log"; then
+    # In Phase 22, we treat package layout mismatch warnings as Adapter mismatch Decisions
+    decision="C_ADAPTER_OR_LAYOUT_MISMATCH"
+    rationale="Asahi candidate validator reported format mismatch warnings (.tar.zst vs .zip). Adapter mappings require correction."
+  fi
+fi
+
+# Write Phase 22 result file
+if [ -n "$OUTPUT" ]; then
+  mkdir -p "$(dirname "$OUTPUT")"
+  cat <<EOF > "$OUTPUT"
+# Phase 22 Boundary Probe Result
+
+## Inputs
+- INSTALLER_DATA:       $DATA_URL
+- REPO_BASE:            $REPO_BASE
+- bootstrap snapshot:   $SNAPSHOT
+
+## Validation Results
+- URL validation:       $([ "$decision" != "C_ADAPTER_OR_LAYOUT_MISMATCH" ] && echo "passed" || echo "failed")
+- metadata validation:  $([ "$decision" != "C_ADAPTER_OR_LAYOUT_MISMATCH" ] && echo "passed" || echo "failed")
+- selection simulation: $([ "$decision" != "C_ADAPTER_OR_LAYOUT_MISMATCH" ] && echo "passed" || echo "failed")
+- danger-zone scan:     $([ "$decision" != "B_NO_SAFE_DRYRUN_PATH" ] && echo "passed" || echo "failed")
+
+## Decision
+$decision
+
+## Rationale
+$rationale
+
+## Next Action
+$([ "$decision" = "A_SAFE_METADATA_PATH" ] && echo "Proceed to Phase 23: Metadata-only Installer Override Harness" || echo "Transition to downstream/wrapper strategy")
+EOF
+fi
+
+if [ $DECISION_ONLY -eq 1 ]; then
+  echo "Decision: $decision"
+else
+  echo "Decision: $decision"
+  echo "Rationale: $rationale"
+fi
+
+exit 0

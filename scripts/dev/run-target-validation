@@ -28,6 +28,7 @@ usage() {
   echo "  --installer-override-only Run INSTALLER_DATA override dryrun tests"
   echo "  --bootstrap-inspection-only Run bootstrap override static inspections"
   echo "  --bootstrap-report-only     Run bootstrap compatibility report tests"
+  echo "  --installer-boundary-probe-only Run installer boundary probe tests"
   exit 1
 }
 
@@ -95,6 +96,10 @@ while [ $# -gt 0 ]; do
       ;;
     --bootstrap-report-only)
       BOOTSTRAP_REPORT_ONLY=1
+      shift
+      ;;
+    --installer-boundary-probe-only)
+      INSTALLER_BOUNDARY_PROBE_ONLY=1
       shift
       ;;
     *)
@@ -171,6 +176,12 @@ fi
 if [ "${BOOTSTRAP_REPORT_ONLY:-0}" -eq 1 ]; then
   echo "Running bootstrap compatibility report tests only..."
   "$REPO_ROOT/installer/scripts/run-bootstrap-compat-report-tests"
+  exit 0
+fi
+
+if [ "${INSTALLER_BOUNDARY_PROBE_ONLY:-0}" -eq 1 ]; then
+  echo "Running installer boundary probe tests only..."
+  "$REPO_ROOT/installer/scripts/run-controlled-installer-boundary-probe-tests"
   exit 0
 fi
 

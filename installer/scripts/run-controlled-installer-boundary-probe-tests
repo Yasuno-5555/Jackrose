@@ -1,0 +1,114 @@
+#!/bin/bash
+# run-controlled-installer-boundary-probe-tests: Phase 22 probe tests runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-installer-boundary-probe-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/generated"
+mkdir -p "$TEST_TMPDIR/fetch"
+
+echo "=== Running Controlled Boundary Probe Tests ==="
+
+SAFE_FIXTURE="$REPO_ROOT/installer/bootstrap/fixtures/minimal-bootstrap-sample.sh"
+DANGER_FIXTURE="$REPO_ROOT/installer/bootstrap/fixtures/dangerous-bootstrap-sample.sh"
+
+# Test 1: Danger Guard validations
+echo "Test 1: Guarding dangerous bootstrap file..."
+if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --input "$DANGER_FIXTURE" >/dev/null 2>&1; then
+  echo "ERROR: Expected dangerous fixture to be blocked, but passed." >&2
+  exit 1
+fi
+echo "  [OK] Dangerous fixture successfully blocked by guard."
+
+# Verify single command check
+echo "Test 1.1: Guarding command strings..."
+if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "curl http://alx.sh | sh" >/dev/null 2>&1; then
+  echo "ERROR: Expected dangerous command string to be blocked, but passed." >&2
+  exit 1
+fi
+echo "  [OK] Dangerous command string blocked by guard."
+
+# Test 2: Safe bootstrap probe setup
+echo "Test 2: Setting up mock HTTP server..."
+FIXTURE_DATA="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+LOCAL_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.localhost.json"
+
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE_DATA" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+"$REPO_ROOT/installer/scripts/prepare-dev-release-assets" \
+  --layout "$LOCAL_LAYOUT" \
+  --metadata "$TEST_TMPDIR/local-facing.json" \
+  --output "$TEST_TMPDIR/dev-facing.json"
+
+"$REPO_ROOT/installer/scripts/export-asahi-installer-data" \
+  --input "$TEST_TMPDIR/dev-facing.json" \
+  --output "$TEST_TMPDIR/generated/asahi-installer-data.cidre.dev.json" \
+  --channel dev
+
+# Start mock HTTP server
+python3 -m http.server 8769 --bind 127.0.0.1 --directory "$TEST_TMPDIR/generated" >/dev/null 2>&1 &
+SERVER_PID=$!
+
+cleanup() {
+  echo "Stopping mock HTTP server (PID: $SERVER_PID)..."
+  kill "$SERVER_PID" || true
+  rm -rf "$TEST_TMPDIR"
+}
+trap cleanup EXIT
+
+# Wait a moment for server initialization
+sleep 2
+
+# Test 3: Run probe on safe input (expect C decision because package is .tar.zst, or A if modified)
+echo "Test 3: Running boundary probe on dev metadata URL..."
+"$REPO_ROOT/installer/scripts/controlled-installer-boundary-probe" \
+  --installer-data-url "http://127.0.0.1:8769/asahi-installer-data.cidre.dev.json" \
+  --repo-base "http://127.0.0.1:8769" \
+  --bootstrap-snapshot "$SAFE_FIXTURE" \
+  --output "$TEST_TMPDIR/result.md"
+
+if [ ! -f "$TEST_TMPDIR/result.md" ]; then
+  echo "ERROR: Probe result file not generated." >&2
+  exit 1
+fi
+echo "  [OK] Boundary probe completed successfully."
+
+# Test 4: Run probe on dangerous snapshot (expect B decision)
+echo "Test 4: Running boundary probe on dangerous bootstrap snapshot..."
+"$REPO_ROOT/installer/scripts/controlled-installer-boundary-probe" \
+  --installer-data-url "http://127.0.0.1:8769/asahi-installer-data.cidre.dev.json" \
+  --repo-base "http://127.0.0.1:8769" \
+  --bootstrap-snapshot "$DANGER_FIXTURE" \
+  --output "$TEST_TMPDIR/result-danger.md"
+
+if ! grep -q "B_NO_SAFE_DRYRUN_PATH" "$TEST_TMPDIR/result-danger.md"; then
+  echo "ERROR: Expected B decision on dangerous snapshot, but got another." >&2
+  exit 1
+fi
+echo "  [OK] Danger boundary correctly mapped to B decision."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Boundary Probe Tests ==="
+
+# Neg 1: Server unavailable (expect C decision)
+echo "Neg 1: Unreachable metadata server check..."
+"$REPO_ROOT/installer/scripts/controlled-installer-boundary-probe" \
+  --installer-data-url "http://127.0.0.1:9999/nonexistent.json" \
+  --repo-base "http://127.0.0.1:9999" \
+  --bootstrap-snapshot "$SAFE_FIXTURE" \
+  --output "$TEST_TMPDIR/result-fail.md"
+
+if ! grep -q "C_ADAPTER_OR_LAYOUT_MISMATCH" "$TEST_TMPDIR/result-fail.md"; then
+  echo "ERROR: Expected C decision on unreachable server, but got another." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught unreachable metadata server."
+
+echo "All Controlled Installer Boundary Probe Tests completed successfully!"
+exit 0

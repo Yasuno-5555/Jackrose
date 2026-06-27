@@ -1,0 +1,143 @@
+#!/bin/bash
+# guard-installer-danger-zone: Scan command strings or shell files for forbidden mutation patterns
+set -euo pipefail
+
+INPUT=""
+COMMAND=""
+STRICT=0
+FORMAT="text"
+
+usage() {
+  echo "Usage: $0 [--input <path>] [--command <string>] [--strict] [--format <format>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --input)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --input requires a path." >&2
+        exit 1
+      fi
+      INPUT="$2"
+      shift 2
+      ;;
+    --command)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --command requires a string." >&2
+        exit 1
+      fi
+      COMMAND="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --format)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --format requires a type." >&2
+        exit 1
+      fi
+      FORMAT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INPUT" ] && [ -z "$COMMAND" ]; then
+  echo "ERROR: Either --input or --command is required." >&2
+  usage
+fi
+
+FATAL_PATTERNS=(
+  "curl.*\\|.*sh"
+  "installer-bootstrap\.sh"
+  "alx\.sh"
+  "install\.sh"
+  "diskutil"
+  "bless"
+  "nvram"
+  "gpt"
+  "fdisk"
+  "dd "
+  "mkfs"
+  "parted"
+  "asr"
+)
+
+blocked=0
+reason=""
+line_num=""
+snippet=""
+
+# Analyze command string if provided
+if [ -n "$COMMAND" ]; then
+  for pattern in "${FATAL_PATTERNS[@]}"; do
+    if echo "$COMMAND" | grep -q -E "$pattern"; then
+      blocked=1
+      reason="forbidden command pattern detected: $pattern"
+      snippet="$COMMAND"
+      break
+    fi
+  done
+fi
+
+# Analyze file if input is provided
+if [ -n "$INPUT" ] && [ $blocked -eq 0 ]; then
+  if [ ! -f "$INPUT" ]; then
+    echo "ERROR: File not found at $INPUT" >&2
+    exit 1
+  fi
+  for pattern in "${FATAL_PATTERNS[@]}"; do
+    match_line=$(grep -n -E "$pattern" "$INPUT" | head -n 1 || echo "")
+    if [ -n "$match_line" ]; then
+      blocked=1
+      line_num=$(echo "$match_line" | cut -d':' -f1)
+      snippet=$(echo "$match_line" | cut -d':' -f2-)
+      reason="forbidden command pattern detected: $pattern"
+      break
+    fi
+  done
+fi
+
+# Output results
+if [ "$FORMAT" = "json" ]; then
+  if [ $blocked -eq 1 ]; then
+    cat <<EOF
+{
+  "status": "blocked",
+  "reason": "$reason",
+  "line": "${line_num:-"null"}",
+  "snippet": "$snippet"
+}
+EOF
+    exit 2
+  else
+    cat <<EOF
+{
+  "status": "allowed"
+}
+EOF
+    exit 0
+  fi
+else
+  if [ $blocked -eq 1 ]; then
+    echo "Guard result:"
+    echo "  status: blocked"
+    echo "  reason: $reason"
+    [ -n "$line_num" ] && echo "  line:   $line_num"
+    echo "  match:  $snippet"
+    echo ""
+    echo "No command was executed."
+    exit 2
+  else
+    echo "Guard result:"
+    echo "  status: allowed"
+    exit 0
+  fi
+fi

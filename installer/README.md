@@ -47,3 +47,13 @@ To run the bootstrap static analysis suite:
 ```bash
 installer/scripts/run-bootstrap-inspection-tests
 ```
+
+---
+
+## 5. Controlled Installer Boundary Probe
+
+To run the boundary probe tests suite:
+
+```bash
+installer/scripts/run-controlled-installer-boundary-probe-tests
+```
