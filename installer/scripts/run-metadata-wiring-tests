@@ -1,0 +1,105 @@
+#!/bin/bash
+# run-metadata-wiring-tests: Phase 14 integration test suites
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-installer-wiring-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR"
+
+echo "=== Running Installer Metadata Wiring Integration Tests ==="
+echo "Staging tests files under $TEST_TMPDIR..."
+
+FIXTURE="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+PRIMARY_METADATA="$REPO_ROOT/installer/metadata/cidre-seed.local.json"
+
+# Test 1: Positive export, validation, and fetch
+echo "Test 1: Exporting internal metadata..."
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE" \
+  --output "$TEST_TMPDIR/installer-data.json" \
+  --channel local
+
+echo "Test 2: Validating exported metadata..."
+"$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/installer-data.json"
+
+echo "Test 3: Simulating data fetch options..."
+"$REPO_ROOT/installer/scripts/simulate-installer-data-fetch" --data "$TEST_TMPDIR/installer-data.json"
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Wiring Failure Tests ==="
+
+# Neg 1: Missing source metadata file
+echo "Neg 1: Missing source metadata check..."
+if "$REPO_ROOT/installer/scripts/export-installer-metadata" --metadata "$TEST_TMPDIR/nonexistent.json" --output "$TEST_TMPDIR/out.json" --channel local >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on missing source file, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught missing source file."
+
+# Neg 2: Filter with no matching entries
+echo "Neg 2: Filter matching no entries check..."
+if "$REPO_ROOT/installer/scripts/export-installer-metadata" --metadata "$FIXTURE" --output "$TEST_TMPDIR/out.json" --channel local --id nonexistent-id >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on no matching filter, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught zero-entries filter matching."
+
+# Neg 3: Release channel with PLACEHOLDER_SHA256
+echo "Neg 3: Release export with placeholder checksum check..."
+if "$REPO_ROOT/installer/scripts/export-installer-metadata" --metadata "$FIXTURE" --output "$TEST_TMPDIR/out.json" --channel release >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on release channel placeholder, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught release export placeholder."
+
+# Neg 4: Incorrect exported firstboot mode
+echo "Neg 4: Exported invalid firstboot mode check..."
+jq '.entries[0].first_boot.mode = "tty-firstboot"' "$FIXTURE" > "$TEST_TMPDIR/bad_fb.json"
+if "$REPO_ROOT/installer/scripts/export-installer-metadata" --metadata "$TEST_TMPDIR/bad_fb.json" --output "$TEST_TMPDIR/out.json" --channel local >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on unsupported firstboot mode during export, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught unsupported firstboot mode."
+
+# Neg 5: Generated metadata missing images key
+echo "Neg 5: Missing images key check..."
+echo '{"format_version":"0.1"}' > "$TEST_TMPDIR/no_images.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/no_images.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on missing images array, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught missing images array."
+
+# Neg 6: Non-tar.zst image URL suffix
+echo "Neg 6: Invalid URL filename suffix check..."
+jq '.images[0].url = "file://out/seed.tar.gz"' "$TEST_TMPDIR/installer-data.json" > "$TEST_TMPDIR/bad_url.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/bad_url.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on invalid URL suffix, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught invalid URL filename suffix."
+
+# Neg 7: Unsupported platform
+echo "Neg 7: Invalid platform target check..."
+jq '.images[0].platform = "generic-pc"' "$TEST_TMPDIR/installer-data.json" > "$TEST_TMPDIR/bad_plat.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/bad_plat.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on invalid platform target, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught invalid platform target."
+
+# Neg 8: Unsupported architecture
+echo "Neg 8: Invalid architecture check..."
+jq '.images[0].arch = "x86_64"' "$TEST_TMPDIR/installer-data.json" > "$TEST_TMPDIR/bad_arch.json"
+if "$REPO_ROOT/installer/scripts/validate-exported-installer-metadata" "$TEST_TMPDIR/bad_arch.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on invalid architecture target, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught invalid architecture target."
+
+echo "All Metadata Wiring Integration Tests passed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

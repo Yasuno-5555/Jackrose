@@ -1,0 +1,108 @@
+#!/bin/bash
+# validate-exported-installer-metadata: Validates simplified installer-facing metadata schema
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <exported-metadata.json>"
+  exit 1
+fi
+
+METADATA_FILE="$1"
+
+if [ ! -f "$METADATA_FILE" ]; then
+  echo "ERROR: Exported metadata file not found at $METADATA_FILE" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Basic JSON format check
+if ! jq . "$METADATA_FILE" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON formatting in $METADATA_FILE" >&2
+  exit 1
+fi
+
+# Check root properties
+fmt_ver=$(jq -r '.format_version' "$METADATA_FILE")
+if [ "$fmt_ver" = "null" ]; then
+  echo "ERROR: Missing 'format_version' root key." >&2
+  exit 1
+fi
+
+images_count=$(jq '.images | length' "$METADATA_FILE")
+if [ "$images_count" = "null" ] || [ "$images_count" -eq 0 ]; then
+  echo "ERROR: 'images' is missing or empty." >&2
+  exit 1
+fi
+
+channel=$(jq -r '.channel' "$METADATA_FILE")
+
+errors=0
+for ((i=0; i<images_count; i++)); do
+  img_id=$(jq -r ".images[$i].id" "$METADATA_FILE")
+  img_lbl=$(jq -r ".images[$i].label" "$METADATA_FILE")
+  img_ver=$(jq -r ".images[$i].version" "$METADATA_FILE")
+  img_arch=$(jq -r ".images[$i].arch" "$METADATA_FILE")
+  img_plat=$(jq -r ".images[$i].platform" "$METADATA_FILE")
+  img_url=$(jq -r ".images[$i].url" "$METADATA_FILE")
+  img_sha=$(jq -r ".images[$i].sha256" "$METADATA_FILE")
+  img_mode=$(jq -r ".images[$i].first_boot_mode" "$METADATA_FILE")
+
+  echo "Validating exported image entry: $img_id ($img_lbl)..."
+
+  if [ "$img_id" = "null" ] || [ "$img_lbl" = "null" ] || [ "$img_ver" = "null" ] || \
+     [ "$img_arch" = "null" ] || [ "$img_plat" = "null" ] || [ "$img_url" = "null" ] || \
+     [ "$img_sha" = "null" ] || [ "$img_mode" = "null" ]; then
+    echo "  [FAIL] Missing required image attributes." >&2
+    errors=$((errors + 1))
+    continue
+  fi
+
+  if [ "$img_mode" != "desktop-welcome" ]; then
+    echo "" >&2
+    echo "What happened:" >&2
+    echo "  Exported metadata uses unsupported first_boot_mode: $img_mode." >&2
+    echo "" >&2
+    echo "Why it matters:" >&2
+    echo "  Cidre seed images must boot into the graphical desktop Welcome path." >&2
+    echo "" >&2
+    echo "Next action:" >&2
+    echo "  Fix the source metadata or export mapping." >&2
+    errors=$((errors + 1))
+  fi
+
+  if [ "$img_arch" != "aarch64" ]; then
+    echo "  [FAIL] Target architecture must be 'aarch64' (current: $img_arch)." >&2
+    errors=$((errors + 1))
+  fi
+
+  if [ "$img_plat" != "apple-silicon" ]; then
+    echo "  [FAIL] Target platform must be 'apple-silicon' (current: $img_plat)." >&2
+    errors=$((errors + 1))
+  fi
+
+  if [[ ! "$img_url" =~ \.tar\.zst$ ]]; then
+    echo "  [FAIL] Target URL must point to .tar.zst image file (current: $img_url)." >&2
+    errors=$((errors + 1))
+  fi
+
+  if [[ "$img_url" =~ ^file:// || "$img_url" =~ ^placeholder:// ]]; then
+    echo "  [WARN] Local testing URL pattern detected: $img_url"
+  fi
+
+  if [ "$channel" = "release" ] && [ "$img_sha" = "PLACEHOLDER_SHA256" ]; then
+    echo "  [FAIL] Release channel must not use PLACEHOLDER_SHA256 checksum." >&2
+    errors=$((errors + 1))
+  fi
+done
+
+if [ $errors -gt 0 ]; then
+  echo "Exported metadata validation failed with $errors error(s)." >&2
+  exit 2
+fi
+
+echo "Exported metadata validation successful."
+exit 0

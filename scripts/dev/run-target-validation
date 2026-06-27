@@ -20,6 +20,7 @@ usage() {
   echo "  --metadata-only     Run local installer metadata validation checks only"
   echo "  --installer-local-only Run local installer selection integration tests"
   echo "  --real-artifact-only   Run real image artifact binding integration validation tests"
+  echo "  --metadata-wiring-only Run local installer wiring integration tests"
   exit 1
 }
 
@@ -57,6 +58,10 @@ while [ $# -gt 0 ]; do
       REAL_ARTIFACT_ONLY=1
       shift
       ;;
+    --metadata-wiring-only)
+      METADATA_WIRING_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -83,6 +88,12 @@ if [ "${REAL_ARTIFACT_ONLY:-0}" -eq 1 ]; then
     --id cidre-seed-aarch64 \
     --image "$REPO_ROOT/out/cidre-seed-aarch64-v0.10.0.tar.zst" \
     --manifest "$REPO_ROOT/out/cidre-seed-aarch64-v0.10.0.manifest"
+  exit 0
+fi
+
+if [ "${METADATA_WIRING_ONLY:-0}" -eq 1 ]; then
+  echo "Running installer metadata wiring integration validation tests only..."
+  "$REPO_ROOT/installer/scripts/run-metadata-wiring-tests"
   exit 0
 fi
 

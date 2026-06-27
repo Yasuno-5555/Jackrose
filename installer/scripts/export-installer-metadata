@@ -1,0 +1,166 @@
+#!/bin/bash
+# export-installer-metadata: Converts Cidre internal metadata to simplified installer-facing JSON
+set -euo pipefail
+
+METADATA=""
+OUTPUT=""
+CHANNEL=""
+ID_FILTER=""
+ARCH_FILTER=""
+PLAT_FILTER=""
+
+usage() {
+  echo "Usage: $0 --metadata <path> --output <path> --channel <channel> [--id <id>] [--arch <arch>] [--platform <platform>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --metadata)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --metadata requires a path." >&2
+        exit 1
+      fi
+      METADATA="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires a type." >&2
+        exit 1
+      fi
+      CHANNEL="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID_FILTER="$2"
+      shift 2
+      ;;
+    --arch)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --arch requires an argument." >&2
+        exit 1
+      fi
+      ARCH_FILTER="$2"
+      shift 2
+      ;;
+    --platform)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --platform requires an argument." >&2
+        exit 1
+      fi
+      PLAT_FILTER="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$METADATA" ] || [ -z "$OUTPUT" ] || [ -z "$CHANNEL" ]; then
+  echo "ERROR: --metadata, --output, and --channel are all required." >&2
+  usage
+fi
+
+if [ ! -f "$METADATA" ]; then
+  echo "ERROR: Metadata file not found at $METADATA" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Build JQ filter expression
+jq_expr=".entries[]"
+
+if [ -n "$ID_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.id == \"$ID_FILTER\")"
+fi
+
+if [ -n "$ARCH_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.arch == \"$ARCH_FILTER\")"
+fi
+
+if [ -n "$PLAT_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.compatibility.platform == \"$PLAT_FILTER\")"
+fi
+
+# Verify entries exists matching filters
+matched_count=$(jq "[ ${jq_expr} ] | length" "$METADATA")
+if [ "$matched_count" -eq 0 ]; then
+  echo "ERROR: No entries matched the requested filters in $METADATA." >&2
+  exit 1
+fi
+
+# Assert firstboot mode
+first_boot_modes=$(jq -r "[ ${jq_expr} ] | .[].first_boot.mode" "$METADATA")
+for mode in $first_boot_modes; do
+  if [ "$mode" != "desktop-welcome" ]; then
+    echo "ERROR: Unsupported first_boot.mode: $mode. Export aborted." >&2
+    exit 1
+  fi
+done
+
+# Check release placeholders
+if [ "$CHANNEL" = "release" ]; then
+  placeholders=$(jq -r "[ ${jq_expr} ] | .[].image.sha256" "$METADATA")
+  for sha in $placeholders; do
+    if [ "$sha" = "PLACEHOLDER_SHA256" ]; then
+      echo "ERROR: Release exports cannot contain PLACEHOLDER_SHA256 checksums." >&2
+      exit 1
+    fi
+  done
+fi
+
+echo "Exporting mapped installer-facing metadata to $OUTPUT..."
+
+# Run export mapping logic
+tmp_file="${OUTPUT}.tmp"
+jq --arg ver "0.1" \
+   --arg chan "$CHANNEL" \
+   --arg gen "cidre" \
+   '{
+      format_version: $ver,
+      channel: $chan,
+      generated_by: $gen,
+      images: [
+        '"${jq_expr}"' | {
+          id: .id,
+          label: .name,
+          version: .version,
+          arch: .arch,
+          platform: .compatibility.platform,
+          base: .base,
+          description: .description,
+          url: .image.url,
+          sha256: .image.sha256,
+          size_bytes: .image.size_bytes,
+          manifest: .image.manifest,
+          first_boot_mode: .first_boot.mode,
+          session: .first_boot.session,
+          welcome_command: .first_boot.welcome,
+          features: .features,
+          warnings: .warnings
+        }
+      ]
+   }' "$METADATA" > "$tmp_file"
+
+mv "$tmp_file" "$OUTPUT"
+echo "Export completed successfully."
+exit 0

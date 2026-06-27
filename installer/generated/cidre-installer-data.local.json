@@ -1,0 +1,35 @@
+{
+  "format_version": "0.1",
+  "channel": "local",
+  "generated_by": "cidre",
+  "images": [
+    {
+      "id": "cidre-seed-aarch64",
+      "label": "Cidre Desktop Seed",
+      "version": "0.10.0",
+      "arch": "aarch64",
+      "platform": "apple-silicon",
+      "base": "ALARM",
+      "description": "ALARM-based Cidre desktop environment for Apple Silicon Macs.",
+      "url": "file://out/cidre-seed-aarch64-v0.10.0.tar.zst",
+      "sha256": "PLACEHOLDER_SHA256",
+      "size_bytes": 0,
+      "manifest": "file://out/cidre-seed-aarch64-v0.10.0.manifest",
+      "first_boot_mode": "desktop-welcome",
+      "session": "cidre",
+      "welcome_command": "cidre-welcome --first-run",
+      "features": [
+        "desktop-first",
+        "cidre-welcome",
+        "niri",
+        "foot-fallback",
+        "japanese-input",
+        "optimized-upgrade"
+      ],
+      "warnings": [
+        "Local metadata fixture only. Not for public installer use.",
+        "Seed artifact validation may be pending until a real CIDRE_BASE_ROOTFS apply build is performed."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+#!/bin/bash
+# simulate-installer-data-fetch: Simulates remote/local installer fetching and menu listing
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_FILE=""
+VERIFY_LOCAL=0
+ID_FILTER=""
+
+usage() {
+  echo "Usage: $0 --data <path> [--verify-local] [--id <id>]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --data)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --data requires a path argument." >&2
+        exit 1
+      fi
+      DATA_FILE="$2"
+      shift 2
+      ;;
+    --verify-local)
+      VERIFY_LOCAL=1
+      shift
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID_FILTER="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$DATA_FILE" ]; then
+  echo "ERROR: --data is required." >&2
+  usage
+fi
+
+if [ ! -f "$DATA_FILE" ]; then
+  echo "ERROR: Exported metadata file not found at $DATA_FILE" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Run validate-exported-installer-metadata inside to make sure it's valid
+"$SCRIPT_DIR/validate-exported-installer-metadata" "$DATA_FILE" >/dev/null
+
+echo "=== Installer Data Fetch Simulation ==="
+echo "Loaded installer-facing metadata format from $DATA_FILE"
+echo ""
+
+jq_expr=".images[]"
+if [ -n "$ID_FILTER" ]; then
+  jq_expr="${jq_expr} | select(.id == \"$ID_FILTER\")"
+fi
+
+matched_count=$(jq "[ ${jq_expr} ] | length" "$DATA_FILE")
+if [ "$matched_count" -eq 0 ]; then
+  echo "ERROR: No images matched the requested filters in $DATA_FILE." >&2
+  exit 1
+fi
+
+index=1
+while IFS=$'\t' read -r img_id img_lbl img_ver img_arch img_plat img_url img_sha img_mode img_welcome; do
+  echo "[$index] Option: $img_lbl ($img_id)"
+  echo "    Version:      $img_ver"
+  echo "    Architecture: $img_arch"
+  echo "    Platform:     $img_plat"
+  echo "    URL:          $img_url"
+  echo "    SHA256:       $img_sha"
+  echo "    First Boot:   $img_mode (Welcome: $img_welcome)"
+  echo ""
+
+  if [ "$VERIFY_LOCAL" -eq 1 ]; then
+    echo "  Verifying local file bind availability..."
+    if [[ ! "$img_url" =~ ^file:// && ! "$img_url" =~ ^placeholder:// ]]; then
+      echo "  [FAIL] URL is not local: $img_url" >&2
+      exit 1
+    fi
+    
+    img_path="${img_url#file://}"
+    if [[ "$img_path" =~ ^out/ ]]; then
+      img_path="$SCRIPT_DIR/../../$img_path"
+    fi
+    
+    if [ ! -f "$img_path" ]; then
+      echo "  [FAIL] Image file is missing: $img_path" >&2
+      exit 1
+    fi
+    echo "  [OK] Image file verified."
+    echo ""
+  fi
+
+  index=$((index + 1))
+done < <(jq -r "[ ${jq_expr} ] | .[] | [ .id, .label, .version, .arch, .platform, .url, .sha256, .first_boot_mode, .welcome_command ] | @tsv" "$DATA_FILE")
+
+echo "Result:"
+echo "  Fetch simulation completed successfully."
+exit 0
