@@ -1,0 +1,188 @@
+#!/bin/bash
+# export-asahi-installer-data: Converts Cidre metadata into Asahi-like candidate formats
+set -euo pipefail
+
+INPUT=""
+OUTPUT=""
+CHANNEL=""
+ID="cidre-seed-aarch64"
+REPO_BASE=""
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --input <path> --output <path> --channel <channel> [--id <id>] [--repo-base <url>] [--strict]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --input)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --input requires a path." >&2
+        exit 1
+      fi
+      INPUT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires an argument." >&2
+        exit 1
+      fi
+      CHANNEL="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --repo-base)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --repo-base requires a URL." >&2
+        exit 1
+      fi
+      REPO_BASE="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INPUT" ] || [ -z "$OUTPUT" ] || [ -z "$CHANNEL" ]; then
+  echo "ERROR: --input, --output, and --channel are all required." >&2
+  usage
+fi
+
+if [ ! -f "$INPUT" ]; then
+  echo "ERROR: Input file not found at $INPUT" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Ensure valid input JSON
+if ! jq . "$INPUT" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON structure in $INPUT" >&2
+  exit 1
+fi
+
+echo "Resolving Cidre candidate entry '$ID' in $INPUT..."
+img_entry=$(jq -r ".images[] | select(.id == \"$ID\")" "$INPUT")
+if [ -z "$img_entry" ] || [ "$img_entry" = "null" ]; then
+  echo "ERROR: Target entry '$ID' not found in $INPUT." >&2
+  exit 1
+fi
+
+# Extract variables
+os_label=$(echo "$img_entry" | jq -r '.label')
+os_version=$(echo "$img_entry" | jq -r '.version')
+os_arch=$(echo "$img_entry" | jq -r '.arch')
+os_platform=$(echo "$img_entry" | jq -r '.platform')
+os_url=$(echo "$img_entry" | jq -r '.url')
+os_sha=$(echo "$img_entry" | jq -r '.sha256')
+os_manifest=$(echo "$img_entry" | jq -r '.manifest')
+os_first_boot=$(echo "$img_entry" | jq -r '.first_boot_mode')
+
+# Enforce strict criteria
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$os_sha" = "PLACEHOLDER_SHA256" ]; then
+    echo "ERROR: PLACEHOLDER_SHA256 checksum is not allowed in strict mode." >&2
+    exit 2
+  fi
+  if [ "$os_first_boot" != "desktop-welcome" ]; then
+    echo "ERROR: Unsupported first_boot_mode '$os_first_boot' in strict mode." >&2
+    exit 2
+  fi
+  if [ "$os_arch" != "aarch64" ]; then
+    echo "ERROR: Unsupported architecture '$os_arch' in strict mode." >&2
+    exit 2
+  fi
+  if [ "$os_platform" != "apple-silicon" ]; then
+    echo "ERROR: Unsupported platform '$os_platform' in strict mode." >&2
+    exit 2
+  fi
+fi
+
+# Derive package filename
+os_package=$(basename "$os_url")
+
+# Resolve repo_base if empty
+derived_repo_base="$REPO_BASE"
+if [ -z "$derived_repo_base" ]; then
+  derived_repo_base=$(dirname "$os_url")
+fi
+
+echo "Transforming metadata to Asahi-like candidate shape..."
+jq -n \
+  --arg warn "Prototype Cidre-generated Asahi-like installer data. Do not use with the real installer." \
+  --arg format_version "cidre-asahi-like-0.1" \
+  --arg channel "$CHANNEL" \
+  --arg repo_base "$derived_repo_base" \
+  --arg name "$os_label" \
+  --arg id "$ID" \
+  --arg version "$os_version" \
+  --arg arch "$os_arch" \
+  --arg platform "$os_platform" \
+  --arg package "$os_package" \
+  --arg url "$os_url" \
+  --arg sha256 "$os_sha" \
+  --arg manifest "$os_manifest" \
+  --arg first_boot "$os_first_boot" \
+  '{
+     "_warning": $warn,
+     "format_version": $format_version,
+     "channel": $channel,
+     "repo_base": $repo_base,
+     "os_list": [
+       {
+         "name": $name,
+         "id": $id,
+         "version": $version,
+         "arch": $arch,
+         "platform": $platform,
+         "package": $package,
+         "url": $url,
+         "sha256": $sha256,
+         "manifest": $manifest,
+         "first_boot_mode": $first_boot,
+         "features": [
+           "desktop-first",
+           "cidre-welcome",
+           "niri",
+           "foot-fallback",
+           "japanese-input",
+           "optimized-upgrade"
+         ],
+         "_cidre_notes": [
+           "This output is Asahi-like, not confirmed upstream-compatible.",
+           "Cidre currently models the seed artifact as a tar.zst image.",
+           "The real installer may expect package.zip or REPO_BASE-relative package entries."
+         ]
+       }
+     ]
+   }' > "$OUTPUT"
+
+echo "Export completed successfully to $OUTPUT"
+exit 0

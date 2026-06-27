@@ -1,0 +1,148 @@
+#!/bin/bash
+# simulate-asahi-installer-data-selection: Read-only selection simulator for generated Asahi-like candidate configs
+set -euo pipefail
+
+DATA=""
+ID="cidre-seed-aarch64"
+ARCH="aarch64"
+PLATFORM="apple-silicon"
+CHANNEL=""
+VERIFY_URL=0
+
+usage() {
+  echo "Usage: $0 --data <path> [--id <id>] [--arch <arch>] [--platform <platform>] [--channel <channel>] [--verify-url-shape]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --data)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --data requires a path." >&2
+        exit 1
+      fi
+      DATA="$2"
+      shift 2
+      ;;
+    --id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --id requires a name." >&2
+        exit 1
+      fi
+      ID="$2"
+      shift 2
+      ;;
+    --arch)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --arch requires an argument." >&2
+        exit 1
+      fi
+      ARCH="$2"
+      shift 2
+      ;;
+    --platform)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --platform requires an argument." >&2
+        exit 1
+      fi
+      PLATFORM="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --channel requires an argument." >&2
+        exit 1
+      fi
+      CHANNEL="$2"
+      shift 2
+      ;;
+    --verify-url-shape)
+      VERIFY_URL=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$DATA" ]; then
+  echo "ERROR: --data is required." >&2
+  usage
+fi
+
+if [ ! -f "$DATA" ]; then
+  echo "ERROR: Data file not found at $DATA" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required." >&2
+  exit 1
+fi
+
+# Ensure valid data schema
+if ! jq . "$DATA" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON structure in $DATA" >&2
+  exit 1
+fi
+
+# 1. Resolve matching os_list entry
+echo "Simulating selection from $DATA..."
+os_entry=$(jq -r ".os_list[] | select(.id == \"$ID\" and .arch == \"$ARCH\" and .platform == \"$PLATFORM\")" "$DATA" 2>/dev/null || echo "")
+
+if [ -z "$os_entry" ] || [ "$os_entry" = "null" ]; then
+  echo "ERROR: No matching candidate found for id='$ID' arch='$ARCH' platform='$PLATFORM' inside $DATA." >&2
+  exit 1
+fi
+
+# Channel filter
+if [ -n "$CHANNEL" ]; then
+  meta_channel=$(jq -r '.channel' "$DATA")
+  if [ "$meta_channel" != "$CHANNEL" ]; then
+    echo "ERROR: Metadata channel '$meta_channel' does not match requested channel '$CHANNEL'." >&2
+    exit 1
+  fi
+fi
+
+os_name=$(echo "$os_entry" | jq -r '.name')
+os_version=$(echo "$os_entry" | jq -r '.version')
+os_package=$(echo "$os_entry" | jq -r '.package')
+os_url=$(echo "$os_entry" | jq -r '.url')
+os_sha=$(echo "$os_entry" | jq -r '.sha256')
+os_manifest=$(echo "$os_entry" | jq -r '.manifest')
+os_first_boot=$(echo "$os_entry" | jq -r '.first_boot_mode')
+warning_val=$(jq -r '._warning' "$DATA")
+
+if [ "$VERIFY_URL" -eq 1 ]; then
+  if [[ ! "$os_url" =~ ^https:// && ! "$os_url" =~ ^http://127.0.0.1 && ! "$os_url" =~ ^http://localhost ]]; then
+    echo "ERROR: URL verification failed: '$os_url' is not secure HTTPS or local HTTP mocks path." >&2
+    exit 1
+  fi
+fi
+
+echo ""
+echo "=== Asahi-like Installer Data Selection Simulation ==="
+echo ""
+echo "Selected OS Candidate: $os_name"
+echo "  id:                  $ID"
+echo "  version:             $os_version"
+echo "  arch:                $ARCH"
+echo "  platform:            $PLATFORM"
+echo ""
+echo "Artifact Specification:"
+echo "  package:             $os_package"
+echo "  url:                 $os_url"
+echo "  sha256:              $os_sha"
+echo "  manifest:            $os_manifest"
+echo ""
+echo "First boot contract:  $os_first_boot"
+echo "Prototype warning:    $warning_val"
+echo ""
+echo "Result:"
+echo "  Selection simulation passed."
+echo "  No installer was invoked."
+echo "  No disk changes were made."
+echo "======================================================"
+exit 0

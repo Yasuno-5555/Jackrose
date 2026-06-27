@@ -1,12 +1,13 @@
 #!/bin/bash
-# compare-installer-metadata-shape: Compares Cidre exported metadata against upstream formats
+# compare-installer-metadata-shape: Compares Cidre, Asahi-like adapter output, and upstream formats
 set -euo pipefail
 
 CIDRE=""
+ASAHI_LIKE=""
 UPSTREAM=""
 
 usage() {
-  echo "Usage: $0 --cidre <path> --upstream <path>"
+  echo "Usage: $0 --cidre <path> [--asahi-like <path>] --upstream <path>"
   exit 1
 }
 
@@ -18,6 +19,14 @@ while [ $# -gt 0 ]; do
         exit 1
       fi
       CIDRE="$2"
+      shift 2
+      ;;
+    --asahi-like)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --asahi-like requires a path." >&2
+        exit 1
+      fi
+      ASAHI_LIKE="$2"
       shift 2
       ;;
     --upstream)
@@ -52,8 +61,11 @@ fi
 
 echo "=== Installer Metadata Shape Comparison Report ==="
 echo ""
-echo "Cidre Input:    $CIDRE"
-echo "Upstream Input: $UPSTREAM"
+echo "Cidre Input:     $CIDRE"
+if [ -n "$ASAHI_LIKE" ]; then
+  echo "Adapter Output:  $ASAHI_LIKE"
+fi
+echo "Upstream Input:  $UPSTREAM"
 echo ""
 
 # Extract keys from structures
@@ -70,8 +82,6 @@ echo ""
 
 # 1. Compatible Mappings
 echo "Compatible (Direct Mapping):"
-# In Phase 17 simulation, we inspect name-matching or simple maps
-# E.g. id, version, arch, platform
 for ck in $cidre_keys; do
   for uk in $upstream_keys; do
     if [ "$ck" = "$uk" ]; then
@@ -86,6 +96,29 @@ echo ""
 echo "Transform Required:"
 echo "  - cidre: .images[].url  ==>  upstream: .os_list[].package (path conversion needed)"
 echo ""
+
+if [ -n "$ASAHI_LIKE" ] && [ -f "$ASAHI_LIKE" ]; then
+  echo "Adapter Generated Field Mapping Check:"
+  adapt_keys=$(jq -r '.os_list[0] | keys | .[]' "$ASAHI_LIKE" 2>/dev/null || echo "")
+  for ak in $adapt_keys; do
+    # check if maps directly to upstream
+    matched=0
+    for uk in $upstream_keys; do
+      if [ "$ak" = "$uk" ]; then
+        matched=1
+        echo "  - [MATCHED] adapter: .os_list[].$ak  ==>  upstream: .os_list[].$uk"
+      fi
+    done
+    if [ "$ak" = "name" ] && jq -r '.os_list[0].name' "$ASAHI_LIKE" >/dev/null; then
+      matched=1
+      echo "  - [MATCHED] adapter: .os_list[].name  ==>  upstream: .os_list[].name"
+    fi
+    if [ $matched -eq 0 ]; then
+      echo "  - [EXTENSION] adapter: .os_list[].$ak"
+    fi
+  done
+  echo ""
+fi
 
 # 3. Cidre only variables
 echo "Cidre-only (Likely ignored upstream):"

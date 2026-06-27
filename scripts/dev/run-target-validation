@@ -24,6 +24,7 @@ usage() {
   echo "  --release-hosting-only Run local release asset hosting integration tests"
   echo "  --hosted-dev-only      Run hosted dev release fetch integration tests"
   echo "  --installer-compat-only Run upstream installer compatibility study tests"
+  echo "  --asahi-adapter-only    Run Asahi metadata adapter prototype tests"
   exit 1
 }
 
@@ -77,6 +78,10 @@ while [ $# -gt 0 ]; do
       INSTALLER_COMPAT_ONLY=1
       shift
       ;;
+    --asahi-adapter-only)
+      ASAHI_ADAPTER_ONLY=1
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -127,6 +132,12 @@ fi
 if [ "${INSTALLER_COMPAT_ONLY:-0}" -eq 1 ]; then
   echo "Running upstream installer compatibility study tests only..."
   "$REPO_ROOT/installer/scripts/run-installer-compat-study-tests"
+  exit 0
+fi
+
+if [ "${ASAHI_ADAPTER_ONLY:-0}" -eq 1 ]; then
+  echo "Running Asahi metadata adapter prototype tests only..."
+  "$REPO_ROOT/installer/scripts/run-asahi-adapter-tests"
   exit 0
 fi
 

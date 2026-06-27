@@ -1,0 +1,88 @@
+#!/bin/bash
+# run-asahi-adapter-tests: Phase 18 adapter tests runner
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-asahi-adapter-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR"
+
+echo "=== Running Asahi Adapter Tests ==="
+
+FIXTURE="$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json"
+UPSTREAM_SNAPSHOT="$REPO_ROOT/installer/compat/upstream/asahi-installer-data.snapshot.json"
+LOCAL_LAYOUT="$REPO_ROOT/installer/release/cidre-release-layout.localhost.json"
+
+# Staging initial local metadata format
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$FIXTURE" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+# Rewrite metadata URLs pointing to dev release localhost mocks
+"$REPO_ROOT/installer/scripts/prepare-dev-release-assets" \
+  --layout "$LOCAL_LAYOUT" \
+  --metadata "$TEST_TMPDIR/local-facing.json" \
+  --output "$TEST_TMPDIR/dev-facing.json"
+
+# Test 1: Positive export
+echo "Test 1: Exporting Asahi-like installer data..."
+"$REPO_ROOT/installer/scripts/export-asahi-installer-data" \
+  --input "$TEST_TMPDIR/dev-facing.json" \
+  --output "$TEST_TMPDIR/asahi-like.json" \
+  --channel dev
+
+# Test 2: Validate generated prototype layout
+echo "Test 2: Validating generated prototype..."
+"$REPO_ROOT/installer/scripts/validate-generated-asahi-installer-data" "$TEST_TMPDIR/asahi-like.json"
+echo "  [OK] Prototype validation passed."
+
+# Test 3: Selection simulation
+echo "Test 3: Simulating OS selection..."
+"$REPO_ROOT/installer/scripts/simulate-asahi-installer-data-selection" \
+  --data "$TEST_TMPDIR/asahi-like.json" \
+  --verify-url-shape
+echo "  [OK] Selection simulator passed."
+
+# Test 4: Three-way comparison shape checks
+echo "Test 4: Running comparative report..."
+"$REPO_ROOT/installer/scripts/compare-installer-metadata-shape" \
+  --cidre "$TEST_TMPDIR/dev-facing.json" \
+  --asahi-like "$TEST_TMPDIR/asahi-like.json" \
+  --upstream "$UPSTREAM_SNAPSHOT"
+echo "  [OK] Shape comparison completed."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Adapter Tests ==="
+
+# Neg 1: Strict validation with PLACEHOLDER_SHA256
+echo "Neg 1: Strict placeholder checks..."
+if "$REPO_ROOT/installer/scripts/validate-generated-asahi-installer-data" --strict "$TEST_TMPDIR/asahi-like.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on strict validation with placeholder hash, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught placeholder hash in strict mode."
+
+# Neg 2: Validation fail with missing warning label
+echo "Neg 2: Missing prototype warning check..."
+jq 'del(._warning)' "$TEST_TMPDIR/asahi-like.json" > "$TEST_TMPDIR/no_warning.json"
+if "$REPO_ROOT/installer/scripts/validate-generated-asahi-installer-data" "$TEST_TMPDIR/no_warning.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on missing _warning parameter, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught missing _warning label."
+
+# Neg 3: Validation fail with invalid architecture
+echo "Neg 3: Invalid architecture check..."
+jq '.os_list[0].arch = "x86_64"' "$TEST_TMPDIR/asahi-like.json" > "$TEST_TMPDIR/bad_arch.json"
+if "$REPO_ROOT/installer/scripts/validate-generated-asahi-installer-data" "$TEST_TMPDIR/bad_arch.json" >/dev/null 2>&1; then
+  echo "ERROR: Expected failure on invalid architecture, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Caught invalid architecture."
+
+echo "All Asahi Adapter Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0
