@@ -1,0 +1,211 @@
+#!/bin/bash
+# run-cidre-gui-integration-smoke-tests: Runs fixed fixture-based pipelines to simulate GUI integration
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-gui-integration-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/rootfs/usr/bin"
+mkdir -p "$TEST_TMPDIR/rootfs/etc"
+mkdir -p "$TEST_TMPDIR/rootfs/var"
+mkdir -p "$TEST_TMPDIR/rootfs/usr/share/cidre/defaults"
+mkdir -p "$TEST_TMPDIR/wrapper"
+mkdir -p "$TEST_TMPDIR/server"
+mkdir -p "$TEST_TMPDIR/output"
+
+echo "=== Running Cidre GUI Integration Smoke Tests ==="
+
+# Write core scripts to mock rootfs
+touch "$TEST_TMPDIR/rootfs/usr/bin/cidre-welcome"
+touch "$TEST_TMPDIR/rootfs/usr/bin/cidre-doctor"
+touch "$TEST_TMPDIR/rootfs/usr/bin/cidre-session"
+
+# Write mock server files
+mkdir -p "$TEST_TMPDIR/dummy-rootfs/usr/bin"
+mkdir -p "$TEST_TMPDIR/dummy-rootfs/usr/share/cidre/defaults"
+mkdir -p "$TEST_TMPDIR/dummy-rootfs/etc"
+mkdir -p "$TEST_TMPDIR/dummy-rootfs/var"
+touch "$TEST_TMPDIR/dummy-rootfs/usr/bin/cidre-welcome"
+touch "$TEST_TMPDIR/dummy-rootfs/usr/bin/cidre-doctor"
+touch "$TEST_TMPDIR/dummy-rootfs/usr/bin/cidre-session"
+tar -cf - -C "$TEST_TMPDIR/dummy-rootfs" . | zstd -o "$TEST_TMPDIR/server/cidre-seed-aarch64-v0.10.0.tar.zst"
+
+echo "dummy manifest data" > "$TEST_TMPDIR/server/cidre-seed-aarch64-v0.10.0.manifest"
+
+# Calculate dummy sha
+sha_tool="shasum -a 256"
+command -v sha256sum >/dev/null 2>&1 && sha_tool="sha256sum"
+DUMMY_SHA=$($sha_tool "$TEST_TMPDIR/server/cidre-seed-aarch64-v0.10.0.tar.zst" | cut -d' ' -f1)
+
+# Start mock server
+python3 -m http.server 8761 --bind 127.0.0.1 --directory "$TEST_TMPDIR/server" >/dev/null 2>&1 &
+SERVER_PID=$!
+
+cleanup() {
+  echo "Stopping mock HTTP server (PID: $SERVER_PID)..."
+  kill "$SERVER_PID" || true
+  rm -rf "$TEST_TMPDIR"
+}
+trap cleanup EXIT
+
+# Wait a moment for server to boot
+sleep 2
+
+# Test 1: Verify Phase 27 Image selection
+echo "Step 1: Selecting image..."
+"$REPO_ROOT/installer/scripts/export-installer-metadata" \
+  --metadata "$REPO_ROOT/installer/fixtures/cidre-seed-v0.integration.json" \
+  --output "$TEST_TMPDIR/local-facing.json" \
+  --channel local
+
+"$REPO_ROOT/installer/scripts/prepare-dev-release-assets" \
+  --layout "$REPO_ROOT/installer/release/cidre-release-layout.localhost.json" \
+  --metadata "$TEST_TMPDIR/local-facing.json" \
+  --output "$TEST_TMPDIR/dev-facing.json"
+
+"$REPO_ROOT/installer/scripts/export-asahi-installer-data" \
+  --input "$TEST_TMPDIR/dev-facing.json" \
+  --output "$TEST_TMPDIR/asahi-installer-data.json" \
+  --channel dev \
+  --repo-base "http://127.0.0.1:8761" \
+  --normalize-asset-layout
+
+# Patch computed SHA256 into installer metadata so that verification passes
+jq --arg sha "$DUMMY_SHA" '.os_list[].sha256 = $sha' "$TEST_TMPDIR/asahi-installer-data.json" > "$TEST_TMPDIR/asahi.patched.json"
+mv "$TEST_TMPDIR/asahi.patched.json" "$TEST_TMPDIR/asahi-installer-data.json"
+
+"$REPO_ROOT/installer/scripts/cidre-wrapper-select-image" \
+  --metadata "$TEST_TMPDIR/asahi-installer-data.json" \
+  --id "cidre-seed-aarch64" \
+  --output "$TEST_TMPDIR/wrapper/selected-image.json"
+
+# Test 2: Verify Phase 28 Fetch simulation
+echo "Step 2: Simulating artifact download..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-fetch-artifact" \
+  --selection "$TEST_TMPDIR/wrapper/selected-image.json" \
+  --download-dir "$TEST_TMPDIR/output" \
+  --output "$TEST_TMPDIR/wrapper/verified-artifact.json"
+
+# Test 3: Verify Phase 29 Extraction simulation
+echo "Step 3: Extracting sandbox rootfs..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-inspect-artifact" \
+  --artifact "$TEST_TMPDIR/wrapper/verified-artifact.json" \
+  --output "$TEST_TMPDIR/wrapper/artifact-structure.json"
+
+"$REPO_ROOT/installer/scripts/cidre-wrapper-extract-sandbox" \
+  --artifact "$TEST_TMPDIR/wrapper/verified-artifact.json" \
+  --structure "$TEST_TMPDIR/wrapper/artifact-structure.json" \
+  --output "$TEST_TMPDIR/wrapper/extracted-rootfs.json" \
+  --sandbox-dir "$TEST_TMPDIR/output"
+
+# Test 4: Verify Phase 30 Rootfs Validation & Plan Generation
+echo "Step 4: Validating rootfs layout & generating plan..."
+# Overwrite extracted-rootfs sandbox_dir and rootfs_dir with our mock rootfs
+jq --arg r_dir "$TEST_TMPDIR/rootfs" '.sandbox_dir = $r_dir | .rootfs_dir = $r_dir' "$TEST_TMPDIR/wrapper/extracted-rootfs.json" > "$TEST_TMPDIR/extracted-rootfs.temp"
+mv "$TEST_TMPDIR/extracted-rootfs.temp" "$TEST_TMPDIR/wrapper/extracted-rootfs.json"
+
+"$REPO_ROOT/installer/scripts/validate-cidre-extracted-rootfs-content" \
+  --extracted "$TEST_TMPDIR/wrapper/extracted-rootfs.json" \
+  --output "$TEST_TMPDIR/wrapper/rootfs-validation.json"
+
+"$REPO_ROOT/installer/scripts/generate-cidre-install-plan" \
+  --rootfs-validation "$TEST_TMPDIR/wrapper/rootfs-validation.json" \
+  --output "$TEST_TMPDIR/wrapper/install-plan.json"
+
+# Test 5: Verify Phase 31 Target Candidates Discovery
+echo "Step 5: Discovering target candidates..."
+cat <<EOF > "$TEST_TMPDIR/lsblk.sample.json"
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "kname": "nvme0n1",
+      "path": "/dev/nvme0n1",
+      "type": "disk",
+      "size": 53687091200,
+      "children": [
+        {
+          "name": "nvme0n1p7",
+          "kname": "nvme0n1p7",
+          "path": "/dev/nvme0n1p7",
+          "type": "part",
+          "size": 53687091200,
+          "fstype": "ext4",
+          "mountpoints": [],
+          "label": "CIDRE-TARGET",
+          "partlabel": "Cidre Target",
+          "ro": false
+        }
+      ]
+    }
+  ]
+}
+EOF
+
+"$REPO_ROOT/installer/scripts/cidre-wrapper-discover-targets" \
+  --install-plan "$TEST_TMPDIR/wrapper/install-plan.json" \
+  --fixture "$TEST_TMPDIR/lsblk.sample.json" \
+  --output "$TEST_TMPDIR/wrapper/target-candidates.json"
+
+# Test 6: Verify Phase 32 Target Selection Gate
+echo "Step 6: Selecting target nvme0n1p7..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-select-target" \
+  --candidates "$TEST_TMPDIR/wrapper/target-candidates.json" \
+  --target-id "nvme0n1p7" \
+  --confirm "SELECT CIDRE TARGET ONLY - NO INSTALL" \
+  --output "$TEST_TMPDIR/wrapper/selected-target.json"
+
+# Test 7: Verify Phase 33 Final Contract Binding
+echo "Step 7: Binding final install contract..."
+"$REPO_ROOT/installer/scripts/bind-cidre-final-install-contract" \
+  --rootfs-validation "$TEST_TMPDIR/wrapper/rootfs-validation.json" \
+  --install-plan "$TEST_TMPDIR/wrapper/install-plan.json" \
+  --selected-target "$TEST_TMPDIR/wrapper/selected-target.json" \
+  --output "$TEST_TMPDIR/wrapper/final-install-contract.json"
+
+"$REPO_ROOT/installer/scripts/generate-cidre-dryrun-staging-plan" \
+  --contract "$TEST_TMPDIR/wrapper/final-install-contract.json" \
+  --output "$TEST_TMPDIR/wrapper/dry-run-staging-plan.json"
+
+# Test 8: Verify Phase 34 Controlled Staging Apply & Freeze
+echo "Step 8: Staging rootfs, validating staged files, and freezing MVP state..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-stage-target" \
+  --contract "$TEST_TMPDIR/wrapper/final-install-contract.json" \
+  --dryrun-plan "$TEST_TMPDIR/wrapper/dry-run-staging-plan.json" \
+  --confirm "APPLY CIDRE STAGING TO SELECTED TARGET" \
+  --output "$TEST_TMPDIR/wrapper/staging-result.json" \
+  --apply \
+  --fixture-mode \
+  --mount-root "$TEST_TMPDIR/output"
+
+# Overwrite staging-result mountpoint target with our mock rootfs for staged target validation
+jq --arg r_dir "$TEST_TMPDIR/rootfs" '.mount.mountpoint = $r_dir' "$TEST_TMPDIR/wrapper/staging-result.json" > "$TEST_TMPDIR/staging-result.temp"
+mv "$TEST_TMPDIR/staging-result.temp" "$TEST_TMPDIR/wrapper/staging-result.json"
+
+"$REPO_ROOT/installer/scripts/validate-cidre-staged-target" \
+  --staging-result "$TEST_TMPDIR/wrapper/staging-result.json" \
+  --output "$TEST_TMPDIR/wrapper/staged-target-validation.json" \
+  --fixture-mode
+
+"$REPO_ROOT/installer/scripts/generate-cidre-firstboot-handoff" \
+  --staged-validation "$TEST_TMPDIR/wrapper/staged-target-validation.json" \
+  --output "$TEST_TMPDIR/wrapper/firstboot-handoff.json"
+
+"$REPO_ROOT/installer/scripts/freeze-cidre-installer-mvp" \
+  --staging-result "$TEST_TMPDIR/wrapper/staging-result.json" \
+  --staged-validation "$TEST_TMPDIR/wrapper/staged-target-validation.json" \
+  --firstboot-handoff "$TEST_TMPDIR/wrapper/firstboot-handoff.json" \
+  --output "$TEST_TMPDIR/wrapper/installer-mvp-freeze.json"
+
+# Verify pipeline frozen correctly
+mvp_ok=$(jq -r '.installer_mvp_complete' "$TEST_TMPDIR/wrapper/installer-mvp-freeze.json")
+if [ "$mvp_ok" != "true" ]; then
+  echo "ERROR: Expected installer_mvp_complete=true but got '$mvp_ok'." >&2
+  exit 1
+fi
+
+echo "All GUI Integration Smoke Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

@@ -41,6 +41,7 @@ usage() {
   echo "  --cidre-target-selection-only         Run Cidre installer wrapper target selection tests"
   echo "  --cidre-final-contract-only           Run Cidre installer wrapper final contract tests"
   echo "  --cidre-installer-mvp-only            Run Cidre installer wrapper MVP tests"
+  echo "  --cidre-gui-integration-only          Run Cidre installer wrapper GUI integration tests"
   exit 1
 }
 
@@ -160,6 +161,10 @@ while [ $# -gt 0 ]; do
       ;;
     --cidre-installer-mvp-only)
       CIDRE_INSTALLER_MVP_ONLY=1
+      shift
+      ;;
+    --cidre-gui-integration-only)
+      CIDRE_GUI_INTEGRATION_ONLY=1
       shift
       ;;
     *)
@@ -314,6 +319,17 @@ fi
 if [ "${CIDRE_INSTALLER_MVP_ONLY:-0}" -eq 1 ]; then
   echo "Running Cidre installer wrapper MVP tests only..."
   "$REPO_ROOT/installer/scripts/run-cidre-installer-mvp-tests"
+  exit 0
+fi
+
+if [ "${CIDRE_GUI_INTEGRATION_ONLY:-0}" -eq 1 ]; then
+  echo "Running Cidre installer wrapper GUI integration tests only..."
+  "$REPO_ROOT/installer/scripts/run-cidre-gui-integration-smoke-tests"
+  
+  # Also verify Swift package builds successfully
+  echo "Verifying Swift application compilation..."
+  (cd "$REPO_ROOT/apps/macos/CidreApp" && swift build)
+  
   exit 0
 fi
 

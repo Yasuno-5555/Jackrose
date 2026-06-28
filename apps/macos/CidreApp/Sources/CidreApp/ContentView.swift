@@ -11,7 +11,7 @@ struct ContentView: View {
             Group {
                 switch selection {
                 case "setup-wizard":
-                    SetupWizardRootView()
+                    CidreInstallerShellView(fixtureMode: true, fakeMount: true)
                 case "uninstall-wizard":
                     UninstallWizardRootView()
                 case "repair-wizard":
@@ -31,7 +31,7 @@ struct ContentView: View {
                 case "settings":
                     SettingsView()
                 default:
-                    SetupWizardRootView()
+                    CidreInstallerShellView(fixtureMode: true, fakeMount: true)
                 }
             }
         }

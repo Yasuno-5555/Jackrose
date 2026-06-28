@@ -157,3 +157,13 @@ To run the full installer MVP tests suite:
 ```bash
 installer/scripts/run-cidre-installer-mvp-tests
 ```
+
+---
+
+## 16. GUI Installer Shell Integration
+
+To run the GUI integration smoke tests:
+
+```bash
+installer/scripts/run-cidre-gui-integration-smoke-tests
+```
