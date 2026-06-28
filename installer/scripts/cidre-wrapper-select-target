@@ -1,0 +1,195 @@
+#!/bin/bash
+# cidre-wrapper-select-target: Selects one eligible target partition from candidates config after confirmation
+set -euo pipefail
+
+CANDIDATES=""
+TARGET_ID=""
+CONFIRM=""
+OUTPUT=""
+CONFIRM_STR_EXPECTED="SELECT CIDRE TARGET ONLY - NO INSTALL"
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --candidates <path> --target-id <id> --confirm <string> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --candidates)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --candidates requires a path." >&2
+        exit 1
+      fi
+      CANDIDATES="$2"
+      shift 2
+      ;;
+    --target-id)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --target-id requires a partition name." >&2
+        exit 1
+      fi
+      TARGET_ID="$2"
+      shift 2
+      ;;
+    --confirm)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --confirm requires a validation string." >&2
+        exit 1
+      fi
+      CONFIRM="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --confirmation-string)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --confirmation-string requires a string." >&2
+        exit 1
+      fi
+      CONFIRM_STR_EXPECTED="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CANDIDATES" ] || [ -z "$TARGET_ID" ] || [ -z "$CONFIRM" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --candidates, --target-id, --confirm, and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$CANDIDATES" ]; then
+  echo "ERROR: Candidates file not found: $CANDIDATES" >&2
+  exit 1
+fi
+
+# Print warnings
+echo "==========================================================" >&2
+echo "WARNING: TARGET SELECTION IN PROGRESS" >&2
+echo "This selects a target for future planning only." >&2
+echo "This does not mount, format, stage, or install." >&2
+echo "Future phases may use this target for destructive operations" >&2
+echo "only after separate confirmation gates." >&2
+echo "==========================================================" >&2
+
+# Check confirmation contract
+if [ "$CONFIRM" != "$CONFIRM_STR_EXPECTED" ]; then
+  echo "ERROR: Confirmation contract mismatch." >&2
+  echo "Expected: '$CONFIRM_STR_EXPECTED'" >&2
+  echo "Got:      '$CONFIRM'" >&2
+  exit 1
+fi
+
+# Load candidates validation
+readonly=$(jq -r '.readonly_discovery' "$CANDIDATES")
+selected=$(jq -r '.target_selected' "$CANDIDATES")
+sel_ok=$(jq -r '.target_selection_allowed' "$CANDIDATES")
+mut_ok=$(jq -r '.target_mutation_allowed' "$CANDIDATES")
+stage_ok=$(jq -r '.staging_allowed' "$CANDIDATES")
+inst_ok=$(jq -r '.install_allowed' "$CANDIDATES")
+
+if [ "$readonly" != "true" ] || [ "$selected" != "false" ] || [ "$sel_ok" != "false" ] || \
+   [ "$mut_ok" != "false" ] || [ "$stage_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: Precondition fail. Candidates list must be read-only and non-selecting." >&2
+  exit 1
+fi
+
+# Query match
+matches=$(jq -c --arg tid "$TARGET_ID" '.candidates[] | select(.id == $tid)' "$CANDIDATES")
+match_count=$(echo "$matches" | grep -c . || echo 0)
+
+if [ "$match_count" -eq 0 ]; then
+  echo "ERROR: Candidate target '$TARGET_ID' not found." >&2
+  exit 1
+fi
+
+if [ "$match_count" -gt 1 ]; then
+  echo "ERROR: Multiple candidates found with target-id '$TARGET_ID'." >&2
+  exit 1
+fi
+
+# Load matching candidate properties
+path=$(echo "$matches" | jq -r '.path')
+parent=$(echo "$matches" | jq -r '.parent')
+type=$(echo "$matches" | jq -r '.type')
+size_bytes=$(echo "$matches" | jq -r '.size_bytes')
+fstype=$(echo "$matches" | jq -r '.fstype')
+label=$(echo "$matches" | jq -r '.label')
+partlabel=$(echo "$matches" | jq -r '.partlabel')
+mountpoints_count=$(echo "$matches" | jq '.mountpoints | length')
+ro_val=$(echo "$matches" | jq -r '.readonly')
+cls=$(echo "$matches" | jq -r '.classification')
+eligible=$(echo "$matches" | jq -r '.eligible')
+
+if [ "$cls" != "safe_candidate" ] || [ "$eligible" != "true" ] || [ "$mountpoints_count" -gt 0 ] || [ "$ro_val" != "false" ]; then
+  echo "ERROR: Target partition '$TARGET_ID' is not eligible for selection." >&2
+  exit 1
+fi
+
+# Build selected-target JSON
+selected_json=$(jq -n \
+  --arg v_ver "0.1" \
+  --arg phase "32" \
+  --arg source "$CANDIDATES" \
+  --arg tid "$TARGET_ID" \
+  --arg path "$path" \
+  --arg parent "$parent" \
+  --arg type "$type" \
+  --argjson size "$size_bytes" \
+  --arg fstype "$fstype" \
+  --arg label "$label" \
+  --arg plabel "$partlabel" \
+  --argjson ro "$ro_val" \
+  --arg cls "$cls" \
+  --argjson elig "$eligible" \
+  --arg confirm_str "$CONFIRM_STR_EXPECTED" \
+  --arg reason "Target selected for planning only. Mounting, formatting, staging, mutation, and installation are not enabled in Phase 32." \
+  '{
+    selection_version: $v_ver,
+    phase: $phase,
+    source_candidates: $source,
+    selected: true,
+    target_id: $tid,
+    path: $path,
+    parent: (if $parent == "null" then null else $parent end),
+    type: $type,
+    size_bytes: $size,
+    fstype: (if $fstype == "null" then null else $fstype end),
+    label: (if $label == "null" then null else $label end),
+    partlabel: (if $plabel == "null" then null else $plabel end),
+    mountpoints: [],
+    readonly: ($ro == true),
+    classification: $cls,
+    eligible: ($elig == true),
+    confirmation_required: true,
+    confirmation_string: $confirm_str,
+    confirmation_matched: true,
+    mount_allowed: false,
+    format_allowed: false,
+    target_mutation_allowed: false,
+    staging_allowed: false,
+    install_allowed: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$selected_json" > "$OUTPUT"
+
+echo "Target selection confirmed and written to $OUTPUT." >&2
+echo "$selected_json"
+exit 0

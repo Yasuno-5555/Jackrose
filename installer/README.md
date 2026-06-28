@@ -127,3 +127,13 @@ To run the read-only target discovery tests suite:
 ```bash
 installer/scripts/run-cidre-target-discovery-tests
 ```
+
+---
+
+## 13. Cidre Target Selection Gate
+
+To run the target selection tests suite:
+
+```bash
+installer/scripts/run-cidre-target-selection-tests
+```

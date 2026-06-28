@@ -1,0 +1,258 @@
+#!/bin/bash
+# run-cidre-target-selection-tests: Phase 32 target selection tests runner using mock fixtures
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-target-selection-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/fixtures"
+mkdir -p "$TEST_TMPDIR/output"
+
+echo "=== Running Cidre Target Selection Tests ==="
+
+# Helpers to build mock target-candidates JSON formats
+cat <<EOF > "$TEST_TMPDIR/fixtures/candidates.valid.json"
+{
+  "discovery_version": "0.1",
+  "phase": "31",
+  "source_plan": "MOCK",
+  "readonly_discovery": true,
+  "target_selected": false,
+  "target_selection_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false,
+  "minimum_target_size_bytes": 34359738368,
+  "candidates": [
+    {
+      "id": "nvme0n1p7",
+      "path": "/dev/nvme0n1p7",
+      "parent": "/dev/nvme0n1",
+      "type": "part",
+      "size_bytes": 53687091200,
+      "fstype": "ext4",
+      "label": "CIDRE-TARGET",
+      "partlabel": "Cidre Target",
+      "mountpoints": [],
+      "readonly": false,
+      "classification": "safe_candidate",
+      "eligible": true,
+      "reasons": []
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "safe_candidates": 1,
+    "unsafe_candidates": 0,
+    "unknown_candidates": 0
+  },
+  "reason": "MOCK"
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/candidates.no-safe.json"
+{
+  "discovery_version": "0.1",
+  "phase": "31",
+  "source_plan": "MOCK",
+  "readonly_discovery": true,
+  "target_selected": false,
+  "target_selection_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false,
+  "minimum_target_size_bytes": 34359738368,
+  "candidates": [
+    {
+      "id": "nvme0n1p1",
+      "path": "/dev/nvme0n1p1",
+      "parent": "/dev/nvme0n1",
+      "type": "part",
+      "size_bytes": 53687091200,
+      "fstype": "ext4",
+      "label": "CIDRE-ROOT",
+      "partlabel": "Cidre Root",
+      "mountpoints": ["/"],
+      "readonly": false,
+      "classification": "unsafe_active_system",
+      "eligible": false,
+      "reasons": []
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "safe_candidates": 0,
+    "unsafe_candidates": 1,
+    "unknown_candidates": 0
+  },
+  "reason": "MOCK"
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/candidates.duplicate-id.json"
+{
+  "discovery_version": "0.1",
+  "phase": "31",
+  "source_plan": "MOCK",
+  "readonly_discovery": true,
+  "target_selected": false,
+  "target_selection_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false,
+  "minimum_target_size_bytes": 34359738368,
+  "candidates": [
+    {
+      "id": "nvme0n1p7",
+      "path": "/dev/nvme0n1p7",
+      "parent": "/dev/nvme0n1",
+      "type": "part",
+      "size_bytes": 53687091200,
+      "fstype": "ext4",
+      "label": "CIDRE-TARGET",
+      "partlabel": "Cidre Target",
+      "mountpoints": [],
+      "readonly": false,
+      "classification": "safe_candidate",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "id": "nvme0n1p7",
+      "path": "/dev/nvme0n1p7-dup",
+      "parent": "/dev/nvme0n1",
+      "type": "part",
+      "size_bytes": 53687091200,
+      "fstype": "ext4",
+      "label": "CIDRE-TARGET",
+      "partlabel": "Cidre Target",
+      "mountpoints": [],
+      "readonly": false,
+      "classification": "safe_candidate",
+      "eligible": true,
+      "reasons": []
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "safe_candidates": 2,
+    "unsafe_candidates": 0,
+    "unknown_candidates": 0
+  },
+  "reason": "MOCK"
+}
+EOF
+
+# Test 1: Positive verification
+echo "Test 1: Testing target selection with valid safe candidate..."
+"$REPO_ROOT/installer/scripts/cidre-wrapper-select-target" \
+  --candidates "$TEST_TMPDIR/fixtures/candidates.valid.json" \
+  --target-id "nvme0n1p7" \
+  --confirm "SELECT CIDRE TARGET ONLY - NO INSTALL" \
+  --output "$TEST_TMPDIR/output/selected-valid.json"
+
+# Confirm validations success
+selected=$(jq -r '.selected' "$TEST_TMPDIR/output/selected-valid.json")
+if [ "$selected" != "true" ]; then
+  echo "ERROR: Expected selected=true but got '$selected'." >&2
+  exit 1
+fi
+
+"$REPO_ROOT/installer/scripts/validate-cidre-selected-target" \
+  --selected-target "$TEST_TMPDIR/output/selected-valid.json"
+
+echo "  [OK] Valid target selection passed."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Selection Tests ==="
+
+# Neg 1: Wrong confirmation string
+echo "Neg 1: Testing incorrect confirmation string..."
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-select-target" \
+  --candidates "$TEST_TMPDIR/fixtures/candidates.valid.json" \
+  --target-id "nvme0n1p7" \
+  --confirm "BAD_CONFIRMATION_STRING" \
+  --output "$TEST_TMPDIR/output/selected-bad-confirm.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected selection to fail on bad confirmation, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Bad confirmation string successfully blocked."
+
+# Neg 2: Unsafe candidates list
+echo "Neg 2: Testing selection of unsafe candidate..."
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-select-target" \
+  --candidates "$TEST_TMPDIR/fixtures/candidates.no-safe.json" \
+  --target-id "nvme0n1p1" \
+  --confirm "SELECT CIDRE TARGET ONLY - NO INSTALL" \
+  --output "$TEST_TMPDIR/output/selected-unsafe.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected selection to fail on unsafe target, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Unsafe candidate selection successfully blocked."
+
+# Neg 3: Duplicate candidate IDs
+echo "Neg 3: Testing duplicate candidate IDs..."
+if "$REPO_ROOT/installer/scripts/cidre-wrapper-select-target" \
+  --candidates "$TEST_TMPDIR/fixtures/candidates.duplicate-id.json" \
+  --target-id "nvme0n1p7" \
+  --confirm "SELECT CIDRE TARGET ONLY - NO INSTALL" \
+  --output "$TEST_TMPDIR/output/selected-dup.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected selection to fail on duplicate ids, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Duplicate candidate IDs successfully blocked."
+
+# Neg 4: Rejection of mutation flags in selected target validator
+echo "Neg 4: Rejection of mutation flags in validator..."
+cat <<EOF > "$TEST_TMPDIR/output/selected-mutated.json"
+{
+  "selection_version": "0.1",
+  "phase": "32",
+  "source_candidates": "MOCK",
+  "selected": true,
+  "target_id": "nvme0n1p7",
+  "path": "/dev/nvme0n1p7",
+  "type": "part",
+  "size_bytes": 53687091200,
+  "classification": "safe_candidate",
+  "eligible": true,
+  "confirmation_required": true,
+  "confirmation_matched": true,
+  "mountpoints": [],
+  "readonly": false,
+  "mount_allowed": true,
+  "format_allowed": true,
+  "target_mutation_allowed": true,
+  "staging_allowed": true,
+  "install_allowed": true,
+  "reason": "MOCK"
+}
+EOF
+
+if "$REPO_ROOT/installer/scripts/validate-cidre-selected-target" \
+  --selected-target "$TEST_TMPDIR/output/selected-mutated.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected validator to reject mutating configuration, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutating selected target configurations successfully rejected."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil "diskutil erase" "diskutil partition" "diskutil apfs" bless nvram gpt fdisk dd mkfs parted mount chroot "pacman --root" rsync "cp -a" "cp -R")
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Target Selection Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

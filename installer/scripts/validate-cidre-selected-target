@@ -1,0 +1,115 @@
+#!/bin/bash
+# validate-cidre-selected-target: Validates selected-target.json structure and locks
+set -euo pipefail
+
+SELECTED=""
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --selected-target <path> [--strict]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --selected-target)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --selected-target requires a path." >&2
+        exit 1
+      fi
+      SELECTED="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$SELECTED" ]; then
+  echo "ERROR: --selected-target is required." >&2
+  usage
+fi
+
+if [ ! -f "$SELECTED" ]; then
+  echo "ERROR: Selected target file not found: $SELECTED" >&2
+  exit 1
+fi
+
+if ! jq . "$SELECTED" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape in selected target file." >&2
+  exit 1
+fi
+
+# Load variables
+s_ver=$(jq -r '.selection_version' "$SELECTED")
+phase=$(jq -r '.phase' "$SELECTED")
+source_cand=$(jq -r '.source_candidates' "$SELECTED")
+selected=$(jq -r '.selected' "$SELECTED")
+target_id=$(jq -r '.target_id' "$SELECTED")
+path=$(jq -r '.path' "$SELECTED")
+type=$(jq -r '.type' "$SELECTED")
+size=$(jq -r '.size_bytes' "$SELECTED")
+cls=$(jq -r '.classification' "$SELECTED")
+eligible=$(jq -r '.eligible' "$SELECTED")
+conf_req=$(jq -r '.confirmation_required' "$SELECTED")
+conf_match=$(jq -r '.confirmation_matched' "$SELECTED")
+mount_ok=$(jq -r '.mount_allowed' "$SELECTED")
+format_ok=$(jq -r '.format_allowed' "$SELECTED")
+mut_ok=$(jq -r '.target_mutation_allowed' "$SELECTED")
+stage_ok=$(jq -r '.staging_allowed' "$SELECTED")
+inst_ok=$(jq -r '.install_allowed' "$SELECTED")
+mountpoints_count=$(jq '.mountpoints | length' "$SELECTED")
+ro_val=$(jq -r '.readonly' "$SELECTED")
+
+# Existence check
+if [ "$s_ver" = "null" ] || [ "$phase" = "null" ] || [ "$source_cand" = "null" ] || [ "$selected" = "null" ] || \
+   [ "$target_id" = "null" ] || [ "$path" = "null" ] || [ "$type" = "null" ] || [ "$size" = "null" ] || \
+   [ "$cls" = "null" ] || [ "$eligible" = "null" ] || [ "$conf_req" = "null" ] || [ "$conf_match" = "null" ] || \
+   [ "$mount_ok" = "null" ] || [ "$format_ok" = "null" ] || [ "$mut_ok" = "null" ] || [ "$stage_ok" = "null" ] || \
+   [ "$inst_ok" = "null" ]; then
+  echo "ERROR: Missing required fields in selected target JSON." >&2
+  exit 1
+fi
+
+# Value checks
+if [ "$phase" != "32" ]; then
+  echo "ERROR: Selected target phase version mismatch: $phase" >&2
+  exit 1
+fi
+
+if [ "$selected" != "true" ]; then
+  echo "ERROR: selected must be true." >&2
+  exit 1
+fi
+
+if [ "$cls" != "safe_candidate" ] || [ "$eligible" != "true" ] || [ "$mountpoints_count" -gt 0 ] || [ "$ro_val" != "false" ]; then
+  echo "ERROR: Target partition details indicate it is unsafe, read-only, or mounted." >&2
+  exit 1
+fi
+
+if [ "$conf_req" != "true" ] || [ "$conf_match" != "true" ]; then
+  echo "ERROR: Confirmation contract validation check failed." >&2
+  exit 1
+fi
+
+if [ "$mount_ok" != "false" ] || [ "$format_ok" != "false" ] || [ "$mut_ok" != "false" ] || [ "$stage_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: Selected target locks must not be enabled." >&2
+  exit 1
+fi
+
+# Strict rules
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$mount_ok" = "true" ] || [ "$format_ok" = "true" ] || [ "$mut_ok" = "true" ] || [ "$stage_ok" = "true" ] || [ "$inst_ok" = "true" ]; then
+    echo "ERROR: Selected target permissions must be strictly false." >&2
+    exit 2
+  fi
+fi
+
+echo "Selected target config validates successfully."
+exit 0
