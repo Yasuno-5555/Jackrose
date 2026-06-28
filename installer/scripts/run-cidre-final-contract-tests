@@ -1,0 +1,269 @@
+#!/bin/bash
+# run-cidre-final-contract-tests: Phase 33 final contract tests runner using mock fixtures
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+TEST_TMPDIR="${CIDRE_TEST_TMPDIR:-/tmp/cidre-final-contract-tests}"
+rm -rf "$TEST_TMPDIR"
+mkdir -p "$TEST_TMPDIR/fixtures"
+mkdir -p "$TEST_TMPDIR/output"
+
+echo "=== Running Cidre Final Contract Tests ==="
+
+# Helpers to build mock JSON inputs
+cat <<EOF > "$TEST_TMPDIR/fixtures/rootfs-validation.valid.json"
+{
+  "rootfs_valid": true,
+  "sandbox_valid": true,
+  "target_discovery_allowed": false,
+  "target_mutation_allowed": false,
+  "install_allowed": false
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/rootfs-validation.invalid.json"
+{
+  "rootfs_valid": false,
+  "sandbox_valid": true,
+  "target_discovery_allowed": false,
+  "target_mutation_allowed": false,
+  "install_allowed": false
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/install-plan.valid.json"
+{
+  "phase": "30",
+  "plan_kind": "review-only",
+  "rootfs_valid": true,
+  "selected_id": "cidre-seed-aarch64",
+  "rootfs_dir": "$TEST_TMPDIR",
+  "target_selected": false,
+  "target_discovery_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/install-plan.mutated.json"
+{
+  "phase": "30",
+  "plan_kind": "review-only",
+  "rootfs_valid": true,
+  "selected_id": "cidre-seed-aarch64",
+  "rootfs_dir": "$TEST_TMPDIR",
+  "target_selected": true,
+  "target_discovery_allowed": false,
+  "target_mutation_allowed": true,
+  "staging_allowed": true,
+  "install_allowed": true
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/selected-target.valid.json"
+{
+  "phase": "32",
+  "selected": true,
+  "classification": "safe_candidate",
+  "eligible": true,
+  "confirmation_required": true,
+  "confirmation_matched": true,
+  "mount_allowed": false,
+  "format_allowed": false,
+  "target_mutation_allowed": false,
+  "staging_allowed": false,
+  "install_allowed": false,
+  "target_id": "nvme0n1p7",
+  "path": "/dev/nvme0n1p7",
+  "parent": "/dev/nvme0n1",
+  "type": "part",
+  "size_bytes": 53687091200,
+  "confirmation_string": "SELECT CIDRE TARGET ONLY - NO INSTALL"
+}
+EOF
+
+cat <<EOF > "$TEST_TMPDIR/fixtures/selected-target.unsafe.json"
+{
+  "phase": "32",
+  "selected": true,
+  "classification": "unsafe_active_system",
+  "eligible": false,
+  "confirmation_required": true,
+  "confirmation_matched": true,
+  "mount_allowed": true,
+  "format_allowed": false,
+  "target_mutation_allowed": true,
+  "staging_allowed": false,
+  "install_allowed": true,
+  "target_id": "nvme0n1p1",
+  "path": "/dev/nvme0n1p1",
+  "parent": "/dev/nvme0n1",
+  "type": "part",
+  "size_bytes": 53687091200,
+  "confirmation_string": "SELECT CIDRE TARGET ONLY - NO INSTALL"
+}
+EOF
+
+# Test 1: Positive binding and plan generation
+echo "Test 1: Testing final contract binding and plan generation..."
+"$REPO_ROOT/installer/scripts/bind-cidre-final-install-contract" \
+  --rootfs-validation "$TEST_TMPDIR/fixtures/rootfs-validation.valid.json" \
+  --install-plan "$TEST_TMPDIR/fixtures/install-plan.valid.json" \
+  --selected-target "$TEST_TMPDIR/fixtures/selected-target.valid.json" \
+  --output "$TEST_TMPDIR/output/contract-valid.json"
+
+"$REPO_ROOT/installer/scripts/generate-cidre-dryrun-staging-plan" \
+  --contract "$TEST_TMPDIR/output/contract-valid.json" \
+  --output "$TEST_TMPDIR/output/dryrun-valid.json"
+
+# Confirm validator passes
+"$REPO_ROOT/installer/scripts/validate-cidre-final-install-contract" \
+  --contract "$TEST_TMPDIR/output/contract-valid.json" \
+  --dryrun-plan "$TEST_TMPDIR/output/dryrun-valid.json" \
+  --require-rootfs
+
+echo "  [OK] Valid final contract binding and dryrun plan generated."
+
+# --- Negative Tests Section ---
+echo "=== Running Negative Contract Tests ==="
+
+# Neg 1: Invalid rootfs validation
+echo "Neg 1: Testing invalid rootfs validation input..."
+if "$REPO_ROOT/installer/scripts/bind-cidre-final-install-contract" \
+  --rootfs-validation "$TEST_TMPDIR/fixtures/rootfs-validation.invalid.json" \
+  --install-plan "$TEST_TMPDIR/fixtures/install-plan.valid.json" \
+  --selected-target "$TEST_TMPDIR/fixtures/selected-target.valid.json" \
+  --output "$TEST_TMPDIR/output/contract-bad.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected contract binder to fail on invalid rootfs validation, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Invalid rootfs validation input successfully blocked."
+
+# Neg 2: Mutated install plan flags
+echo "Neg 2: Testing mutated install-plan validation input..."
+if "$REPO_ROOT/installer/scripts/bind-cidre-final-install-contract" \
+  --rootfs-validation "$TEST_TMPDIR/fixtures/rootfs-validation.valid.json" \
+  --install-plan "$TEST_TMPDIR/fixtures/install-plan.mutated.json" \
+  --selected-target "$TEST_TMPDIR/fixtures/selected-target.valid.json" \
+  --output "$TEST_TMPDIR/output/contract-bad.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected contract binder to fail on mutated install-plan flags, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutated install plan input successfully blocked."
+
+# Neg 3: Unsafe selected target input
+echo "Neg 3: Testing unsafe selected target validation input..."
+if "$REPO_ROOT/installer/scripts/bind-cidre-final-install-contract" \
+  --rootfs-validation "$TEST_TMPDIR/fixtures/rootfs-validation.valid.json" \
+  --install-plan "$TEST_TMPDIR/fixtures/install-plan.valid.json" \
+  --selected-target "$TEST_TMPDIR/fixtures/selected-target.unsafe.json" \
+  --output "$TEST_TMPDIR/output/contract-bad.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected contract binder to fail on unsafe target, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Unsafe selected target input successfully blocked."
+
+# Neg 4: Rejection of mutated contract permissions flags
+echo "Neg 4: Rejection of mutated contract permissions flags in validator..."
+cat <<EOF > "$TEST_TMPDIR/output/contract-tampered.json"
+{
+  "contract_version": "0.1",
+  "phase": "33",
+  "contract_kind": "final-non-mutating-install-contract",
+  "rootfs": {
+    "selected_id": "cidre-seed-aarch64",
+    "rootfs_dir": "$TEST_TMPDIR",
+    "rootfs_valid": true
+  },
+  "target": {
+    "target_id": "nvme0n1p7",
+    "path": "/dev/nvme0n1p7",
+    "type": "part",
+    "size_bytes": 53687091200,
+    "classification": "safe_candidate",
+    "eligible": true
+  },
+  "confirmation": {
+    "target_selection_confirmed": true,
+    "confirmation_string": "SELECT CIDRE TARGET ONLY - NO INSTALL"
+  },
+  "permissions": {
+    "mount_allowed": true,
+    "format_allowed": true,
+    "target_mutation_allowed": true,
+    "staging_allowed": true,
+    "boot_policy_mutation_allowed": true,
+    "install_allowed": true
+  },
+  "blocked_operations": [],
+  "reason": "MOCK"
+}
+EOF
+
+if "$REPO_ROOT/installer/scripts/validate-cidre-final-install-contract" \
+  --contract "$TEST_TMPDIR/output/contract-tampered.json" \
+  --dryrun-plan "$TEST_TMPDIR/output/dryrun-valid.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected validator to reject mutated contract flags, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutated contract permissions successfully rejected."
+
+# Neg 5: Rejection of mutated dryrun plan execution flags
+echo "Neg 5: Rejection of mutated dryrun plan execution flags..."
+cat <<EOF > "$TEST_TMPDIR/output/dryrun-tampered.json"
+{
+  "dryrun_version": "0.1",
+  "phase": "33",
+  "source_contract": "MOCK",
+  "dryrun_only": false,
+  "rootfs_dir": "$TEST_TMPDIR",
+  "target_path": "/dev/nvme0n1p7",
+  "planned_steps": [
+    {
+      "step": 1,
+      "name": "revalidate selected target",
+      "action": "mock",
+      "execution_allowed": true
+    }
+  ],
+  "blocked_commands": [],
+  "mount_allowed": true,
+  "format_allowed": true,
+  "staging_allowed": true,
+  "target_mutation_allowed": true,
+  "boot_policy_mutation_allowed": true,
+  "install_allowed": true,
+  "reason": "MOCK"
+}
+EOF
+
+if "$REPO_ROOT/installer/scripts/validate-cidre-final-install-contract" \
+  --contract "$TEST_TMPDIR/output/contract-valid.json" \
+  --dryrun-plan "$TEST_TMPDIR/output/dryrun-tampered.json" >/dev/null 2>&1; then
+  
+  echo "ERROR: Expected validator to reject mutated dryrun execution flags, but passed." >&2
+  exit 1
+fi
+echo "  [PASSED] Mutated dryrun execution flags successfully rejected."
+
+# Safety Tests: Confirms forbidden commands are matched inside guard zones
+echo "Safety: Verifying safety guard blocks..."
+FORBIDDEN=(installer-bootstrap.sh alx.sh install.sh "curl | sh" diskutil "diskutil erase" "diskutil partition" "diskutil apfs" bless nvram gpt fdisk dd mkfs parted mount chroot "pacman --root" rsync "cp -a" "cp -R")
+for cmd in "${FORBIDDEN[@]}"; do
+  if "$REPO_ROOT/installer/scripts/guard-installer-danger-zone" --command "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: Safety guard failed to block forbidden command '$cmd'." >&2
+    exit 1
+  fi
+done
+echo "  [PASSED] All forbidden command blocks verified."
+
+echo "All Cidre Final Contract Tests completed successfully!"
+rm -rf "$TEST_TMPDIR"
+exit 0

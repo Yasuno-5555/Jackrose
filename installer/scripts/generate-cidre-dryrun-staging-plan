@@ -1,0 +1,153 @@
+#!/bin/bash
+# generate-cidre-dryrun-staging-plan: Generates dry-run staging plan JSON from final install contract
+set -euo pipefail
+
+CONTRACT=""
+OUTPUT=""
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --contract <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --contract)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --contract requires a path." >&2
+        exit 1
+      fi
+      CONTRACT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CONTRACT" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --contract and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$CONTRACT" ]; then
+  echo "ERROR: Contract file not found: $CONTRACT" >&2
+  exit 1
+fi
+
+# Validate final-install-contract.json parameters
+phase=$(jq -r '.phase' "$CONTRACT")
+kind=$(jq -r '.contract_kind' "$CONTRACT")
+rf_valid=$(jq -r '.rootfs.rootfs_valid' "$CONTRACT")
+t_cls=$(jq -r '.target.classification' "$CONTRACT")
+t_elig=$(jq -r '.target.eligible' "$CONTRACT")
+
+m_ok=$(jq -r '.permissions.mount_allowed' "$CONTRACT")
+f_ok=$(jq -r '.permissions.format_allowed' "$CONTRACT")
+mut_ok=$(jq -r '.permissions.target_mutation_allowed' "$CONTRACT")
+s_ok=$(jq -r '.permissions.staging_allowed' "$CONTRACT")
+bp_ok=$(jq -r '.permissions.boot_policy_mutation_allowed' "$CONTRACT")
+inst_ok=$(jq -r '.permissions.install_allowed' "$CONTRACT")
+
+if [ "$phase" != "33" ] || [ "$kind" != "final-non-mutating-install-contract" ] || \
+   [ "$rf_valid" != "true" ] || [ "$t_cls" != "safe_candidate" ] || [ "$t_elig" != "true" ]; then
+  echo "ERROR: Contract validation parameters indicate invalid metadata." >&2
+  exit 1
+fi
+
+if [ "$m_ok" != "false" ] || [ "$f_ok" != "false" ] || [ "$mut_ok" != "false" ] || \
+   [ "$s_ok" != "false" ] || [ "$bp_ok" != "false" ] || [ "$inst_ok" != "false" ]; then
+  echo "ERROR: Contract contains active permission flags. Aborting." >&2
+  exit 1
+fi
+
+rootfs_dir=$(jq -r '.rootfs.rootfs_dir' "$CONTRACT")
+target_path=$(jq -r '.target.path' "$CONTRACT")
+
+# Build dry-run staging plan JSON
+plan_json=$(jq -n \
+  --arg phase "33" \
+  --arg source "$CONTRACT" \
+  --arg r_dir "$rootfs_dir" \
+  --arg t_path "$target_path" \
+  --arg reason "Dry-run staging plan generated as data only. No staging command is executable in Phase 33." \
+  '{
+    dryrun_version: "0.1",
+    phase: $phase,
+    source_contract: $source,
+    dryrun_only: true,
+    rootfs_dir: $r_dir,
+    target_path: $t_path,
+    planned_steps: [
+      {
+        step: 1,
+        name: "revalidate selected target",
+        action: "check target path and metadata before any future mount",
+        execution_allowed: false
+      },
+      {
+        step: 2,
+        name: "prepare temporary mountpoint",
+        action: "future phase only",
+        execution_allowed: false
+      },
+      {
+        step: 3,
+        name: "mount selected target",
+        action: "future phase only after explicit staging gate",
+        execution_allowed: false
+      },
+      {
+        step: 4,
+        name: "stage rootfs",
+        action: "future phase only after explicit staging gate",
+        execution_allowed: false
+      },
+      {
+        step: 5,
+        name: "preserve boot policy",
+        action: "no boot policy mutation in this plan",
+        execution_allowed: false
+      }
+    ],
+    blocked_commands: [
+      "mount",
+      "mkfs",
+      "rsync",
+      "cp -a",
+      "cp -R",
+      "bless",
+      "nvram",
+      "install.sh"
+    ],
+    mount_allowed: false,
+    format_allowed: false,
+    staging_allowed: false,
+    target_mutation_allowed: false,
+    boot_policy_mutation_allowed: false,
+    install_allowed: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$plan_json" > "$OUTPUT"
+
+echo "Dry-run staging plan successfully generated and written to $OUTPUT." >&2
+echo "$plan_json"
+exit 0

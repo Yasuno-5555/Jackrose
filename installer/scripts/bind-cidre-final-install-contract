@@ -1,0 +1,200 @@
+#!/bin/bash
+# bind-cidre-final-install-contract: Binds validation logs and target selection metadata into install contract
+set -euo pipefail
+
+ROOTFS_VAL=""
+INSTALL_PLAN=""
+SELECTED_TARGET=""
+OUTPUT=""
+CONTRACT_VER="0.1"
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --rootfs-validation <path> --install-plan <path> --selected-target <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rootfs-validation)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --rootfs-validation requires a path." >&2
+        exit 1
+      fi
+      ROOTFS_VAL="$2"
+      shift 2
+      ;;
+    --install-plan)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --install-plan requires a path." >&2
+        exit 1
+      fi
+      INSTALL_PLAN="$2"
+      shift 2
+      ;;
+    --selected-target)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --selected-target requires a path." >&2
+        exit 1
+      fi
+      SELECTED_TARGET="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --contract-version)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --contract-version requires a string." >&2
+        exit 1
+      fi
+      CONTRACT_VER="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ROOTFS_VAL" ] || [ -z "$INSTALL_PLAN" ] || [ -z "$SELECTED_TARGET" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --rootfs-validation, --install-plan, --selected-target, and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$ROOTFS_VAL" ] || [ ! -f "$INSTALL_PLAN" ] || [ ! -f "$SELECTED_TARGET" ]; then
+  echo "ERROR: One or more input files do not exist." >&2
+  exit 1
+fi
+
+# Load and validate rootfs-validation.json
+rf_valid=$(jq -r '.rootfs_valid' "$ROOTFS_VAL")
+sb_valid=$(jq -r '.sandbox_valid' "$ROOTFS_VAL")
+rf_disc=$(jq -r '.target_discovery_allowed' "$ROOTFS_VAL")
+rf_mut=$(jq -r '.target_mutation_allowed' "$ROOTFS_VAL")
+rf_inst=$(jq -r '.install_allowed' "$ROOTFS_VAL")
+
+if [ "$rf_valid" != "true" ] || [ "$sb_valid" != "true" ] || [ "$rf_disc" != "false" ] || [ "$rf_mut" != "false" ] || [ "$rf_inst" != "false" ]; then
+  echo "ERROR: Rootfs validation parameters indicate failures or active permission flags." >&2
+  exit 1
+fi
+
+# Load and validate install-plan.json
+ip_phase=$(jq -r '.phase' "$INSTALL_PLAN")
+ip_kind=$(jq -r '.plan_kind' "$INSTALL_PLAN")
+ip_rf_valid=$(jq -r '.rootfs_valid' "$INSTALL_PLAN")
+ip_sel=$(jq -r '.target_selected' "$INSTALL_PLAN")
+ip_disc=$(jq -r '.target_discovery_allowed' "$INSTALL_PLAN")
+ip_mut=$(jq -r '.target_mutation_allowed' "$INSTALL_PLAN")
+ip_stage=$(jq -r '.staging_allowed' "$INSTALL_PLAN")
+ip_inst=$(jq -r '.install_allowed' "$INSTALL_PLAN")
+
+if [ "$ip_kind" != "review-only" ] || [ "$ip_rf_valid" != "true" ] || [ "$ip_sel" != "false" ] || \
+   [ "$ip_disc" != "false" ] || [ "$ip_mut" != "false" ] || [ "$ip_stage" != "false" ] || [ "$ip_inst" != "false" ]; then
+  echo "ERROR: Install plan parameters indicate failures or active permission flags." >&2
+  exit 1
+fi
+
+# Load and validate selected-target.json
+st_selected=$(jq -r '.selected' "$SELECTED_TARGET")
+st_cls=$(jq -r '.classification' "$SELECTED_TARGET")
+st_elig=$(jq -r '.eligible' "$SELECTED_TARGET")
+st_conf_req=$(jq -r '.confirmation_required' "$SELECTED_TARGET")
+st_conf_match=$(jq -r '.confirmation_matched' "$SELECTED_TARGET")
+st_mnt=$(jq -r '.mount_allowed' "$SELECTED_TARGET")
+st_fmt=$(jq -r '.format_allowed' "$SELECTED_TARGET")
+st_mut=$(jq -r '.target_mutation_allowed' "$SELECTED_TARGET")
+st_stage=$(jq -r '.staging_allowed' "$SELECTED_TARGET")
+st_inst=$(jq -r '.install_allowed' "$SELECTED_TARGET")
+
+if [ "$st_selected" != "true" ] || [ "$st_cls" != "safe_candidate" ] || [ "$st_elig" != "true" ] || \
+   [ "$st_conf_req" != "true" ] || [ "$st_conf_match" != "true" ] || [ "$st_mnt" != "false" ] || \
+   [ "$st_fmt" != "false" ] || [ "$st_mut" != "false" ] || [ "$st_stage" != "false" ] || [ "$st_inst" != "false" ]; then
+  echo "ERROR: Selected target parameters indicate unsafe target, unconfirmed state, or active permission flags." >&2
+  exit 1
+fi
+
+# Map properties
+rootfs_id=$(jq -r '.selected_id' "$INSTALL_PLAN")
+rootfs_dir=$(jq -r '.rootfs_dir' "$INSTALL_PLAN")
+
+target_id=$(jq -r '.target_id' "$SELECTED_TARGET")
+target_path=$(jq -r '.path' "$SELECTED_TARGET")
+target_parent=$(jq -r '.parent' "$SELECTED_TARGET")
+target_type=$(jq -r '.type' "$SELECTED_TARGET")
+target_size=$(jq -r '.size_bytes' "$SELECTED_TARGET")
+conf_str=$(jq -r '.confirmation_string' "$SELECTED_TARGET")
+
+# Build final-install-contract JSON
+contract_json=$(jq -n \
+  --arg ver "$CONTRACT_VER" \
+  --arg phase "33" \
+  --arg kind "final-non-mutating-install-contract" \
+  --arg r_id "$rootfs_id" \
+  --arg r_dir "$rootfs_dir" \
+  --arg t_id "$target_id" \
+  --arg t_path "$target_path" \
+  --arg t_parent "$target_parent" \
+  --arg t_type "$target_type" \
+  --argjson t_size "$target_size" \
+  --arg conf_str "$conf_str" \
+  --arg reason "Final install contract generated for dry-run planning only. Mounting, formatting, staging, boot policy mutation, and installation are not enabled in Phase 33." \
+  '{
+    contract_version: $ver,
+    phase: $phase,
+    contract_kind: $kind,
+    rootfs: {
+      selected_id: $r_id,
+      rootfs_dir: $r_dir,
+      rootfs_valid: true
+    },
+    target: {
+      target_id: $t_id,
+      path: $t_path,
+      parent: (if $t_parent == "null" then null else $t_parent end),
+      type: $t_type,
+      size_bytes: $t_size,
+      classification: "safe_candidate",
+      eligible: true
+    },
+    confirmation: {
+      target_selection_confirmed: true,
+      confirmation_string: $conf_str
+    },
+    permissions: {
+      mount_allowed: false,
+      format_allowed: false,
+      target_mutation_allowed: false,
+      staging_allowed: false,
+      boot_policy_mutation_allowed: false,
+      install_allowed: false
+    },
+    blocked_operations: [
+      "mount target",
+      "format target",
+      "stage rootfs",
+      "rsync rootfs",
+      "copy rootfs",
+      "modify boot policy",
+      "run installer"
+    ],
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$contract_json" > "$OUTPUT"
+
+echo "Final install contract successfully bound and written to $OUTPUT." >&2
+echo "$contract_json"
+exit 0

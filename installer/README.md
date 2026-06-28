@@ -137,3 +137,13 @@ To run the target selection tests suite:
 ```bash
 installer/scripts/run-cidre-target-selection-tests
 ```
+
+---
+
+## 14. Cidre Final Install Contract
+
+To run the final contract tests suite:
+
+```bash
+installer/scripts/run-cidre-final-contract-tests
+```

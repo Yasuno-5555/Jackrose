@@ -1,0 +1,136 @@
+#!/bin/bash
+# validate-cidre-final-install-contract: Validates final-install-contract.json and dry-run-staging-plan.json locks
+set -euo pipefail
+
+CONTRACT=""
+DRYRUN=""
+STRICT=0
+REQ_RF=0
+
+usage() {
+  echo "Usage: $0 --contract <path> --dryrun-plan <path> [--strict] [--require-rootfs]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --contract)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --contract requires a path." >&2
+        exit 1
+      fi
+      CONTRACT="$2"
+      shift 2
+      ;;
+    --dryrun-plan)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --dryrun-plan requires a path." >&2
+        exit 1
+      fi
+      DRYRUN="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    --require-rootfs)
+      REQ_RF=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CONTRACT" ] || [ -z "$DRYRUN" ]; then
+  echo "ERROR: --contract and --dryrun-plan are required." >&2
+  usage
+fi
+
+if [ ! -f "$CONTRACT" ] || [ ! -f "$DRYRUN" ]; then
+  echo "ERROR: One or more files to validate do not exist." >&2
+  exit 1
+fi
+
+if ! jq . "$CONTRACT" >/dev/null 2>&1 || ! jq . "$DRYRUN" >/dev/null 2>&1; then
+  echo "ERROR: Invalid JSON shape detected in validation inputs." >&2
+  exit 1
+fi
+
+# Load and validate contract
+c_phase=$(jq -r '.phase' "$CONTRACT")
+c_kind=$(jq -r '.contract_kind' "$CONTRACT")
+c_rf_valid=$(jq -r '.rootfs.rootfs_valid' "$CONTRACT")
+c_rf_dir=$(jq -r '.rootfs.rootfs_dir' "$CONTRACT")
+c_t_cls=$(jq -r '.target.classification' "$CONTRACT")
+c_t_elig=$(jq -r '.target.eligible' "$CONTRACT")
+c_conf_ok=$(jq -r '.confirmation.target_selection_confirmed' "$CONTRACT")
+
+c_mnt=$(jq -r '.permissions.mount_allowed' "$CONTRACT")
+c_fmt=$(jq -r '.permissions.format_allowed' "$CONTRACT")
+c_mut=$(jq -r '.permissions.target_mutation_allowed' "$CONTRACT")
+c_stage=$(jq -r '.permissions.staging_allowed' "$CONTRACT")
+c_bp=$(jq -r '.permissions.boot_policy_mutation_allowed' "$CONTRACT")
+c_inst=$(jq -r '.permissions.install_allowed' "$CONTRACT")
+
+if [ "$c_phase" != "33" ] || [ "$c_kind" != "final-non-mutating-install-contract" ] || \
+   [ "$c_rf_valid" != "true" ] || [ "$c_t_cls" != "safe_candidate" ] || [ "$c_t_elig" != "true" ] || \
+   [ "$c_conf_ok" != "true" ]; then
+  echo "ERROR: Contract parameters validation failed." >&2
+  exit 1
+fi
+
+if [ "$c_mnt" != "false" ] || [ "$c_fmt" != "false" ] || [ "$c_mut" != "false" ] || \
+   [ "$c_stage" != "false" ] || [ "$c_bp" != "false" ] || [ "$c_inst" != "false" ]; then
+  echo "ERROR: Contract permission locks check failed." >&2
+  exit 1
+fi
+
+# Load and validate dry-run plan
+d_phase=$(jq -r '.phase' "$DRYRUN")
+d_only=$(jq -r '.dryrun_only' "$DRYRUN")
+d_mnt=$(jq -r '.mount_allowed' "$DRYRUN")
+d_fmt=$(jq -r '.format_allowed' "$DRYRUN")
+d_stage=$(jq -r '.staging_allowed' "$DRYRUN")
+d_mut=$(jq -r '.target_mutation_allowed' "$DRYRUN")
+d_bp=$(jq -r '.boot_policy_mutation_allowed' "$DRYRUN")
+d_inst=$(jq -r '.install_allowed' "$DRYRUN")
+
+if [ "$d_phase" != "33" ] || [ "$d_only" != "true" ] || [ "$d_mnt" != "false" ] || \
+   [ "$d_fmt" != "false" ] || [ "$d_stage" != "false" ] || [ "$d_mut" != "false" ] || \
+   [ "$d_bp" != "false" ] || [ "$d_inst" != "false" ]; then
+  echo "ERROR: Dry-run staging plan parameters validation failed." >&2
+  exit 1
+fi
+
+# Assert planned steps lock status
+steps_count=$(jq '.planned_steps | length' "$DRYRUN")
+for ((i=0; i<steps_count; i++)); do
+  step_exec=$(jq -r ".planned_steps[$i].execution_allowed" "$DRYRUN")
+  if [ "$step_exec" != "false" ]; then
+    echo "ERROR: Planned step at index $i is marked execution_allowed=true." >&2
+    exit 1
+  fi
+done
+
+if [ "$REQ_RF" -eq 1 ]; then
+  if [ -z "$c_rf_dir" ] || [ "$c_rf_dir" = "null" ] || [ ! -d "$c_rf_dir" ]; then
+    echo "ERROR: Rootfs directory does not exist or is not a directory: $c_rf_dir" >&2
+    exit 1
+  fi
+fi
+
+# Strict checks
+if [ "$STRICT" -eq 1 ]; then
+  if [ "$c_mnt" = "true" ] || [ "$c_fmt" = "true" ] || [ "$c_mut" = "true" ] || [ "$c_stage" = "true" ] || [ "$c_bp" = "true" ] || [ "$c_inst" = "true" ] || \
+     [ "$d_mnt" = "true" ] || [ "$d_fmt" = "true" ] || [ "$d_stage" = "true" ] || [ "$d_mut" = "true" ] || [ "$d_bp" = "true" ] || [ "$d_inst" = "true" ]; then
+    echo "ERROR: Contract and dry-run permissions must be strictly false." >&2
+    exit 2
+  fi
+fi
+
+echo "Final contract and dry-run staging plan validate successfully."
+exit 0
