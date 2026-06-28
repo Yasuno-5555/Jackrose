@@ -147,3 +147,13 @@ To run the final contract tests suite:
 ```bash
 installer/scripts/run-cidre-final-contract-tests
 ```
+
+---
+
+## 15. Cidre Installer MVP Freeze
+
+To run the full installer MVP tests suite:
+
+```bash
+installer/scripts/run-cidre-installer-mvp-tests
+```

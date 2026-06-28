@@ -1,0 +1,114 @@
+#!/bin/bash
+# generate-cidre-firstboot-handoff: Generates boot handoff and recovery contracts
+set -euo pipefail
+
+VALIDATION=""
+OUTPUT=""
+BOOT_MODE="startup-options"
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --staged-validation <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --staged-validation)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --staged-validation requires a path." >&2
+        exit 1
+      fi
+      VALIDATION="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --manual-boot-mode)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --manual-boot-mode requires startup-options or m1n1." >&2
+        exit 1
+      fi
+      BOOT_MODE="$2"
+      shift 2
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$VALIDATION" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --staged-validation and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$VALIDATION" ]; then
+  echo "ERROR: Staged validation file not found: $VALIDATION" >&2
+  exit 1
+fi
+
+# Load validation checks
+phase=$(jq -r '.phase' "$VALIDATION")
+st_valid=$(jq -r '.staged_target_valid' "$VALIDATION")
+bp_det=$(jq -r '.boot_policy_mutation_detected' "$VALIDATION")
+db_det=$(jq -r '.default_boot_changed' "$VALIDATION")
+
+if [ "$phase" != "34" ] || [ "$st_valid" != "true" ] || [ "$bp_det" != "false" ] || [ "$db_det" != "false" ]; then
+  echo "ERROR: Staged validation checks indicated failures or lock tampering." >&2
+  exit 1
+fi
+
+# Build handoff JSON
+handoff_json=$(jq -n \
+  --arg phase "34" \
+  --arg source "$VALIDATION" \
+  --arg boot_m "$BOOT_MODE" \
+  --arg reason "First boot handoff generated. Manual boot is required; default boot policy was not changed." \
+  '{
+    handoff_version: "0.1",
+    phase: $phase,
+    source_staged_validation: $source,
+    firstboot_handoff_complete: true,
+    manual_boot_required: true,
+    manual_boot_mode: $boot_m,
+    desktop_first_expected: true,
+    expected_first_run: {
+      cidre_welcome: true,
+      welcome_mode: "first-run",
+      tty_oobe_primary: false
+    },
+    optimized_upgrade_optional: {
+      ghostty: true,
+      fish: true,
+      niri_cidre: true
+    },
+    boot_policy_mutation_allowed: false,
+    boot_policy_mutation_performed: false,
+    default_boot_changed: false,
+    recovery_contract: {
+      macos_default_boot_preserved: true,
+      manual_startup_options_recovery: true,
+      automatic_reboot_performed: false
+    },
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$handoff_json" > "$OUTPUT"
+
+echo "First boot handoff generated successfully." >&2
+echo "$handoff_json"
+exit 0

@@ -42,6 +42,10 @@ while [ $# -gt 0 ]; do
       ALLOW_READONLY_TARGET_DISCOVERY=1
       shift
       ;;
+    --allow-controlled-staging)
+      ALLOW_CONTROLLED_STAGING=1
+      shift
+      ;;
     --format)
       if [ $# -lt 2 ]; then
         echo "ERROR: --format requires a type." >&2
@@ -101,6 +105,9 @@ if [ -n "$COMMAND" ]; then
     if [ "${ALLOW_READONLY_TARGET_DISCOVERY:-0}" -eq 1 ] && { [[ "$pattern" == *"lsblk"* ]] || [[ "$pattern" == *"diskutil"* ]]; }; then
       continue
     fi
+    if [ "${ALLOW_CONTROLLED_STAGING:-0}" -eq 1 ] && { [[ "$pattern" == *"rsync"* ]] || [[ "$pattern" == *"cp"* ]] || [[ "$pattern" == *"mount"* ]]; }; then
+      continue
+    fi
     if echo "$COMMAND" | grep -q -E "$pattern"; then
       blocked=1
       reason="forbidden command pattern detected: $pattern"
@@ -121,6 +128,9 @@ if [ -n "$INPUT" ] && [ $blocked -eq 0 ]; then
       continue
     fi
     if [ "${ALLOW_READONLY_TARGET_DISCOVERY:-0}" -eq 1 ] && { [[ "$pattern" == *"lsblk"* ]] || [[ "$pattern" == *"diskutil"* ]]; }; then
+      continue
+    fi
+    if [ "${ALLOW_CONTROLLED_STAGING:-0}" -eq 1 ] && { [[ "$pattern" == *"rsync"* ]] || [[ "$pattern" == *"cp"* ]] || [[ "$pattern" == *"mount"* ]]; }; then
       continue
     fi
     match_line=$(grep -n -E "$pattern" "$INPUT" | head -n 1 || echo "")

@@ -40,6 +40,7 @@ usage() {
   echo "  --cidre-target-discovery-only         Run Cidre installer wrapper target discovery tests"
   echo "  --cidre-target-selection-only         Run Cidre installer wrapper target selection tests"
   echo "  --cidre-final-contract-only           Run Cidre installer wrapper final contract tests"
+  echo "  --cidre-installer-mvp-only            Run Cidre installer wrapper MVP tests"
   exit 1
 }
 
@@ -155,6 +156,10 @@ while [ $# -gt 0 ]; do
       ;;
     --cidre-final-contract-only)
       CIDRE_FINAL_CONTRACT_ONLY=1
+      shift
+      ;;
+    --cidre-installer-mvp-only)
+      CIDRE_INSTALLER_MVP_ONLY=1
       shift
       ;;
     *)
@@ -303,6 +308,12 @@ fi
 if [ "${CIDRE_FINAL_CONTRACT_ONLY:-0}" -eq 1 ]; then
   echo "Running Cidre installer wrapper final contract tests only..."
   "$REPO_ROOT/installer/scripts/run-cidre-final-contract-tests"
+  exit 0
+fi
+
+if [ "${CIDRE_INSTALLER_MVP_ONLY:-0}" -eq 1 ]; then
+  echo "Running Cidre installer wrapper MVP tests only..."
+  "$REPO_ROOT/installer/scripts/run-cidre-installer-mvp-tests"
   exit 0
 fi
 

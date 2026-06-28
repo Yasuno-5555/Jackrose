@@ -1,0 +1,287 @@
+#!/bin/bash
+# cidre-wrapper-stage-target: Performs controlled staging copy of validated rootfs into selected partition target
+set -euo pipefail
+
+CONTRACT=""
+DRYRUN=""
+CONFIRM=""
+OUTPUT=""
+APPLY=0
+MOUNT_ROOT="/tmp/cidre-target-mount"
+METHOD="rsync"
+STRICT=0
+FAKE_MOUNT=0
+FIXTURE_MODE=0
+
+usage() {
+  echo "Usage: $0 --contract <path> --dryrun-plan <path> --confirm <string> --output <path> --apply [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --contract)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --contract requires a path." >&2
+        exit 1
+      fi
+      CONTRACT="$2"
+      shift 2
+      ;;
+    --dryrun-plan)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --dryrun-plan requires a path." >&2
+        exit 1
+      fi
+      DRYRUN="$2"
+      shift 2
+      ;;
+    --confirm)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --confirm requires a validation string." >&2
+        exit 1
+      fi
+      CONFIRM="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    --mount-root)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --mount-root requires a path." >&2
+        exit 1
+      fi
+      MOUNT_ROOT="$2"
+      shift 2
+      ;;
+    --method)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --method requires cp or rsync." >&2
+        exit 1
+      fi
+      METHOD="$2"
+      shift 2
+      ;;
+    --fake-mount)
+      FAKE_MOUNT=1
+      shift
+      ;;
+    --fixture-mode)
+      FIXTURE_MODE=1
+      shift
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$CONTRACT" ] || [ -z "$DRYRUN" ] || [ -z "$CONFIRM" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --contract, --dryrun-plan, --confirm, and --output are required." >&2
+  usage
+fi
+
+if [ "$APPLY" -eq 0 ]; then
+  echo "ERROR: Staging apply flag --apply is required to initiate staging operations." >&2
+  exit 1
+fi
+
+EXPECTED_CONFIRM="APPLY CIDRE STAGING TO SELECTED TARGET"
+if [ "$CONFIRM" != "$EXPECTED_CONFIRM" ]; then
+  echo "ERROR: Confirmation string contract mismatch." >&2
+  echo "Expected: '$EXPECTED_CONFIRM'" >&2
+  echo "Got:      '$CONFIRM'" >&2
+  exit 1
+fi
+
+if [ ! -f "$CONTRACT" ] || [ ! -f "$DRYRUN" ]; then
+  echo "ERROR: Input files do not exist." >&2
+  exit 1
+fi
+
+# Load contract validations
+c_phase=$(jq -r '.phase' "$CONTRACT")
+c_kind=$(jq -r '.contract_kind' "$CONTRACT")
+c_rf_valid=$(jq -r '.rootfs.rootfs_valid' "$CONTRACT")
+c_t_cls=$(jq -r '.target.classification' "$CONTRACT")
+c_t_elig=$(jq -r '.target.eligible' "$CONTRACT")
+
+c_mnt=$(jq -r '.permissions.mount_allowed' "$CONTRACT")
+c_fmt=$(jq -r '.permissions.format_allowed' "$CONTRACT")
+c_mut=$(jq -r '.permissions.target_mutation_allowed' "$CONTRACT")
+c_stage=$(jq -r '.permissions.staging_allowed' "$CONTRACT")
+c_bp=$(jq -r '.permissions.boot_policy_mutation_allowed' "$CONTRACT")
+c_inst=$(jq -r '.permissions.install_allowed' "$CONTRACT")
+
+if [ "$c_phase" != "33" ] || [ "$c_kind" != "final-non-mutating-install-contract" ] || \
+   [ "$c_rf_valid" != "true" ] || [ "$c_t_cls" != "safe_candidate" ] || [ "$c_t_elig" != "true" ]; then
+  echo "ERROR: Contract parameters validation failed." >&2
+  exit 1
+fi
+
+if [ "$c_mnt" != "false" ] || [ "$c_fmt" != "false" ] || [ "$c_mut" != "false" ] || \
+   [ "$c_stage" != "false" ] || [ "$c_bp" != "false" ] || [ "$c_inst" != "false" ]; then
+  echo "ERROR: Contract contains active permission flags. Staging requires planning locks." >&2
+  exit 1
+fi
+
+# Load dry-run validations
+d_phase=$(jq -r '.phase' "$DRYRUN")
+d_only=$(jq -r '.dryrun_only' "$DRYRUN")
+d_mnt=$(jq -r '.mount_allowed' "$DRYRUN")
+d_fmt=$(jq -r '.format_allowed' "$DRYRUN")
+d_stage=$(jq -r '.staging_allowed' "$DRYRUN")
+d_mut=$(jq -r '.target_mutation_allowed' "$DRYRUN")
+d_bp=$(jq -r '.boot_policy_mutation_allowed' "$DRYRUN")
+d_inst=$(jq -r '.install_allowed' "$DRYRUN")
+
+if [ "$d_phase" != "33" ] || [ "$d_only" != "true" ] || [ "$d_mnt" != "false" ] || \
+   [ "$d_fmt" != "false" ] || [ "$d_stage" != "false" ] || [ "$d_mut" != "false" ] || \
+   [ "$d_bp" != "false" ] || [ "$d_inst" != "false" ]; then
+  echo "ERROR: Dry-run plan parameters validation failed." >&2
+  exit 1
+fi
+
+rootfs_dir=$(jq -r '.rootfs.rootfs_dir' "$CONTRACT")
+target_id=$(jq -r '.target.target_id' "$CONTRACT")
+target_path=$(jq -r '.target.path' "$CONTRACT")
+
+if [ ! -d "$rootfs_dir" ]; then
+  echo "ERROR: Validated rootfs directory does not exist: $rootfs_dir" >&2
+  exit 1
+fi
+
+# Ensure staging mount roots are under safe folders
+if [ "$MOUNT_ROOT" = "/" ] || [ "$MOUNT_ROOT" = "/boot" ] || [ "$MOUNT_ROOT" = "/efi" ] || \
+   [ "$MOUNT_ROOT" = "/System" ] || [ "$MOUNT_ROOT" = "/Volumes" ]; then
+  echo "ERROR: Target mount root '$MOUNT_ROOT' is unsafe." >&2
+  exit 1
+fi
+
+echo "Staging Cidre Rootfs to $target_path..." >&2
+
+run_id="run-$(date +%Y%m%d-%H%M%S)"
+target_mountpoint="$MOUNT_ROOT/$run_id"
+
+mount_performed=false
+unmounted=false
+
+if [ "$FAKE_MOUNT" -eq 0 ] && [ "$FIXTURE_MODE" -eq 0 ]; then
+  # Live staging execution paths
+  mkdir -p "$target_mountpoint"
+  
+  echo "Mounting $target_path on $target_mountpoint..." >&2
+  mount "$target_path" "$target_mountpoint"
+  mount_performed=true
+  
+  trap '
+    if [ "$unmounted" = "false" ]; then
+      echo "Staging failed. Unmounting $target_mountpoint..." >&2
+      umount "$target_mountpoint" || echo "WARNING: umount failed" >&2
+      rmdir "$target_mountpoint" || true
+    fi
+  ' EXIT
+
+  echo "Copying rootfs files using $METHOD..." >&2
+  if [ "$METHOD" = "rsync" ] && command -v rsync >/dev/null 2>&1; then
+    # Stage using rsync
+    rsync -aHAX --numeric-ids "$rootfs_dir"/ "$target_mountpoint"/
+  else
+    # Fallback copy
+    cp -a "$rootfs_dir"/. "$target_mountpoint"/
+  fi
+
+  echo "Syncing target filesystem..." >&2
+  sync
+  
+  echo "Unmounting $target_path..." >&2
+  umount "$target_mountpoint"
+  unmounted=true
+  rmdir "$target_mountpoint"
+else
+  # Simulated/Mock staging path
+  echo "[MOCK] Creating staging directories on mock mountpoint..." >&2
+  if [ "$FIXTURE_MODE" -eq 1 ]; then
+    # Copy rootfs files to a mock workspace so staged validator can verify them
+    mkdir -p "$target_mountpoint"
+    cp -a "$rootfs_dir"/. "$target_mountpoint"/
+    mount_performed=true
+    unmounted=false
+    # We do not unmount in fixture-mode so validation tool can inspect it (requires already-mounted flag)
+  else
+    mount_performed=true
+    unmounted=true
+  fi
+fi
+
+# Build staging-result JSON
+result_json=$(jq -n \
+  --arg phase "34" \
+  --arg source_c "$CONTRACT" \
+  --arg source_d "$DRYRUN" \
+  --arg confirm_str "$EXPECTED_CONFIRM" \
+  --arg r_dir "$rootfs_dir" \
+  --arg t_id "$target_id" \
+  --arg t_path "$target_path" \
+  --argjson m_perf "$mount_performed" \
+  --arg m_pt "$target_mountpoint" \
+  --argjson unm "$unmounted" \
+  --arg method "$METHOD" \
+  --arg reason "Rootfs staged to selected target. Boot policy and default boot were not changed." \
+  '{
+    staging_version: "0.1",
+    phase: $phase,
+    source_contract: $source_c,
+    source_dryrun_plan: $source_d,
+    apply_requested: true,
+    confirmation_required: true,
+    confirmation_string: $confirm_str,
+    confirmation_matched: true,
+    rootfs_dir: $r_dir,
+    target: {
+      target_id: $t_id,
+      path: $t_path,
+      classification: "safe_candidate",
+      eligible: true
+    },
+    mount: {
+      mount_performed: $m_perf,
+      mountpoint: $m_pt,
+      unmounted: $unm
+    },
+    staging: {
+      method: $method,
+      performed: true,
+      sync_performed: true
+    },
+    post_staging_validation_required: true,
+    boot_policy_mutation_performed: false,
+    default_boot_changed: false,
+    installer_executed: false,
+    staging_complete: true,
+    install_complete: false,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$result_json" > "$OUTPUT"
+
+echo "Controlled staging completed." >&2
+echo "$result_json"
+exit 0

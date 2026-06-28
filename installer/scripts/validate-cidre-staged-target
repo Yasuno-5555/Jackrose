@@ -1,0 +1,209 @@
+#!/bin/bash
+# validate-cidre-staged-target: Validates that the staged target contains a correct Cidre rootfs
+set -euo pipefail
+
+RESULT=""
+OUTPUT=""
+MOUNT_ROOT="/tmp/cidre-target-mount"
+ALREADY_MOUNTED=""
+FIXTURE_MODE=0
+STRICT=0
+
+usage() {
+  echo "Usage: $0 --staging-result <path> --output <path> [options]"
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --staging-result)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --staging-result requires a path." >&2
+        exit 1
+      fi
+      RESULT="$2"
+      shift 2
+      ;;
+    --output)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --output requires a path." >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --mount-root)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --mount-root requires a path." >&2
+        exit 1
+      fi
+      MOUNT_ROOT="$2"
+      shift 2
+      ;;
+    --already-mounted)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --already-mounted requires a path." >&2
+        exit 1
+      fi
+      ALREADY_MOUNTED="$2"
+      shift 2
+      ;;
+    --fixture-mode)
+      FIXTURE_MODE=1
+      shift
+      ;;
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$RESULT" ] || [ -z "$OUTPUT" ]; then
+  echo "ERROR: --staging-result and --output are required." >&2
+  usage
+fi
+
+if [ ! -f "$RESULT" ]; then
+  echo "ERROR: Staging result file not found: $RESULT" >&2
+  exit 1
+fi
+
+# Load and validate staging-result.json
+phase=$(jq -r '.phase' "$RESULT")
+st_complete=$(jq -r '.staging_complete' "$RESULT")
+bp_perf=$(jq -r '.boot_policy_mutation_performed' "$RESULT")
+db_chg=$(jq -r '.default_boot_changed' "$RESULT")
+inst_exec=$(jq -r '.installer_executed' "$RESULT")
+
+if [ "$phase" != "34" ] || [ "$st_complete" != "true" ] || [ "$bp_perf" != "false" ] || [ "$db_chg" != "false" ] || [ "$inst_exec" != "false" ]; then
+  echo "ERROR: Staging result validation failed. Locks tampered." >&2
+  exit 1
+fi
+
+target_path=$(jq -r '.target.path' "$RESULT")
+mountpoint=$(jq -r '.mount.mountpoint' "$RESULT")
+
+inspect_dir=""
+mounted_by_us=false
+
+if [ -n "$ALREADY_MOUNTED" ]; then
+  inspect_dir="$ALREADY_MOUNTED"
+elif [ "$FIXTURE_MODE" -eq 1 ]; then
+  inspect_dir="$mountpoint"
+else
+  # Live mounting read-only for validation checking
+  inspect_dir="$MOUNT_ROOT/validate-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$inspect_dir"
+  echo "Mounting $target_path read-only to validate staged files..." >&2
+  mount -o ro "$target_path" "$inspect_dir"
+  mounted_by_us=true
+  
+  trap '
+    if [ "$mounted_by_us" = "true" ]; then
+      echo "Unmounting validation directory $inspect_dir..." >&2
+      umount "$inspect_dir" || echo "WARNING: umount failed" >&2
+      rmdir "$inspect_dir" || true
+    fi
+  ' EXIT
+fi
+
+# Validation steps
+echo "Validating rootfs file tree at $inspect_dir..." >&2
+
+usr_exists=false
+etc_exists=false
+var_exists=false
+defaults_exists=false
+
+[ -d "$inspect_dir/usr" ] && usr_exists=true
+[ -d "$inspect_dir/etc" ] && etc_exists=true
+[ -d "$inspect_dir/var" ] && var_exists=true
+[ -d "$inspect_dir/usr/share/cidre/defaults" ] && defaults_exists=true
+
+if [ "$usr_exists" = "false" ] || [ "$etc_exists" = "false" ] || [ "$var_exists" = "false" ] || [ "$defaults_exists" = "false" ]; then
+  echo "ERROR: Staged target is missing required rootfs directories." >&2
+  exit 1
+fi
+
+# Assert core scripts
+welcome_exists=false
+doctor_exists=false
+session_exists=false
+
+[ -f "$inspect_dir/usr/bin/cidre-welcome" ] || [ -f "$inspect_dir/usr/local/bin/cidre-welcome" ] && welcome_exists=true
+[ -f "$inspect_dir/usr/bin/cidre-doctor" ] || [ -f "$inspect_dir/usr/local/bin/cidre-doctor" ] && doctor_exists=true
+[ -f "$inspect_dir/usr/bin/cidre-session" ] || [ -f "$inspect_dir/usr/local/bin/cidre-session" ] && session_exists=true
+
+if [ "$welcome_exists" = "false" ] || [ "$doctor_exists" = "false" ] || [ "$session_exists" = "false" ]; then
+  echo "ERROR: Staged target is missing required Cidre utility components." >&2
+  exit 1
+fi
+
+# Reject completed markers
+marker_exists=false
+[ -f "$inspect_dir/var/lib/cidre/firstboot.done" ] && marker_exists=true
+[ -f "$inspect_dir/var/lib/cidre/welcome.done" ] && marker_exists=true
+[ -f "$inspect_dir/var/lib/cidre/optimized.done" ] && marker_exists=true
+
+if [ "$marker_exists" = "true" ]; then
+  echo "ERROR: Staged target contains completed first-boot/welcome markers." >&2
+  exit 1
+fi
+
+# Cleanup mount
+if [ "$mounted_by_us" = "true" ]; then
+  umount "$inspect_dir"
+  mounted_by_us=false
+  rmdir "$inspect_dir"
+fi
+
+# Build staged-target-validation JSON
+val_json=$(jq -n \
+  --arg phase "34" \
+  --arg source "$RESULT" \
+  --arg t_path "$target_path" \
+  --argjson usr "$usr_exists" \
+  --argjson etc "$etc_exists" \
+  --argjson var "$var_exists" \
+  --argjson def "$defaults_exists" \
+  --argjson wel "$welcome_exists" \
+  --argjson doc "$doctor_exists" \
+  --argjson ses "$session_exists" \
+  --argjson mark "$marker_exists" \
+  --arg reason "Staged target validates as a Cidre seed rootfs. First boot handoff is required." \
+  '{
+    validation_version: "0.1",
+    phase: $phase,
+    source_staging_result: $source,
+    staged_target_valid: true,
+    target_path: $t_path,
+    rootfs_paths: {
+      usr: $usr,
+      etc: $etc,
+      var: $var,
+      usr_share_cidre_defaults: $def
+    },
+    cidre_components: {
+      cidre_welcome: $wel,
+      cidre_doctor: $doc,
+      cidre_session: $ses
+    },
+    forbidden_markers_present: $mark,
+    boot_policy_mutation_detected: false,
+    default_boot_changed: false,
+    firstboot_handoff_required: true,
+    reason: $reason
+  }'
+)
+
+mkdir -p "$(dirname "$OUTPUT")"
+echo "$val_json" > "$OUTPUT"
+
+echo "Staged target validation completed successfully." >&2
+echo "$val_json"
+exit 0
