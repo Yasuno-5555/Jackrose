@@ -2323,6 +2323,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "niri-config"
+version = "26.4.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "csscolorparser",
+ "diff",
+ "insta",
+ "knuffel",
+ "miette",
+ "niri-ipc",
+ "pretty_assertions",
+ "regex",
+ "smithay",
+ "tracing",
+ "tracy-client",
+ "uuid",
+]
+
+[[package]]
+name = "niri-ipc"
+version = "26.4.0"
+dependencies = [
+ "clap",
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "niri-jackrose"
 version = "26.4.0"
 dependencies = [
@@ -2387,44 +2417,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "niri-config"
-version = "26.4.0"
-dependencies = [
- "bitflags 2.11.1",
- "csscolorparser",
- "diff",
- "insta",
- "knuffel",
- "miette",
- "niri-ipc",
- "pretty_assertions",
- "regex",
- "smithay",
- "tracing",
- "tracy-client",
- "uuid",
-]
-
-[[package]]
-name = "niri-ipc"
-version = "26.4.0"
-dependencies = [
- "clap",
- "schemars",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
 name = "niri-visual-tests"
 version = "26.4.0"
 dependencies = [
  "anyhow",
  "gtk4",
  "libadwaita",
- "niri-jackrose",
  "niri-config",
+ "niri-jackrose",
  "smithay",
  "tracing",
  "tracing-subscriber",
