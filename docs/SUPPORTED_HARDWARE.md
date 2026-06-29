@@ -1,17 +1,17 @@
-# Cidre Supported Hardware
+# Jackrose Supported Hardware
 
-This document defines the current support stance for `Cidre v1.0`.
+This document defines the current support stance for `Jackrose v1.0`.
 
 The goal is to be explicit about what is actually supported, what is only expected to work, and what is not yet part of the public promise.
 
 ## Scope
 
-Cidre v1.0 targets:
+Jackrose v1.0 targets:
 
 - Apple Silicon Macs
 - Asahi Linux on Arch Linux ARM / ALARM
 
-Cidre v1.0 does not currently target:
+Jackrose v1.0 does not currently target:
 
 - Asahi Fedora
 - Intel Macs
@@ -20,16 +20,16 @@ Cidre v1.0 does not currently target:
 
 ## Support Tiers
 
-Cidre uses four support tiers:
+Jackrose uses four support tiers:
 
-- `Tested`: used directly during Cidre development and considered part of the real support promise
+- `Tested`: used directly during Jackrose development and considered part of the real support promise
 - `Expected to work`: not validated as heavily, but reasonably close to tested hardware
 - `Untested`: may work, but is not part of the public reliability promise yet
 - `Unsupported`: out of v1.0 scope
 
 ## Tested
 
-These are the systems that Cidre development is directly grounded in.
+These are the systems that Jackrose development is directly grounded in.
 
 ### Apple MacBook Air (M1, 2020)
 
@@ -42,11 +42,11 @@ Known local development baseline:
 - kernel family used in development: `linux-asahi`
 - userland target: `Arch Linux ARM / ALARM`
 
-This is currently the strongest support target for Cidre v1.0.
+This is currently the strongest support target for Jackrose v1.0.
 
 Areas directly exercised in development include:
 
-- `niri-cidre` session startup
+- `niri-jackrose` session startup
 - Apple SPI trackpad tuning
 - touchpad gesture telemetry
 - power-aware compositor behavior
@@ -54,9 +54,9 @@ Areas directly exercised in development include:
 
 Known caveat on this tested baseline:
 
-- external USB-C display output is not yet considered reliable enough to promise as part of the Cidre v1.0 support contract
+- external USB-C display output is not yet considered reliable enough to promise as part of the Jackrose v1.0 support contract
 
-If a user asks "what hardware should I use for Cidre right now?", this is the safest answer.
+If a user asks "what hardware should I use for Jackrose right now?", this is the safest answer.
 
 ## Expected To Work
 
@@ -100,7 +100,7 @@ Interpretation:
 - they are not rejected conceptually
 - they are simply not validated enough for v1.0 claims
 
-If you run Cidre on these systems, expect self-support and debugging work.
+If you run Jackrose on these systems, expect self-support and debugging work.
 
 ## Unsupported
 
@@ -112,7 +112,7 @@ Status: `Unsupported for v1.0`
 
 Reason:
 
-- Cidre v1.0 is built around `pacman`, `paru`, `AUR`, and Arch Linux ARM package assumptions
+- Jackrose v1.0 is built around `pacman`, `paru`, `AUR`, and Arch Linux ARM package assumptions
 
 ### Intel Macs
 
@@ -120,7 +120,7 @@ Status: `Unsupported`
 
 Reason:
 
-- Cidre v1.0 is specifically aimed at Apple Silicon hardware
+- Jackrose v1.0 is specifically aimed at Apple Silicon hardware
 
 ### Non-Mac ARM Linux systems
 
@@ -137,10 +137,10 @@ To be considered within the intended support envelope, a system should roughly m
 - Asahi Linux on Arch Linux ARM / ALARM
 - `linux-asahi`
 - Asahi boot chain and firmware userspace pieces
-- Cidre package baseline (`core + desktop + dev`)
-- `niri-cidre` as the standard desktop session
+- Jackrose package baseline (`core + desktop + dev`)
+- `niri-jackrose` as the standard desktop session
 
-If you diverge from these, you may still be able to run Cidre, but support quality drops immediately.
+If you diverge from these, you may still be able to run Jackrose, but support quality drops immediately.
 
 ## Areas Most Sensitive To Hardware Differences
 
@@ -161,7 +161,7 @@ This is why the tested list should stay conservative.
 
 ## Known v1.0 Hardware Position
 
-The current honest position for Cidre v1.0 is:
+The current honest position for Jackrose v1.0 is:
 
 - strong confidence on the development machine class
 - cautious optimism on nearby M1 MacBook hardware
@@ -194,4 +194,4 @@ Do not expand the `Tested` section unless the hardware has actually been used th
 - normal development workflow
 - suspend/resume or recovery checks
 
-Cidre should under-promise here. Hardware support inflation creates support debt fast.
+Jackrose should under-promise here. Hardware support inflation creates support debt fast.

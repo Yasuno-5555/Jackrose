@@ -1,13 +1,13 @@
-# Cidre (v0.35.6 Controlled Manual-Boot Install Pack)
+# Jackrose (v0.35.6 Controlled Manual-Boot Install Pack)
 
-Cidre is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
+Jackrose is an Apple Silicon Mac-oriented Linux experience layer built on ALARM (Arch Linux ARM) / Asahi Linux.
 
-This repository contains the Cidre environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-cidre` desktop layer.
+This repository contains the Jackrose environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-jackrose` desktop layer.
 
-The launchable macOS installer is [`dist/Cidre.app`](dist/Cidre.app). It provides a setup wizard with APFS inspection, validated partition planning, an administrator-authenticated disk helper, packaged backend resources, and operation logs. Disk mutations now sit behind DFU incident containment and remain disabled by default.
+The launchable macOS installer is [`dist/Jackrose.app`](dist/Jackrose.app). It provides a setup wizard with APFS inspection, validated partition planning, an administrator-authenticated disk helper, packaged backend resources, and operation logs. Disk mutations now sit behind DFU incident containment and remain disabled by default.
 
 > [!WARNING]
-> Cidre is experimental and currently not safe for general installation.
+> Jackrose is experimental and currently not safe for general installation.
 > A recent GUI install flow caused a pre-m1n1 / Apple Recovery-level boot failure on Apple Silicon hardware.
 > Do not run disk-changing installer flows on a machine you cannot erase and DFU restore.
 
@@ -16,12 +16,12 @@ Current safety status:
 ```text
 Disk-changing install flows are disabled by default after DFU_RESTORE_001.
 Boot survivability checks must pass before install completion can be considered safe.
-Cidre does not register itself as the default boot target.
+Jackrose does not register itself as the default boot target.
 ```
 
 ## Current Disk Safety Status
 
-Cidre.app currently keeps disk-changing install flows disabled by default.
+Jackrose.app currently keeps disk-changing install flows disabled by default.
 
 v0.35.2 adds disk snapshot, APFS snapshot, protected Apple partition guard,
 pre/post disk diff, fixture validation, and recovery survival checks. These
@@ -32,80 +32,80 @@ execution, wizard progression, finish, restart, and shutdown.
 
 v0.35.6 adds controlled manual-boot install planning, payload verification,
 and an explicit no-default-boot mutation policy. Payload staging is separated
-from boot registration, and Cidre does not set itself as the default startup
+from boot registration, and Jackrose does not set itself as the default startup
 disk.
 
 > [!IMPORTANT]
-> **Cidre is not a niri fork.**
-> `niri-cidre` is the desktop/compositor component shipped as part of Cidre. It is not the whole project. Cidre itself is a full integration layer that manages installer scripts, configuration deployment, system recovery, sound optimization, and desktop session profiles.
+> **Jackrose is not a niri fork.**
+> `niri-jackrose` is the desktop/compositor component shipped as part of Jackrose. It is not the whole project. Jackrose itself is a full integration layer that manages installer scripts, configuration deployment, system recovery, sound optimization, and desktop session profiles.
 
 ## Project Direction
 
-Cidre is moving from a post-install setup project toward a downstream ALARM/Asahi image for Apple Silicon MacBooks.
+Jackrose is moving from a post-install setup project toward a downstream ALARM/Asahi image for Apple Silicon MacBooks.
 
-The goal is to make Cidre feel less like "install Linux and then run scripts" and more like "install Cidre on your MacBook".
+The goal is to make Jackrose feel less like "install Linux and then run scripts" and more like "install Jackrose on your MacBook".
 
 ## Image Prototype Status
 
-Cidre v0.15.0 introduces the first prototype image artifact flow.
+Jackrose v0.15.0 introduces the first prototype image artifact flow.
 
-This does not mean Cidre ships a public installable image yet.
-The goal is to generate and inspect prototype rootfs artifacts containing Cidre firstboot, seed/resume, and downstream overlay components.
+This does not mean Jackrose ships a public installable image yet.
+The goal is to generate and inspect prototype rootfs artifacts containing Jackrose firstboot, seed/resume, and downstream overlay components.
 
 ## Firstboot OOBE Status
 
-Cidre v0.16.0 introduces the firstboot OOBE layer for future Cidre-controlled images.
+Jackrose v0.16.0 introduces the firstboot OOBE layer for future Jackrose-controlled images.
 
 The goal is to avoid requiring users to know default ALARM credentials such as `root/root`.
-This is not a public boot-validated image yet, but it establishes the firstboot setup path used by future Cidre images.
+This is not a public boot-validated image yet, but it establishes the firstboot setup path used by future Jackrose images.
 
 ## Boot Validation Status
 
-Cidre v0.17.0 adds image boot validation tooling.
+Jackrose v0.17.0 adds image boot validation tooling.
 
 This includes rootfs inspection, boot readiness checks, boot checklists, and boot log collection helpers.
-It still does not mean Cidre ships a public bootable image.
+It still does not mean Jackrose ships a public bootable image.
 
 ## Builder Integration Status
 
-Cidre v0.18.0 integrates the boot validation layer and rootfs overlay trees with the ALARM image builder, tracking configurations, logs, and output registration.
+Jackrose v0.18.0 integrates the boot validation layer and rootfs overlay trees with the ALARM image builder, tracking configurations, logs, and output registration.
 
 ## Real Image Build Status
 
-Cidre v0.19.0 introduces the first local real image build flow. It supports executing the ALARM image builder, staging custom configurations, registering produced prototype images into local state directories, verifying checksums/manifests, and generating markdown build/failure reports.
+Jackrose v0.19.0 introduces the first local real image build flow. It supports executing the ALARM image builder, staging custom configurations, registering produced prototype images into local state directories, verifying checksums/manifests, and generating markdown build/failure reports.
 This remains a developer release intended to ensure robust, repeatable local image building.
 
 ## Controlled Boot Test Status
 
-Cidre v0.20.0 introduces controlled boot testing orchestration on Apple Silicon Macs, supporting observations checklist tracking, boot logs collection, failure classification, and test result reports.
+Jackrose v0.20.0 introduces controlled boot testing orchestration on Apple Silicon Macs, supporting observations checklist tracking, boot logs collection, failure classification, and test result reports.
 
 ## Firstboot Fixup Status
 
-Cidre v0.21.0 improves firstboot stability, retry, repair, diagnosis, and reporting.
-This makes the prototype image firstboot path easier to validate and recover, but it still does not mean Cidre ships a public production image.
+Jackrose v0.21.0 improves firstboot stability, retry, repair, diagnosis, and reporting.
+This makes the prototype image firstboot path easier to validate and recover, but it still does not mean Jackrose ships a public production image.
 
 ## User Phase Handoff Status
 
-Cidre v0.22.0 adds user phase handoff validation and state tracking.
+Jackrose v0.22.0 adds user phase handoff validation and state tracking.
 This improves the transition from firstboot root setup to `./install --resume` as the normal user.
 It does not yet mean the full desktop profile is production-ready.
 
 ## Exit Path First
 
-Cidre v0.23.0 adds uninstall readiness checks, state export, partition audit reports, and macOS restore guide generation.
+Jackrose v0.23.0 adds uninstall readiness checks, state export, partition audit reports, and macOS restore guide generation.
 This release does not perform destructive disk operations.
 
 ## macOS Restore Assistant
 
-Cidre v0.24.0 adds macOS-side restore readiness checks.
+Jackrose v0.24.0 adds macOS-side restore readiness checks.
 It can collect read-only disk layout information, generate uninstall guides, and report restore risk from macOS.
 It does not delete partitions or resize APFS containers.
 
 ## Recovery Screen and Safe Mode
 
-Cidre is designed to fail visibly.
+Jackrose is designed to fail visibly.
 
-If the normal desktop session cannot start, Cidre can show a recovery screen
+If the normal desktop session cannot start, Jackrose can show a recovery screen
 with actions for safe shell, doctor checks, state export, exit plan generation,
 and macOS restore guidance.
 
@@ -114,16 +114,16 @@ Those require a future Rescue Slot or macOS-side restore path.
 
 ## Rescue Slot foundation
 
-Cidre v0.26.0 introduces the foundation for a separate minimal rescue environment.
+Jackrose v0.26.0 introduces the foundation for a separate minimal rescue environment.
 
-The Rescue Slot is intended for cases where the main Cidre install no longer boots
+The Rescue Slot is intended for cases where the main Jackrose install no longer boots
 far enough to show the Recovery Screen.
 
 v0.26.0 does not create partitions or modify boot entries automatically.
 
 ## Rescue Boot Integration
 
-Cidre v0.27.0 adds rescue boot integration planning.
+Jackrose v0.27.0 adds rescue boot integration planning.
 
 It can generate rescue slot plans, metadata, dry-run creation reports,
 macOS-side rescue disk audits, and validation checklists.
@@ -132,10 +132,10 @@ This release does not create partitions, modify boot entries, or install a fully
 
 ## Guided Rescue Slot creation
 
-Cidre v0.28.0 can create a Rescue Slot on an explicitly selected prepared target.
+Jackrose v0.28.0 can create a Rescue Slot on an explicitly selected prepared target.
 
 Creation is guided and defaults to dry-run.
-Real creation requires an exact target, a rescue artifact, Cidre state export,
+Real creation requires an exact target, a rescue artifact, Jackrose state export,
 and an explicit confirmation phrase.
 
 This release does not automatically create partitions, resize APFS containers,
@@ -143,7 +143,7 @@ or modify boot entries.
 
 ## Fully Guided Installer
 
-Cidre v0.29.0 introduces a guided installer flow.
+Jackrose v0.29.0 introduces a guided installer flow.
 
 The installer tracks install stages from macOS preparation through ALARM root phase, user phase, firstboot, and desktop verification.
 
@@ -153,7 +153,7 @@ This release does not automatically resize macOS/APFS containers or create parti
 
 ## Fully Guided Uninstaller
 
-Cidre v0.30.0 introduces a guided uninstall flow.
+Jackrose v0.30.0 introduces a guided uninstall flow.
 
 The uninstaller requires state export before deletion planning, scans and reviews delete targets, blocks protected targets, generates dry-run plans, and connects to the macOS Restore Assistant.
 
@@ -161,31 +161,31 @@ This release does not perform automatic destructive disk operations by default.
 
 ## App-ready command interface
 
-Cidre v0.31.0 introduces an app-ready command interface.
+Jackrose v0.31.0 introduces an app-ready command interface.
 
-Guided installer, uninstaller, recovery, and report commands now expose machine-readable output, predictable exit codes, noninteractive modes, and versioned interface metadata for future integration with Cidre.app.
+Guided installer, uninstaller, recovery, and report commands now expose machine-readable output, predictable exit codes, noninteractive modes, and versioned interface metadata for future integration with Jackrose.app.
 
-## Cidre.app prototype
+## Jackrose.app prototype
 
-Cidre v0.32.0 introduces the first macOS app prototype.
+Jackrose v0.32.0 introduces the first macOS app prototype.
 
 The prototype reads the app-ready command interface added in v0.31.0 and displays dashboards, actions, reports, and command results in a SwiftUI-based interface.
 
 This release does not perform destructive disk operations and does not include a privileged helper.
 
-## Cidre.app guided action UI
+## Jackrose.app guided action UI
 
-Cidre v0.33.0 extends the macOS app prototype with a guided action UI.
+Jackrose v0.33.0 extends the macOS app prototype with a guided action UI.
 
-The app can select a Cidre repository, read interface metadata, display install
+The app can select a Jackrose repository, read interface metadata, display install
 and uninstall actions, run safe read-only commands, display JSON results, preview
 reports, and keep an execution log.
 
 Destructive install/uninstall operations remain blocked.
 
-## Cidre.app runtime validation
+## Jackrose.app runtime validation
 
-Cidre v0.34.0 adds runtime validation tooling for the macOS app prototype.
+Jackrose v0.34.0 adds runtime validation tooling for the macOS app prototype.
 
 The goal is to verify build, launch readiness, repository selection, safe read-only command execution, report preview, and blocked destructive action display on a real macOS machine.
 
@@ -196,16 +196,16 @@ On an ALARM (Arch Linux ARM) / Asahi Linux environment on Apple Silicon:
 ### One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Jackrose/main/install.sh | bash
 ```
 
-This auto-detects whether the Cidre repository is present. If not, it clones the repo automatically (requires `git` or `curl+tar`), then launches the installer.
+This auto-detects whether the Jackrose repository is present. If not, it clones the repo automatically (requires `git` or `curl+tar`), then launches the installer.
 
 ### From a local clone
 
 ```bash
-git clone https://github.com/Yasuno-5555/Cidre.git
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose.git
+cd Jackrose
 ./install.sh
 ```
 
@@ -214,11 +214,11 @@ cd Cidre
 If you just booted a fresh ALARM system as root:
 
 ```bash
-git clone https://github.com/Yasuno-5555/Cidre.git
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose.git
+cd Jackrose
 ./preinstall
 su - <username>
-cd ~/Cidre
+cd ~/Jackrose
 ./install.sh --desktop
 ```
 
@@ -238,14 +238,14 @@ Phase 0: Entry        curl .../install.sh | bash
 Phase 1: Preflight    System checks (Arch, pacman, network, user, sudo)
 Phase 2: Plan         Shows planned packages and config changes
 Phase 3: Install      Installs packages, applies configs
-Phase 4: Verify       Runs cidre-doctor diagnostics
-Phase 5: Next steps   Reboot, choose Cidre session, run cidre-welcome
+Phase 4: Verify       Runs jackrose-doctor diagnostics
+Phase 5: Next steps   Reboot, choose Jackrose session, run jackrose-welcome
 ```
 
 ### Key guarantees
 
 ```
-Cidre will NOT change:
+Jackrose will NOT change:
   - macOS default boot
   - NVRAM boot order
   - boot policy
@@ -278,37 +278,37 @@ Then switch to your normal user and run:
 
 ## Installation Flow (detailed)
 
-Cidre has three phases.
+Jackrose has three phases.
 
 ### 1. macOS phase
 
 ```sh
-git clone https://github.com/Yasuno-5555/Cidre
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose
+cd Jackrose
 ./install-macos --profile developer
 ```
 
-This creates a Cidre seed:
+This creates a Jackrose seed:
 
 ```text
-.local/state/cidre/macos-bootstrap/cidre-seed.tar.gz
+.local/state/jackrose/macos-bootstrap/jackrose-seed.tar.gz
 ```
 
-`./install-macos` does not directly install ALARM or modify APFS containers. It prepares the Cidre-side bootstrap flow and hands off to the ALARM/Asahi installer.
+`./install-macos` does not directly install ALARM or modify APFS containers. It prepares the Jackrose-side bootstrap flow and hands off to the ALARM/Asahi installer.
 
 ### 2. fresh ALARM root phase
 
 After installing ALARM and booting into the fresh system, copy the seed into the ALARM environment and run:
 
 ```bash
-./preinstall --import-seed /path/to/cidre-seed.tar.gz
+./preinstall --import-seed /path/to/jackrose-seed.tar.gz
 ```
 
-`./preinstall` can import the macOS-generated seed, verify it, store it under `/var/lib/cidre/`, and continue with the root-phase setup flow.
+`./preinstall` can import the macOS-generated seed, verify it, store it under `/var/lib/jackrose/`, and continue with the root-phase setup flow.
 
 ### 3. ALARM user phase
 
-After switching to the normal user, resume the Cidre setup:
+After switching to the normal user, resume the Jackrose setup:
 
 ```bash
 ./install --resume
@@ -317,14 +317,14 @@ After switching to the normal user, resume the Cidre setup:
 ## Documentation Guides
 
 - [Guided Onboarding](./docs/onboarding.md)
-- [Installing Cidre from macOS](./docs/macos-install.md)
-- [macOS to Cidre Flow](./docs/macos-to-cidre-flow.md)
+- [Installing Jackrose from macOS](./docs/macos-install.md)
+- [macOS to Jackrose Flow](./docs/macos-to-jackrose-flow.md)
 - [Installer Threat Model](./docs/installer-threat-model.md)
 - [Seed & Resume](./docs/seed-resume.md)
 - [Downstream Strategy](./docs/downstream-strategy.md)
 - [ALARM Fork Strategy](./docs/alarm-fork-strategy.md)
-- [Cidre Image Plan](./docs/cidre-image-plan.md)
-- [Cidre Image Prototype](./docs/cidre-image-prototype.md)
+- [Jackrose Image Plan](./docs/jackrose-image-plan.md)
+- [Jackrose Image Prototype](./docs/jackrose-image-prototype.md)
 - [Installer Integration](./docs/installer-integration.md)
 - [Image Build Notes](./docs/image-build-notes.md)
 - [Image Build Validation](./docs/image-build-validation.md)
@@ -396,24 +396,24 @@ After switching to the normal user, resume the Cidre setup:
 - [v0.24.0 Release Notes](./docs/v0.24.0-macos-restore-assistant.md)
 - [v0.30.0 Release Notes](./docs/v0.30.0-fully-guided-uninstaller.md)
 - [v0.31.0 Release Notes](./docs/v0.31.0-app-ready-command-interface.md)
-- [v0.32.0 Release Notes](./docs/v0.32.0-cidre-app-prototype.md)
-- [v0.33.0 Release Notes](./docs/v0.33.0-cidre-app-guided-action-ui.md)
-- [v0.34.0 Release Notes](./docs/v0.34.0-cidre-app-runtime-validation.md)
-- [Cidre.app Prototype](./docs/cidre-app-prototype.md)
-- [Cidre.app Architecture](./docs/cidre-app-architecture.md)
-- [Cidre.app UI Flow](./docs/cidre-app-ui-flow.md)
-- [Cidre.app Backend Bridge](./docs/cidre-app-backend-bridge.md)
-- [Cidre.app Safety Model](./docs/cidre-app-safety-model.md)
-- [Cidre.app Guided Action UI](./docs/cidre-app-guided-action-ui.md)
-- [Cidre.app Runtime Validation](./docs/cidre-app-runtime-validation.md)
-- [Cidre.app Build Validation](./docs/cidre-app-build-validation.md)
-- [Cidre.app Launch Validation](./docs/cidre-app-launch-validation.md)
-- [Cidre.app Runtime Report](./docs/cidre-app-runtime-report.md)
-- [Cidre.app Runtime Known Issues](./docs/cidre-app-runtime-known-issues.md)
-- [Cidre.app Command Execution](./docs/cidre-app-command-execution.md)
-- [Cidre.app Repository Selection](./docs/cidre-app-repository-selection.md)
-- [Cidre.app Execution Log](./docs/cidre-app-execution-log.md)
-- [Cidre.app Read-Only Safety Policy](./docs/cidre-app-read-only-policy.md)
+- [v0.32.0 Release Notes](./docs/v0.32.0-jackrose-app-prototype.md)
+- [v0.33.0 Release Notes](./docs/v0.33.0-jackrose-app-guided-action-ui.md)
+- [v0.34.0 Release Notes](./docs/v0.34.0-jackrose-app-runtime-validation.md)
+- [Jackrose.app Prototype](./docs/jackrose-app-prototype.md)
+- [Jackrose.app Architecture](./docs/jackrose-app-architecture.md)
+- [Jackrose.app UI Flow](./docs/jackrose-app-ui-flow.md)
+- [Jackrose.app Backend Bridge](./docs/jackrose-app-backend-bridge.md)
+- [Jackrose.app Safety Model](./docs/jackrose-app-safety-model.md)
+- [Jackrose.app Guided Action UI](./docs/jackrose-app-guided-action-ui.md)
+- [Jackrose.app Runtime Validation](./docs/jackrose-app-runtime-validation.md)
+- [Jackrose.app Build Validation](./docs/jackrose-app-build-validation.md)
+- [Jackrose.app Launch Validation](./docs/jackrose-app-launch-validation.md)
+- [Jackrose.app Runtime Report](./docs/jackrose-app-runtime-report.md)
+- [Jackrose.app Runtime Known Issues](./docs/jackrose-app-runtime-known-issues.md)
+- [Jackrose.app Command Execution](./docs/jackrose-app-command-execution.md)
+- [Jackrose.app Repository Selection](./docs/jackrose-app-repository-selection.md)
+- [Jackrose.app Execution Log](./docs/jackrose-app-execution-log.md)
+- [Jackrose.app Read-Only Safety Policy](./docs/jackrose-app-read-only-policy.md)
 - [v0.25.0 Release Notes](./docs/v0.25.0-recovery-screen-safe-mode.md)
 - [v0.26.0 Release Notes](./docs/v0.26.0-rescue-slot-foundation.md)
 - [v0.27.0 Release Notes](./docs/v0.27.0-rescue-boot-integration.md)
@@ -425,7 +425,7 @@ After switching to the normal user, resume the Cidre setup:
 - [v0.18.0 Release Notes](./docs/v0.18.0-builder-integration.md)
 - [v0.17.0 Release Notes](./docs/v0.17.0-image-boot-validation.md)
 - [v0.16.0 Release Notes](./docs/v0.16.0-firstboot-oobe.md)
-- [v0.15.0 Release Notes](./docs/v0.15.0-cidre-image-prototype.md)
+- [v0.15.0 Release Notes](./docs/v0.15.0-jackrose-image-prototype.md)
 - [v0.13.0 Release Notes](./docs/v0.13.0-seed-resume.md)
 - [v0.14.0 Release Notes](./docs/v0.14.0-downstream-foundation.md)
 - [v0.12.0 Release Notes](./docs/v0.12.0-macos-bootstrap.md)

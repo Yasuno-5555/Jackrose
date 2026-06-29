@@ -1,6 +1,6 @@
-# Cidre Welcome Optimized Experience Upgrade Design
+# Jackrose Welcome Optimized Experience Upgrade Design
 
-This document details the optional desktop upgrade workflow for installing Cidre's optimized graphical environment components (`Ghostty` terminal, `fish` shell, and `niri-cidre` compositor).
+This document details the optional desktop upgrade workflow for installing Jackrose's optimized graphical environment components (`Ghostty` terminal, `fish` shell, and `niri-jackrose` compositor).
 
 ---
 
@@ -16,18 +16,18 @@ This document details the optional desktop upgrade workflow for installing Cidre
 
 To manage state tracking and logging, we define the following paths:
 
-- `/var/lib/cidre/welcome.done`
-  - Created when the graphical Cidre Welcome setup completes.
-- `/var/lib/cidre/optimized.done`
+- `/var/lib/jackrose/welcome.done`
+  - Created when the graphical Jackrose Welcome setup completes.
+- `/var/lib/jackrose/optimized.done`
   - Created only when all optimized components build and deploy successfully.
-- `/var/lib/cidre/experience-upgrade.state`
+- `/var/lib/jackrose/experience-upgrade.state`
   - Tracks step-by-step progress to allow retry or resume actions:
     ```ini
     ghostty=done
     fish=configured
-    niri_cidre=failed
+    niri_jackrose=failed
     ```
-- `/var/log/cidre/experience-upgrade.log`
+- `/var/log/jackrose/experience-upgrade.log`
   - Captures full compiler, package, and script outputs.
 
 ---
@@ -35,11 +35,11 @@ To manage state tracking and logging, we define the following paths:
 ## 3. Toolchain & Commands
 
 The upgrade is orchestrated by:
-- `cidre-experience-upgrade`
+- `jackrose-experience-upgrade`
   - Verification check, network check, and sequencing command.
-- `cidre-build-ghostty`
+- `jackrose-build-ghostty`
   - Build helper compiling or deploying Ghostty terminal.
-- `cidre-build-niri-cidre`
+- `jackrose-build-niri-jackrose`
   - Build helper compiling or deploying optimized niri.
-- `cidre-setup-fish`
+- `jackrose-setup-fish`
   - Setup helper configuring fish shell settings.

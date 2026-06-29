@@ -1,6 +1,6 @@
 # Asahi/ALARM Installer Metadata Compatibility Guide
 
-This guide details the gap analysis between Cidre's installer-facing metadata models and the upstream Asahi/ALARM installer requirements.
+This guide details the gap analysis between Jackrose's installer-facing metadata models and the upstream Asahi/ALARM installer requirements.
 
 ---
 
@@ -24,5 +24,5 @@ The upstream installer selects target boot images using a centralized descriptor
 ## 3. Compatibility Gaps
 
 Key gaps identified:
-- **Image Format**: Cidre packages seed files directly as `.tar.zst` whereas upstream might expect split components or image package formats.
+- **Image Format**: Jackrose packages seed files directly as `.tar.zst` whereas upstream might expect split components or image package formats.
 - **Firstboot variables**: Internal markers like `first_boot.mode` are ignored upstream and must be mapped to post-install setup commands.

@@ -1,6 +1,6 @@
-# Cidre Installer Wrapper Strategy
+# Jackrose Installer Wrapper Strategy
 
-This document details the pivot toward a Cidre-owned installer wrapper strategy.
+This document details the pivot toward a Jackrose-owned installer wrapper strategy.
 
 ---
 
@@ -9,7 +9,7 @@ This document details the pivot toward a Cidre-owned installer wrapper strategy.
 > [!WARNING]
 > **No Execution**
 > Phase 26 does not run the Asahi/ALARM installer.
-> The Cidre wrapper does not execute bootstrap scripts in this phase.
+> The Jackrose wrapper does not execute bootstrap scripts in this phase.
 > Do **not** execute install.sh or curl outputs.
 > `WRAPPER_PREFLIGHT_READY` means wrapper-controlled preflight is coherent.
 > It does **not** mean installation is safe yet.
@@ -18,7 +18,7 @@ This document details the pivot toward a Cidre-owned installer wrapper strategy.
 
 ## 2. Rationale
 
-Since Phase 25 determined `NO_SAFE_MODE` for the upstream bootstrap snapshot (there is no public flag/dryrun support that skips installation), Cidre pivot to owning the installer wrapper. 
+Since Phase 25 determined `NO_SAFE_MODE` for the upstream bootstrap snapshot (there is no public flag/dryrun support that skips installation), Jackrose pivot to owning the installer wrapper. 
 
 The wrapper:
 - Runs metadata preparation.
@@ -32,7 +32,7 @@ The wrapper:
 To evaluate the wrapper plan:
 
 ```bash
-installer/scripts/cidre-installer-wrapper-plan \
+installer/scripts/jackrose-installer-wrapper-plan \
   --policy installer/wrapper/wrapper-policy.json \
   --phase24-result installer/bootstrap/notes/phase24-metadata-only-harness-result.md \
   --phase25-result installer/bootstrap/notes/phase25-safe-mode-probe-result.md
@@ -41,8 +41,8 @@ installer/scripts/cidre-installer-wrapper-plan \
 To run wrapper preflight validation:
 
 ```bash
-installer/scripts/validate-cidre-wrapper-preflight \
-  --cidre-metadata installer/generated/cidre-installer-data.dev.json \
+installer/scripts/validate-jackrose-wrapper-preflight \
+  --jackrose-metadata installer/generated/jackrose-installer-data.dev.json \
   --repo-base http://127.0.0.1:8765 \
   --bootstrap-snapshot installer/bootstrap/fixtures/minimal-bootstrap-sample.sh \
   --policy installer/wrapper/wrapper-policy.json

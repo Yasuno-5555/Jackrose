@@ -1,6 +1,6 @@
 # Target Package & Rootfs Integration Validation Guide
 
-This guide describes the procedure for validating the built Cidre packages, collecting them, and installing them into a target ALARM (Arch Linux ARM) or Arch Linux rootfs.
+This guide describes the procedure for validating the built Jackrose packages, collecting them, and installing them into a target ALARM (Arch Linux ARM) or Arch Linux rootfs.
 
 > [!IMPORTANT]
 > **Validation Target Environment**
@@ -25,20 +25,20 @@ Run the custom developer build script from the repository root:
 
 ```sh
 # Verify package setup and metadata syntax
-scripts/dev/build-cidre-packages --printsrcinfo-only
+scripts/dev/build-jackrose-packages --printsrcinfo-only
 
 # Build all packages sequentially in the expected dependency order
-scripts/dev/build-cidre-packages --build
+scripts/dev/build-jackrose-packages --build
 ```
 
 The expected build sequence is:
-1. `cidre-config`
-2. `cidre-user-setup`
-3. `cidre-welcome`
-4. `cidre-healthcheck`
-5. `cidre-firstboot`
-6. `cidre-safe-session`
-7. `cidre-seed`
+1. `jackrose-config`
+2. `jackrose-user-setup`
+3. `jackrose-welcome`
+4. `jackrose-healthcheck`
+5. `jackrose-firstboot`
+6. `jackrose-safe-session`
+7. `jackrose-seed`
 
 ---
 
@@ -48,7 +48,7 @@ Collect the built `.pkg.tar.zst` files into the output staging area:
 
 ```sh
 # Collect packages
-scripts/dev/collect-cidre-packages
+scripts/dev/collect-jackrose-packages
 ```
 
 All package archives will be placed under `packages/out/`. This layout is consumed by the seed image builder.
@@ -87,7 +87,7 @@ image/scripts/enable-firstboot --rootfs <target-rootfs-path> --apply
 
 This will:
 - Enable `NetworkManager.service`
-- Enable `cidre-firstboot.service` (capturing tty1 on next boot)
+- Enable `jackrose-firstboot.service` (capturing tty1 on next boot)
 - Disable `greetd.service` (to prevent early graphical sessions before OOBE completes)
 - Ensure root account password logins are locked (`passwd -l root`)
 
@@ -103,4 +103,4 @@ image/scripts/validate-rootfs --rootfs <target-rootfs-path>
 
 This ensures:
 - All required command paths and systemd units exist.
-- `/var/lib/cidre/firstboot.done` **does not** exist. If present, validation fails immediately.
+- `/var/lib/jackrose/firstboot.done` **does not** exist. If present, validation fails immediately.

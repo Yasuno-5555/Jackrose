@@ -12,7 +12,7 @@ This document details the design and schema specifications of the wrapper contro
 > Phase 34 does not modify boot policy.
 > Phase 34 does not change default boot.
 > Phase 34 does not run the upstream Asahi/ALARM installer.
-> Controlled staging apply may write to the selected target only when `--apply` and the exact confirmation string (`APPLY CIDRE STAGING TO SELECTED TARGET`) are provided.
+> Controlled staging apply may write to the selected target only when `--apply` and the exact confirmation string (`APPLY JACKROSE STAGING TO SELECTED TARGET`) are provided.
 
 ---
 
@@ -22,7 +22,7 @@ To perform rootfs staging:
 - Validates inputs `final-install-contract.json` and `dry-run-staging-plan.json`.
 - Requires exact confirmation string match.
 - Mounts target, stages rootfs (`rsync` or `cp`), syncs, and unmounts target.
-- Post-staging validation confirms rootfs directory layout (`usr/`, `etc/`, `var/`, `usr/share/cidre/defaults/`) and core scripts.
+- Post-staging validation confirms rootfs directory layout (`usr/`, `etc/`, `var/`, `usr/share/jackrose/defaults/`) and core scripts.
 
 ---
 
@@ -31,10 +31,10 @@ To perform rootfs staging:
 To run target staging apply:
 
 ```bash
-installer/scripts/cidre-wrapper-stage-target \
+installer/scripts/jackrose-wrapper-stage-target \
   --contract installer/wrapper/final-install-contract.json \
   --dryrun-plan installer/wrapper/dry-run-staging-plan.json \
-  --confirm "APPLY CIDRE STAGING TO SELECTED TARGET" \
+  --confirm "APPLY JACKROSE STAGING TO SELECTED TARGET" \
   --output installer/wrapper/staging-result.json \
   --apply
 ```
@@ -42,7 +42,7 @@ installer/scripts/cidre-wrapper-stage-target \
 To run post-staging validation:
 
 ```bash
-installer/scripts/validate-cidre-staged-target \
+installer/scripts/validate-jackrose-staged-target \
   --staging-result installer/wrapper/staging-result.json \
   --output installer/wrapper/staged-target-validation.json
 ```
@@ -50,7 +50,7 @@ installer/scripts/validate-cidre-staged-target \
 To generate first-boot handoff contract:
 
 ```bash
-installer/scripts/generate-cidre-firstboot-handoff \
+installer/scripts/generate-jackrose-firstboot-handoff \
   --staged-validation installer/wrapper/staged-target-validation.json \
   --output installer/wrapper/firstboot-handoff.json
 ```
@@ -58,7 +58,7 @@ installer/scripts/generate-cidre-firstboot-handoff \
 To freeze installer MVP:
 
 ```bash
-installer/scripts/freeze-cidre-installer-mvp \
+installer/scripts/freeze-jackrose-installer-mvp \
   --staging-result installer/wrapper/staging-result.json \
   --staged-validation installer/wrapper/staged-target-validation.json \
   --firstboot-handoff installer/wrapper/firstboot-handoff.json \

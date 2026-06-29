@@ -3,7 +3,7 @@
 `v0.35.6` introduces a controlled install mode that keeps payload placement
 separate from boot registration.
 
-The design goal is simple: make it possible to prepare a Cidre install without
+The design goal is simple: make it possible to prepare a Jackrose install without
 quietly mutating the machine's default boot path.
 
 ## What This Flow Does
@@ -30,8 +30,8 @@ policy after `DFU_RESTORE_001`.
 
 ## Recommended Real-Machine Sequence
 
-1. Build the app bundle from `apps/macos/CidreApp/build-app-bundle.sh`.
-2. Launch `Cidre.app` and confirm repository selection and preflight status.
+1. Build the app bundle from `apps/macos/JackroseApp/build-app-bundle.sh`.
+2. Launch `Jackrose.app` and confirm repository selection and preflight status.
 3. Review disk layout and choose only an explicitly disposable or non-primary target.
 4. Run a live drill first if the target class allows it.
 5. Capture before-state evidence and keep the generated plan.

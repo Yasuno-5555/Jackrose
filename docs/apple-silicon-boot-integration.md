@@ -112,8 +112,8 @@ This means `bputil -g` is **NOT required** for the initial LocalPolicy creation.
 | **Reduced Security** | `bputil -g` | Allows custom bootloader (m1n1) with valid signature |
 | **Permissive Security** | `bputil -n` | Allows unsigned kernel extensions |
 
-For Cidre/Linux to actually boot, **Reduced Security** is required. This can be:
-1. Set via `bputil -g` from within the booted Cidre environment
+For Jackrose/Linux to actually boot, **Reduced Security** is required. This can be:
+1. Set via `bputil -g` from within the booted Jackrose environment
 2. Set via Startup Security Utility in macOS Recovery
 3. Set via Asahi's custom bputil fork (see below)
 
@@ -192,7 +192,7 @@ diskutil apfs updatePreboot <system_disk>   # Sync Preboot (macOS volumes only)
 Workaround: write password to temp file (chmod 600), use shell redirect:
 
 ```bash
-pw_file="$(mktemp /tmp/cidre-bless-pw.XXXXXX)"
+pw_file="$(mktemp /tmp/jackrose-bless-pw.XXXXXX)"
 printf '%s' "$password" > "$pw_file"
 chmod 600 "$pw_file"
 osascript -e "do shell script \"cat ${pw_file} | bless --setBoot ... --stdinpass\" with administrator privileges"
@@ -232,7 +232,7 @@ but the actual boot requires a valid EFI executable:
 - **m1n1.bin** from Asahi Linux (stage-1 bootloader for Apple Silicon)
 - Or a proper EFI application built for aarch64
 
-Without a real bootloader, selecting Cidre in Startup Options will fall through
+Without a real bootloader, selecting Jackrose in Startup Options will fall through
 to the next bootable volume (macOS) or show an error.
 
 ### 4. changeVolumeRole limitations
@@ -247,9 +247,9 @@ new volumes instead.
 ## Asahi Linux Reference
 
 The Asahi Linux installer (`asahi-installer`) is the reference implementation.
-Key architectural differences from Cidre's current approach:
+Key architectural differences from Jackrose's current approach:
 
-| Aspect | Asahi | Cidre (current) |
+| Aspect | Asahi | Jackrose (current) |
 |--------|-------|-----------------|
 | Bootloader | m1n1.bin (real stage-1) | Text stub |
 | Volume creation | 4 volumes at creation time | Single volume, then backfill |
@@ -266,9 +266,9 @@ Key architectural differences from Cidre's current approach:
 
 ---
 
-## Script Architecture (Cidre)
+## Script Architecture (Jackrose)
 
-### cidre-app-boot-policy-create
+### jackrose-app-boot-policy-create
 
 The unified script that handles everything (can be called from GUI wizard):
 
@@ -276,8 +276,8 @@ The unified script that handles everything (can be called from GUI wizard):
 Phase 1: Discovery — check existing Volume Group, volumes, roles
 Phase 2: Volume Group setup — create missing Data/System/Preboot/Recovery
 Phase 3: Boot files — write SystemVersion.plist + boot.efi to System volume
-Phase 4: Restore bundle — copy macOS restore bundle to Cidre Preboot
-Phase 5: bless --setBoot Cidre → bputil -g → bless --setBoot macOS
+Phase 4: Restore bundle — copy macOS restore bundle to Jackrose Preboot
+Phase 5: bless --setBoot Jackrose → bputil -g → bless --setBoot macOS
 Phase 6: Report — JSON output with status
 ```
 
@@ -298,21 +298,21 @@ integration. In the GUI wizard flow:
 
 ## Verification Checklist
 
-After running `cidre-app-boot-policy-create`:
+After running `jackrose-app-boot-policy-create`:
 
-- [ ] `diskutil apfs listVolumeGroups` shows Cidre VG with VGID
-- [ ] Cidre Preboot has `boot/<nsih>/` with iBoot, kernelcache, firmware
-- [ ] Cidre Preboot has `restore/` with BuildManifest.plist, bootcaches.plist
-- [ ] `bputil -e` shows LocalPolicy for Cidre VGID
+- [ ] `diskutil apfs listVolumeGroups` shows Jackrose VG with VGID
+- [ ] Jackrose Preboot has `boot/<nsih>/` with iBoot, kernelcache, firmware
+- [ ] Jackrose Preboot has `restore/` with BuildManifest.plist, bootcaches.plist
+- [ ] `bputil -e` shows LocalPolicy for Jackrose VGID
 - [ ] `bputil -e` shows `Pairing Integrity: Valid`
-- [ ] `bless --getBoot` returns macOS (not Cidre — we restored it)
-- [ ] Reboot + hold power button → Cidre visible in Startup Options
+- [ ] `bless --getBoot` returns macOS (not Jackrose — we restored it)
+- [ ] Reboot + hold power button → Jackrose visible in Startup Options
 
 ---
 
 ## m1n1 Bootloader Acquisition
 
-Cidre uses m1n1 from Asahi Linux as the stage-1 bootloader for Apple Silicon.
+Jackrose uses m1n1 from Asahi Linux as the stage-1 bootloader for Apple Silicon.
 
 ### Building from source
 
@@ -332,13 +332,13 @@ used by Asahi's CI). Use `rustup default 1.85` before building.
 ### Placing the binary
 
 ```bash
-cp build/m1n1.macho <cidre-repo>/libexec/m1n1.macho
+cp build/m1n1.macho <jackrose-repo>/libexec/m1n1.macho
 ```
 
-The `cidre-app-m1n1-acquire` script searches for m1n1 in:
+The `jackrose-app-m1n1-acquire` script searches for m1n1 in:
 1. `--m1n1-path` (explicit CLI argument)
-2. `libexec/m1n1.macho` (bundled with Cidre)
-3. `~/.local/share/cidre/m1n1/cached/m1n1.macho` (cached from download)
+2. `libexec/m1n1.macho` (bundled with Jackrose)
+3. `~/.local/share/jackrose/m1n1/cached/m1n1.macho` (cached from download)
 4. Debian sid arm64 package (automatic download)
 
 ### Creating a fake Mach-O for testing

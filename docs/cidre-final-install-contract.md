@@ -32,7 +32,7 @@ To bind validations and generate plan metadata:
 To bind final contract:
 
 ```bash
-installer/scripts/bind-cidre-final-install-contract \
+installer/scripts/bind-jackrose-final-install-contract \
   --rootfs-validation installer/wrapper/rootfs-validation.json \
   --install-plan installer/wrapper/install-plan.json \
   --selected-target installer/wrapper/selected-target.json \
@@ -42,7 +42,7 @@ installer/scripts/bind-cidre-final-install-contract \
 To generate dry-run plan:
 
 ```bash
-installer/scripts/generate-cidre-dryrun-staging-plan \
+installer/scripts/generate-jackrose-dryrun-staging-plan \
   --contract installer/wrapper/final-install-contract.json \
   --output installer/wrapper/dry-run-staging-plan.json
 ```
@@ -50,7 +50,7 @@ installer/scripts/generate-cidre-dryrun-staging-plan \
 To validate contract and plan:
 
 ```bash
-installer/scripts/validate-cidre-final-install-contract \
+installer/scripts/validate-jackrose-final-install-contract \
   --contract installer/wrapper/final-install-contract.json \
   --dryrun-plan installer/wrapper/dry-run-staging-plan.json
 ```

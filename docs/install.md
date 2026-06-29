@@ -1,33 +1,33 @@
-# Cidre Installation Guide
+# Jackrose Installation Guide
 
-Cidre installs on an existing ALARM (Arch Linux ARM) / Asahi Linux environment on Apple Silicon Macs.
+Jackrose installs on an existing ALARM (Arch Linux ARM) / Asahi Linux environment on Apple Silicon Macs.
 
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/install.sh -o cidre-install.sh
-bash cidre-install.sh
+curl -fsSL https://raw.githubusercontent.com/Yasuno-5555/Jackrose/main/install.sh -o jackrose-install.sh
+bash jackrose-install.sh
 ```
 
 Or from a local clone:
 
 ```bash
-git clone https://github.com/Yasuno-5555/Cidre.git
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose.git
+cd Jackrose
 ./install.sh
 ```
 
 ## What install.sh does
 
-`install.sh` is the single entry point. It delegates to `scripts/cidre-installer`, which runs through five phases:
+`install.sh` is the single entry point. It delegates to `scripts/jackrose-installer`, which runs through five phases:
 
 ```
 Phase 0: Entry        Banner, log setup, root guard
 Phase 1: Preflight    System checks (Arch, pacman, network, user, sudo)
 Phase 2: Plan         Shows planned packages and config changes
 Phase 3: Install      System bootstrap + user configuration
-Phase 4: Verify       Runs cidre-doctor diagnostics
-Phase 5: Next steps   Reboot guide, cidre-welcome prompt
+Phase 4: Verify       Runs jackrose-doctor diagnostics
+Phase 5: Next steps   Reboot guide, jackrose-welcome prompt
 ```
 
 ## Profiles
@@ -54,7 +54,7 @@ If no flag is given, an interactive menu lets you choose.
 ./install.sh --minimal
 
 # Diagnostics and repair
-./install.sh --doctor       # Run cidre-doctor --daily
+./install.sh --doctor       # Run jackrose-doctor --daily
 ./install.sh --repair       # Repair existing install
 ./install.sh --check        # Preflight checks only (no changes)
 ./install.sh --dry-run      # Show planned actions (no changes)
@@ -67,12 +67,12 @@ If no flag is given, an interactive menu lets you choose.
 ./install.sh --resume
 ```
 
-## What Cidre will NOT do
+## What Jackrose will NOT do
 
 Every install prints this guarantee and confirms before proceeding:
 
 ```
-Cidre will NOT change:
+Jackrose will NOT change:
   - macOS default boot
   - NVRAM boot order
   - boot policy
@@ -80,7 +80,7 @@ Cidre will NOT change:
 ```
 
 This confirmation is never skipped, even with `--no-confirm`.
-Cidre does not register itself as the default boot target.
+Jackrose does not register itself as the default boot target.
 
 ## Fresh ALARM Setup (root phase)
 
@@ -88,15 +88,15 @@ If you're starting from a fresh ALARM install with only root:
 
 ```bash
 # 1. Clone and enter
-git clone https://github.com/Yasuno-5555/Cidre.git
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose.git
+cd Jackrose
 
 # 2. Run root-phase preparation
 ./preinstall
 
 # 3. Switch to normal user
 su - <your-username>
-cd ~/Cidre
+cd ~/Jackrose
 
 # 4. Run user-phase install
 ./install.sh
@@ -105,7 +105,7 @@ cd ~/Cidre
 `./preinstall` handles:
 - Base package installation (git, curl, sudo, base-devel)
 - Normal user creation and wheel group membership
-- sudo policy configuration (`/etc/sudoers.d/cidre-wheel`)
+- sudo policy configuration (`/etc/sudoers.d/jackrose-wheel`)
 - Network/pacman readiness checks
 
 ## Post-Install
@@ -113,19 +113,19 @@ cd ~/Cidre
 After successful installation:
 
 ```bash
-# Reboot and select Cidre session at the greeter
+# Reboot and select Jackrose session at the greeter
 sudo reboot
 
 # On first login, start the welcome tour
-cidre-welcome
+jackrose-welcome
 
 # Daily health checks
-cidre-doctor --daily
+jackrose-doctor --daily
 
 # Repair if something breaks
-cidre-repair --configs
-cidre-repair --audio
-cidre-repair --session
+jackrose-repair --configs
+jackrose-repair --audio
+jackrose-repair --session
 ```
 
 ## Failure Recovery
@@ -144,7 +144,7 @@ Try:
   <recovery command 2>
 
 Log:
-  ~/.local/state/cidre/install-<timestamp>.log
+  ~/.local/state/jackrose/install-<timestamp>.log
 ```
 
 Common recovery paths:
@@ -153,23 +153,23 @@ Common recovery paths:
 |---------|----------|
 | pacman sync failed | `sudo pacman -Syy` |
 | keyring outdated | `sudo pacman -Sy archlinuxarm-keyring` |
-| config broken after update | `cidre-repair --configs` |
-| audio not working | `cidre-repair --audio` |
-| greetd won't start | `cidre-repair --session` |
-| full diagnostics | `cidre-doctor --daily` |
-| emergency recovery | `cidre-recovery status` |
+| config broken after update | `jackrose-repair --configs` |
+| audio not working | `jackrose-repair --audio` |
+| greetd won't start | `jackrose-repair --session` |
+| full diagnostics | `jackrose-doctor --daily` |
+| emergency recovery | `jackrose-recovery status` |
 
 ## macOS Bootstrap (optional)
 
-If you have macOS access and want to prepare a Cidre seed before the ALARM install:
+If you have macOS access and want to prepare a Jackrose seed before the ALARM install:
 
 ```bash
-git clone https://github.com/Yasuno-5555/Cidre
-cd Cidre
+git clone https://github.com/Yasuno-5555/Jackrose
+cd Jackrose
 ./install-macos --profile developer
 ```
 
-This creates a seed at `.local/state/cidre/macos-bootstrap/cidre-seed.tar.gz` that can be imported during the ALARM root phase with `./preinstall --import-seed`.
+This creates a seed at `.local/state/jackrose/macos-bootstrap/jackrose-seed.tar.gz` that can be imported during the ALARM root phase with `./preinstall --import-seed`.
 
 ## See Also
 

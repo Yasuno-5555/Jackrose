@@ -1,6 +1,6 @@
 # Bootstrap Override Compatibility Report
 
-Cidre can currently generate, serve, fetch, and validate installer_data-shaped metadata, but it has not executed the real Asahi/ALARM installer. The next safe step is a controlled non-executing bootstrap override probe, not a real install.
+Jackrose can currently generate, serve, fetch, and validate installer_data-shaped metadata, but it has not executed the real Asahi/ALARM installer. The next safe step is a controlled non-executing bootstrap override probe, not a real install.
 
 > [!WARNING]
 > Do not run bootstrap scripts yet.
@@ -56,11 +56,11 @@ The partition commands mapped below represent dangerous boundaries:
 
 ## 5. Override Strategy
 
-# Cidre Installer Entry Strategy
+# Jackrose Installer Entry Strategy
 
 ## Strategy B: INSTALLER_DATA + REPO_BASE Override
 
-- **Description**: Cidre overrides both variables to redirect the metadata fetch and target archive download endpoints.
+- **Description**: Jackrose overrides both variables to redirect the metadata fetch and target archive download endpoints.
 - **Risk Level**: High.
 - **Recommended status**: Strategy B investigation only. Do not execute yet.
 
@@ -75,8 +75,8 @@ The partition commands mapped below represent dangerous boundaries:
 | R-001 | Bootstrap enters real installer execution | Critical | install.sh / alx.sh call | Static detector | Keep Phase 22 non-execution | Open |
 | R-002 | Disk mutation command executes | Critical | diskutil/bless/nvram/etc. | Mutation detector | Never execute bootstrap in Phase 21/22 | Open |
 | R-003 | INSTALLER_DATA points to invalid metadata | High | bad URL / invalid JSON | validate-installer-data-url | Validate before any experiment | Mitigated |
-| R-004 | Cidre Asahi-like metadata is not actually upstream-compatible | High | real installer parse failure | compatibility study | Adapter remains prototype | Open |
-| R-005 | REPO_BASE semantics differ from Cidre assumptions | High | package fetch failure | static inspection | Document unresolved behavior | Open |
+| R-004 | Jackrose Asahi-like metadata is not actually upstream-compatible | High | real installer parse failure | compatibility study | Adapter remains prototype | Open |
+| R-005 | REPO_BASE semantics differ from Jackrose assumptions | High | package fetch failure | static inspection | Document unresolved behavior | Open |
 
 ---
 

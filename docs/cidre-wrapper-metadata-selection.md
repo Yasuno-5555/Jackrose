@@ -1,4 +1,4 @@
-# Cidre Wrapper Metadata Selection Prototype
+# Jackrose Wrapper Metadata Selection Prototype
 
 This document details the design and schema specifications of the wrapper metadata selection layers.
 
@@ -9,7 +9,7 @@ This document details the design and schema specifications of the wrapper metada
 > [!WARNING]
 > **No Execution**
 > Phase 27 does not run the Asahi/ALARM installer.
-> Phase 27 does not fetch or extract the Cidre rootfs artifact.
+> Phase 27 does not fetch or extract the Jackrose rootfs artifact.
 > Do **not** execute bootstrap scripts, install.sh, or curl outputs.
 > `selected-image.json` is a selection verification artifact, **not** an installation authorization.
 
@@ -30,15 +30,15 @@ To isolate metadata parsing from subsequent download blocks, the wrapper writes 
 To select an image:
 
 ```bash
-installer/scripts/cidre-wrapper-select-image \
-  --metadata installer/generated/asahi-installer-data.cidre.dev.normalized.json \
-  --id cidre-seed-aarch64 \
+installer/scripts/jackrose-wrapper-select-image \
+  --metadata installer/generated/asahi-installer-data.jackrose.dev.normalized.json \
+  --id jackrose-seed-aarch64 \
   --output installer/wrapper/selected-image.json
 ```
 
 To validate the selection file:
 
 ```bash
-installer/scripts/validate-cidre-wrapper-selection \
+installer/scripts/validate-jackrose-wrapper-selection \
   --selection installer/wrapper/selected-image.json
 ```

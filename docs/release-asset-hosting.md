@@ -1,14 +1,14 @@
 # Release Asset Hosting Guide
 
-This document describes how Cidre addresses and verifies hosted release assets.
+This document describes how Jackrose addresses and verifies hosted release assets.
 
 ---
 
 ## 1. Hosting Strategy
 
-Cidre utilizes GitHub Releases as the primary hosting model for compiled seed image archives and manifest properties.
+Jackrose utilizes GitHub Releases as the primary hosting model for compiled seed image archives and manifest properties.
 - **Metadata**: Distributed via raw repository files or GitHub Pages.
-- **Images**: Bound to tag-specific release assets (e.g. `https://github.com/Yasuno-5555/Cidre/releases/download/...`).
+- **Images**: Bound to tag-specific release assets (e.g. `https://github.com/Yasuno-5555/Jackrose/releases/download/...`).
 
 ---
 
@@ -28,20 +28,20 @@ Hosted assets can be validated using the remote verification tool:
 
 ```bash
 installer/scripts/verify-hosted-release-assets \
-  --metadata installer/generated/cidre-installer-data.dev.json \
-  --id cidre-seed-aarch64
+  --metadata installer/generated/jackrose-installer-data.dev.json \
+  --id jackrose-seed-aarch64
 ```
 
 ---
 
 ## 4. Hosted Dev Artifact Fetch
 
-Cidre utilizes `verify-dev-release-fetch` to query hosted dev release tags (e.g. `v0.10.0-dev`).
+Jackrose utilizes `verify-dev-release-fetch` to query hosted dev release tags (e.g. `v0.10.0-dev`).
 It fetches image binaries over HTTPS using `curl -L`, validating sizes and SHA256 checksums before resolving candidates. Strict checking mode rejects placeholder checksum parameters.
 
 ---
 
 ## 5. Relationship to Asahi/ALARM Installer Data
 
-Cidre's hosted release assets must ultimately map to the metadata model used by the Asahi/ALARM installer bootstrap flow.
-Phase 17 studies this layout to ensure that Cidre's exported structures can translate into the upstream ecosystem without manual patching.
+Jackrose's hosted release assets must ultimately map to the metadata model used by the Asahi/ALARM installer bootstrap flow.
+Phase 17 studies this layout to ensure that Jackrose's exported structures can translate into the upstream ecosystem without manual patching.

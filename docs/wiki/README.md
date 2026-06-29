@@ -1,12 +1,12 @@
-Welcome to the Cidre / niri-cidre documentation.
+Welcome to the Jackrose / niri-jackrose documentation.
 
-This wiki tree still contains a large amount of upstream `niri` documentation, plus Cidre-specific release and configuration work around it.
+This wiki tree still contains a large amount of upstream `niri` documentation, plus Jackrose-specific release and configuration work around it.
 
 Read this note first:
 
-- [Documentation note](./CIDRE_NOTE.md)
+- [Documentation note](./JACKROSE_NOTE.md)
 
-Start here if you want the current Cidre-facing docs:
+Start here if you want the current Jackrose-facing docs:
 
 - [README.md](../../README.md)
 - [INSTALL.md](../../INSTALL.md)
@@ -20,13 +20,13 @@ If you're looking for upstream compositor behavior and baseline configuration de
 - [Getting Started](./Getting-Started.md)
 - [Configuration introduction](./Configuration:-Introduction.md)
 
-If you'd like to help with Cidre or `niri-cidre`, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+If you'd like to help with Jackrose or `niri-jackrose`, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-Public hosting and repo URLs for the Cidre docs are not fully frozen yet.
+Public hosting and repo URLs for the Jackrose docs are not fully frozen yet.
 
 ---
 
 The documentation is open to contribution, see [Documenting niri](./Development:-Documenting-niri.md).
 Upstream `niri` community spaces are still useful for compositor internals: [Matrix](https://matrix.to/#/#niri:matrix.org).
 The wiki is generated from files in the `docs/wiki/` folder of the repository, so you can open a pull request modifying it there.
-Current repository: https://github.com/Yasuno-5555/Cidre
+Current repository: https://github.com/Yasuno-5555/Jackrose

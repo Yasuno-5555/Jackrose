@@ -31,7 +31,7 @@ To safely inspect and verify the contents of the archive before target execution
 To inspect an archive:
 
 ```bash
-installer/scripts/cidre-wrapper-inspect-artifact \
+installer/scripts/jackrose-wrapper-inspect-artifact \
   --artifact installer/wrapper/verified-artifact.json \
   --output installer/wrapper/artifact-structure.json
 ```
@@ -39,17 +39,17 @@ installer/scripts/cidre-wrapper-inspect-artifact \
 To extract to a temporary sandbox:
 
 ```bash
-installer/scripts/cidre-wrapper-extract-sandbox \
+installer/scripts/jackrose-wrapper-extract-sandbox \
   --artifact installer/wrapper/verified-artifact.json \
   --structure installer/wrapper/artifact-structure.json \
-  --sandbox-dir /tmp/cidre-wrapper-extract \
+  --sandbox-dir /tmp/jackrose-wrapper-extract \
   --output installer/wrapper/extracted-rootfs.json
 ```
 
 To validate the extracted rootfs:
 
 ```bash
-installer/scripts/validate-cidre-wrapper-extracted-rootfs \
+installer/scripts/validate-jackrose-wrapper-extracted-rootfs \
   --extracted installer/wrapper/extracted-rootfs.json \
   --require-files
 ```

@@ -1,6 +1,6 @@
-# Cidre Desktop Seed Pivot Design
+# Jackrose Desktop Seed Pivot Design
 
-This document details the architectural pivot of Cidre's firstboot onboarding experience from a text-only TTY-first model to a graphical desktop-first Welcome model.
+This document details the architectural pivot of Jackrose's firstboot onboarding experience from a text-only TTY-first model to a graphical desktop-first Welcome model.
 
 ---
 
@@ -8,20 +8,20 @@ This document details the architectural pivot of Cidre's firstboot onboarding ex
 
 > [!IMPORTANT]
 > **A Merely Working System is Not Enough**
-> A bare text console (TTY1) is unacceptable as the primary first-use onboarding path for a premium system. The first visible environment must feel like Cidre: custom, guided, and visually complete.
+> A bare text console (TTY1) is unacceptable as the primary first-use onboarding path for a premium system. The first visible environment must feel like Jackrose: custom, guided, and visually complete.
 
 ### Previous Model (TTY OOBE)
 ```text
-Boot → TTY1 → cidre-oobe TUI → User/Network Setup → Graphical Session (later)
+Boot → TTY1 → jackrose-oobe TUI → User/Network Setup → Graphical Session (later)
 ```
 
 ### New Model (Desktop Welcome)
 ```text
-Boot → Graphical Session (Baseline) → Cidre Welcome autostart → User/Network Setup → Option to build Optimized Session
+Boot → Graphical Session (Baseline) → Jackrose Welcome autostart → User/Network Setup → Option to build Optimized Session
 ```
 
 ### Fallback/Rescue Path
-If the graphical server fails to launch, the system falls back to TTY1 and launches `cidre-oobe` as a rescue installer.
+If the graphical server fails to launch, the system falls back to TTY1 and launches `jackrose-oobe` as a rescue installer.
 
 ---
 
@@ -40,8 +40,8 @@ Components that can be installed directly from pre-built ALARM repository packag
 - **Shell**: `bash`
 
 ### 2.2. Optimized Experience (Upgrade Path)
-Preferred custom elements that require compilation or local custom builds. These will be offered inside Cidre Welcome as an optional upgrade path:
-- **Compositor**: `niri-cidre`
+Preferred custom elements that require compilation or local custom builds. These will be offered inside Jackrose Welcome as an optional upgrade path:
+- **Compositor**: `niri-jackrose`
 - **Terminal**: `ghostty`
 - **Shell**: `fish`
 
@@ -51,7 +51,7 @@ Preferred custom elements that require compilation or local custom builds. These
 
 We separate markers to isolate low-level initialization from desktop-level user configuration completion:
 
-- `/var/lib/cidre/firstboot.done`
+- `/var/lib/jackrose/firstboot.done`
   - Purpose: Tracks low-level system initialization status.
-- `/var/lib/cidre/welcome.done`
+- `/var/lib/jackrose/welcome.done`
   - Purpose: Tracks completion of the desktop first-run Welcome guide.

@@ -1,6 +1,6 @@
-# Cidre Installation Guide (v0.2.0)
+# Jackrose Installation Guide (v0.2.0)
 
-This document describes how to install the Cidre experience layer on an Apple Silicon Mac running Arch Linux ARM (ALARM) / Asahi Linux.
+This document describes how to install the Jackrose experience layer on an Apple Silicon Mac running Arch Linux ARM (ALARM) / Asahi Linux.
 
 ## Requirements
 - An Apple Silicon Mac (M1/M2/M3)
@@ -11,7 +11,7 @@ This document describes how to install the Cidre experience layer on an Apple Si
 
 1. Run the bootstrap script:
    ```bash
-   curl -L https://raw.githubusercontent.com/Yasuno-5555/Cidre/main/scripts/bootstrap.sh | sh
+   curl -L https://raw.githubusercontent.com/Yasuno-5555/Jackrose/main/scripts/bootstrap.sh | sh
    ```
 2. Follow the interactive prompts to set up your username and password. The script will:
    - Configure local keyboard layouts (`jp106`)
@@ -23,7 +23,7 @@ This document describes how to install the Cidre experience layer on an Apple Si
 4. Log into the system using the username and password created.
 5. Deploy configuration defaults into your home directory:
    ```bash
-   cidre-user-setup
+   jackrose-user-setup
    ```
 
 Now your Japanese input layout, Waybar, fuzzel launcher, and Ghostty terminal are ready for use.

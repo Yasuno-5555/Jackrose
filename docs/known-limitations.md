@@ -1,6 +1,6 @@
 # Known Limitations
 
-Cidre is still in a constrained safety posture after `DFU_RESTORE_001`.
+Jackrose is still in a constrained safety posture after `DFU_RESTORE_001`.
 
 ## Real Hardware Status
 
@@ -30,9 +30,9 @@ The repository currently assumes:
 This means the current flow can prepare install artifacts and emit manual boot
 instructions, but it does not:
 
-- automatically register Cidre as the default boot target
+- automatically register Jackrose as the default boot target
 - automatically change Startup Disk
-- automatically reboot into Cidre
+- automatically reboot into Jackrose
 - prove that the resulting boot path is safe on every Apple Silicon model
 
 ## Validation Gaps

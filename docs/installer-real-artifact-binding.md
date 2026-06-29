@@ -7,8 +7,8 @@ This guide details the integration verification processes for linking assembled 
 ## 1. Prerequisites
 
 Before binding, ensure Phase 10 has generated the required target artifacts:
-- `out/cidre-seed-aarch64-v0.10.0.tar.zst`
-- `out/cidre-seed-aarch64-v0.10.0.manifest`
+- `out/jackrose-seed-aarch64-v0.10.0.tar.zst`
+- `out/jackrose-seed-aarch64-v0.10.0.manifest`
 
 ---
 
@@ -19,10 +19,10 @@ The binding utility computes sizes and sha256 checksums from the build artifacts
 
 ```bash
 installer/scripts/bind-local-seed-artifact \
-  --metadata installer/metadata/cidre-seed.local.json \
-  --id cidre-seed-aarch64 \
-  --image out/cidre-seed-aarch64-v0.10.0.tar.zst \
-  --manifest out/cidre-seed-aarch64-v0.10.0.manifest \
+  --metadata installer/metadata/jackrose-seed.local.json \
+  --id jackrose-seed-aarch64 \
+  --image out/jackrose-seed-aarch64-v0.10.0.tar.zst \
+  --manifest out/jackrose-seed-aarch64-v0.10.0.manifest \
   --channel local
 ```
 
@@ -31,8 +31,8 @@ Validate matching parameters using the simulator in strict real-artifact checkin
 
 ```bash
 installer/scripts/simulate-installer-selection \
-  --metadata installer/metadata/cidre-seed.local.json \
-  --id cidre-seed-aarch64 \
+  --metadata installer/metadata/jackrose-seed.local.json \
+  --id jackrose-seed-aarch64 \
   --verify-artifact \
   --require-real-artifact
 ```

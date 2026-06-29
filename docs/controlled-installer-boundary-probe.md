@@ -28,7 +28,7 @@ To run the boundary probe:
 
 ```bash
 installer/scripts/controlled-installer-boundary-probe \
-  --installer-data-url http://127.0.0.1:8765/asahi-installer-data.cidre.dev.json \
+  --installer-data-url http://127.0.0.1:8765/asahi-installer-data.jackrose.dev.json \
   --repo-base http://127.0.0.1:8765 \
   --bootstrap-snapshot installer/bootstrap/upstream/asahi-bootstrap-dev.snapshot.sh
 ```

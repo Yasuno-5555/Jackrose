@@ -31,7 +31,7 @@ To safely search for install candidate partitions, the discovery script:
 To run read-only target discovery:
 
 ```bash
-installer/scripts/cidre-wrapper-discover-targets \
+installer/scripts/jackrose-wrapper-discover-targets \
   --install-plan installer/wrapper/install-plan.json \
   --output installer/wrapper/target-candidates.json
 ```
@@ -39,6 +39,6 @@ installer/scripts/cidre-wrapper-discover-targets \
 To validate target candidates config:
 
 ```bash
-installer/scripts/validate-cidre-target-candidates \
+installer/scripts/validate-jackrose-target-candidates \
   --candidates installer/wrapper/target-candidates.json
 ```

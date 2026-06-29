@@ -1,15 +1,15 @@
 # No Default Boot Mutation Policy
 
-Cidre must not silently replace the machine's normal boot path.
+Jackrose must not silently replace the machine's normal boot path.
 
 This policy exists because a GUI-driven install path previously led to a boot
 failure severe enough to require DFU recovery.
 
 ## Policy Rules
 
-During controlled install testing, Cidre must not:
+During controlled install testing, Jackrose must not:
 
-- set Startup Disk to a Cidre target
+- set Startup Disk to a Jackrose target
 - modify the machine's default boot container or root identifier
 - auto-restart into a newly staged install
 - report install completion solely because payload staging succeeded
@@ -19,7 +19,7 @@ During controlled install testing, Cidre must not:
 The repository currently enforces this policy through:
 
 - controlled install planning that keeps boot registration out of scope
-- `scripts/cidre-app-no-default-boot-check`
+- `scripts/jackrose-app-no-default-boot-check`
 - finish and before-shutdown gates
 - documentation and operator review checkpoints
 

@@ -1,6 +1,6 @@
 # Installer Metadata Wiring Guide
 
-This document describes the adapter layer that maps Cidre internal installer metadata formats into simplified installer-facing layouts.
+This document describes the adapter layer that maps Jackrose internal installer metadata formats into simplified installer-facing layouts.
 
 ---
 
@@ -18,8 +18,8 @@ To export simplified installer-facing metadata configurations:
 
 ```bash
 installer/scripts/export-installer-metadata \
-  --metadata installer/metadata/cidre-seed.local.json \
-  --output installer/generated/cidre-installer-data.local.json \
+  --metadata installer/metadata/jackrose-seed.local.json \
+  --output installer/generated/jackrose-installer-data.local.json \
   --channel local
 ```
 
@@ -27,5 +27,5 @@ To validate the generated output:
 
 ```bash
 installer/scripts/validate-exported-installer-metadata \
-  installer/generated/cidre-installer-data.local.json
+  installer/generated/jackrose-installer-data.local.json
 ```

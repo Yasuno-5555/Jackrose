@@ -1,6 +1,6 @@
-# Cidre-to-Asahi Installer Data Adapter
+# Jackrose-to-Asahi Installer Data Adapter
 
-This document details the prototype adapter mapping Cidre metadata to an Asahi-like `installer_data.json` layout.
+This document details the prototype adapter mapping Jackrose metadata to an Asahi-like `installer_data.json` layout.
 
 ---
 
@@ -15,19 +15,19 @@ This document details the prototype adapter mapping Cidre metadata to an Asahi-l
 
 ## 2. Mapping Scheme
 
-The exporter transforms Cidre targets to Asahi-like candidate lists:
-- **`os_list`**: The target installer list populated from Cidre image definitions.
+The exporter transforms Jackrose targets to Asahi-like candidate lists:
+- **`os_list`**: The target installer list populated from Jackrose image definitions.
 - **`_warning`**: Explicit warning parameters appended to all output files.
 
 ---
 
 ## 3. Usage
 
-To convert Cidre metadata:
+To convert Jackrose metadata:
 
 ```bash
 installer/scripts/export-asahi-installer-data \
-  --input installer/generated/cidre-installer-data.dev.json \
-  --output installer/generated/asahi-installer-data.cidre.dev.json \
+  --input installer/generated/jackrose-installer-data.dev.json \
+  --output installer/generated/asahi-installer-data.jackrose.dev.json \
   --channel dev
 ```

@@ -10,7 +10,7 @@ This document details the design and execution bounds of the metadata-only insta
 > **No Execution**
 > Phase 24 does not run the Asahi/ALARM installer.
 > Do **not** execute bootstrap scripts, install.sh, or pipe curl outputs into shell.
-> `A_SAFE_METADATA_PATH` means Cidre’s metadata-only override chain is coherent.
+> `A_SAFE_METADATA_PATH` means Jackrose’s metadata-only override chain is coherent.
 > It does **not** prove real installer compatibility.
 
 ---
@@ -31,7 +31,7 @@ To run the harness:
 
 ```bash
 installer/scripts/metadata-only-installer-override-harness \
-  --cidre-metadata installer/generated/cidre-installer-data.dev.json \
+  --jackrose-metadata installer/generated/jackrose-installer-data.dev.json \
   --repo-base http://127.0.0.1:8765 \
   --port 8765 \
   --bootstrap-snapshot installer/bootstrap/fixtures/minimal-bootstrap-sample.sh

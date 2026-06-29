@@ -1,6 +1,6 @@
-# cidre-installer --json: Structured Output Format
+# jackrose-installer --json: Structured Output Format
 
-Cidre CLI tools emit a streaming JSON Lines (JSONL) protocol so GUI wrappers can display progress, errors, and next steps without parsing terminal escape codes.
+Jackrose CLI tools emit a streaming JSON Lines (JSONL) protocol so GUI wrappers can display progress, errors, and next steps without parsing terminal escape codes.
 
 ## Protocol
 
@@ -100,7 +100,7 @@ Emitted for each sub-step within a phase.
   "type": "step_start",
   "timestamp": "2026-06-25T12:00:10Z",
   "step": "install_packages",
-  "label": "Installing cidre-meta-desktop",
+  "label": "Installing jackrose-meta-desktop",
   "phase": "bootstrap"
 }
 ```
@@ -124,7 +124,7 @@ Emitted during long-running steps to keep the GUI updated.
   "type": "step_progress",
   "timestamp": "2026-06-25T12:00:15Z",
   "step": "install_packages",
-  "message": "Installing cidre-session (3/5)",
+  "message": "Installing jackrose-session (3/5)",
   "current": 3,
   "total": 5
 }
@@ -158,7 +158,7 @@ Emitted when user input is needed. The GUI shows a dialog; the response comes vi
   "timestamp": "2026-06-25T12:00:05Z",
   "id": "confirm-install",
   "kind": "confirm",
-  "message": "Ready to install Cidre with profile 'desktop'. Continue?",
+  "message": "Ready to install Jackrose with profile 'desktop'. Continue?",
   "default": false
 }
 ```
@@ -200,7 +200,7 @@ Emitted on failure. Follows the Likely causes + Try + Log pattern.
     "sudo pacman -Sy archlinuxarm-keyring",
     "./install.sh --retry"
   ],
-  "log": "~/.local/state/cidre/install-2026-06-25.log",
+  "log": "~/.local/state/jackrose/install-2026-06-25.log",
   "exit_code": 1,
   "recoverable": true
 }
@@ -218,15 +218,15 @@ Emitted on successful completion.
   "status": "passed",
   "next_steps": [
     "Reboot the system or log out",
-    "Select the 'Cidre' graphical session at the greeter",
-    "On first login, run: cidre-welcome"
+    "Select the 'Jackrose' graphical session at the greeter",
+    "On first login, run: jackrose-welcome"
   ],
   "maintenance": [
-    {"label": "Diagnostics", "command": "cidre-doctor --daily"},
-    {"label": "Repair configs", "command": "cidre-repair --configs"},
-    {"label": "Audio fix", "command": "cidre-repair --audio"}
+    {"label": "Diagnostics", "command": "jackrose-doctor --daily"},
+    {"label": "Repair configs", "command": "jackrose-repair --configs"},
+    {"label": "Audio fix", "command": "jackrose-repair --audio"}
   ],
-  "log": "~/.local/state/cidre/install-2026-06-25.log"
+  "log": "~/.local/state/jackrose/install-2026-06-25.log"
 }
 ```
 
@@ -243,7 +243,7 @@ class InstallerViewModel: ObservableObject {
 
     func startInstall(profile: String) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "./scripts/cidre-installer")
+        process.executableURL = URL(fileURLWithPath: "./scripts/jackrose-installer")
         process.arguments = ["--\(profile)", "--json"]
 
         let pipe = Pipe()
@@ -286,16 +286,16 @@ class InstallerViewModel: ObservableObject {
 
 ## Implementation Plan
 
-1. Add a `--json` flag to `scripts/cidre-installer` (already parsed in help, not yet functional)
-2. Create `lib/cidre/json.sh` with helper functions:
+1. Add a `--json` flag to `scripts/jackrose-installer` (already parsed in help, not yet functional)
+2. Create `lib/jackrose/json.sh` with helper functions:
    - `json_emit type [key=value ...]` — emit a JSON line
    - `json_phase_start phase label`
    - `json_phase_end phase status`
    - `json_check check status detail [causes] [tries]`
    - `json_error title causes tries log`
    - `json_complete profile steps maintenance`
-3. Instrument each phase/step in `cidre-installer` to call json_* functions when `--json` is active
-4. Non-JSON mode continues to use lib/cidre/ui.sh for human-readable output
+3. Instrument each phase/step in `jackrose-installer` to call json_* functions when `--json` is active
+4. Non-JSON mode continues to use lib/jackrose/ui.sh for human-readable output
 5. Keep stderr as human-readable fallback even in JSON mode
 
 ## Design Decisions

@@ -1,25 +1,25 @@
-# Contributing to Cidre and niri-cidre
+# Contributing to Jackrose and niri-jackrose
 
 Thanks for your interest in contributing.
 
-This repository contains the Cidre environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-cidre` desktop layer.
+This repository contains the Jackrose environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-jackrose` desktop layer.
 
 Before contributing, read these first:
 
 - [README.md](./README.md)
-- [docs/cidre-v1-scope.md](./docs/cidre-v1-scope.md)
+- [docs/jackrose-v1-scope.md](./docs/jackrose-v1-scope.md)
 - [INSTALL.md](./INSTALL.md)
 - [SUPPORTED_HARDWARE.md](./SUPPORTED_HARDWARE.md)
 - [RECOVERY.md](./RECOVERY.md)
 - [KNOWN_LIMITATIONS.md](./KNOWN_LIMITATIONS.md)
 - [ISSUE_REPORTING.md](./ISSUE_REPORTING.md)
-- [docs/niri-cidre-config.md](./docs/niri-cidre-config.md)
+- [docs/niri-jackrose-config.md](./docs/niri-jackrose-config.md)
 
 ## What This Repository Is
 
-This repository contains the Cidre environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-cidre` desktop layer.
+This repository contains the Jackrose environment, including installer, recovery, rescue tooling, documentation, package metadata, and the `niri-jackrose` desktop layer.
 
-`niri-cidre` is the desktop/compositor component shipped as part of Cidre. It is not the whole project.
+`niri-jackrose` is the desktop/compositor component shipped as part of Jackrose. It is not the whole project.
 
 That distinction matters when discussing scope, bugs, documentation, and release expectations.
 
@@ -29,7 +29,7 @@ Right now, the highest-value contributions are usually:
 
 - Apple Silicon stability improvements
 - install and recovery hardening
-- `niri-cidre` integration bugs
+- `niri-jackrose` integration bugs
 - power-aware behavior improvements
 - touchpad and session polish
 - documentation that reduces user footguns
@@ -38,8 +38,8 @@ Right now, the highest-value contributions are usually:
 
 When filing or triaging issues, first identify which layer the problem belongs to:
 
-- `Cidre` product/documentation/install issue
-- `niri-cidre` compositor issue
+- `Jackrose` product/documentation/install issue
+- `niri-jackrose` compositor issue
 - upstream `niri` behavior
 - upstream Asahi/platform issue
 - application issue
@@ -50,7 +50,7 @@ That split is more important here than in a typical single-layer project.
 Useful triage questions:
 
 - Does it reproduce with packaged upstream `niri`?
-- Does it reproduce only with local Cidre config?
+- Does it reproduce only with local Jackrose config?
 - Does it reproduce only on specific Apple Silicon hardware?
 - Did it start after a local build, config edit, or package update?
 - Is it actually an application bug?
@@ -62,11 +62,11 @@ If the issue is really:
 - an Asahi platform bug
 - a local broken config
 
-then say so clearly instead of pretending it is a Cidre core defect.
+then say so clearly instead of pretending it is a Jackrose core defect.
 
 ## Reviewing and Testing Pull Requests
 
-Testing and review should reflect the actual Cidre release boundary.
+Testing and review should reflect the actual Jackrose release boundary.
 
 When testing, pay attention to:
 
@@ -81,9 +81,9 @@ Useful test categories:
 
 - build succeeds
 - session starts from a clean login
-- `cidre-session` path works
+- `jackrose-session` path works
 - user systemd override behavior is sane
-- Cidre config layering still validates
+- Jackrose config layering still validates
 - safe mode is still reachable
 
 For bug fixes:
@@ -97,7 +97,7 @@ For reviews:
 
 - check scope discipline
 - look for accidental breakage of the recovery path
-- make sure Cidre-specific docs are updated when needed
+- make sure Jackrose-specific docs are updated when needed
 - check that upstream compatibility is preserved where intended
 
 ## Writing Pull Requests
@@ -133,11 +133,11 @@ If your change affects:
 
 then update the relevant doc in the same change.
 
-## Upstream vs Cidre-Specific Changes
+## Upstream vs Jackrose-Specific Changes
 
 When making a change, be clear whether it is:
 
-- strictly Cidre-specific
+- strictly Jackrose-specific
 - a clean candidate for upstream `niri`
 - temporary compatibility glue
 
@@ -163,12 +163,12 @@ Upstream `niri` community spaces are still useful for compositor internals and b
 - Matrix: https://matrix.to/#/#niri:matrix.org
 - Discord: https://discord.gg/vT8Sfjy7sx
 
-Cidre-specific public communication channels are not yet fully separated. Until they are, be explicit about whether you are discussing:
+Jackrose-specific public communication channels are not yet fully separated. Until they are, be explicit about whether you are discussing:
 
 - upstream `niri`
-- `niri-cidre`
-- Cidre product scope
+- `niri-jackrose`
+- Jackrose product scope
 
 ## Practical Rule
 
-If a contribution makes Cidre easier to install, recover, understand, or trust on supported Apple Silicon hardware, it is probably valuable.
+If a contribution makes Jackrose easier to install, recover, understand, or trust on supported Apple Silicon hardware, it is probably valuable.

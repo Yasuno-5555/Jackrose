@@ -20,7 +20,7 @@ This document details the design and schema specifications of the wrapper target
 To safely commit an eligible partition for future steps:
 - Resolves candidates using `target-candidates.json`.
 - Matches exactly one `safe_candidate` partition matching the provided `--target-id`.
-- Requires exact confirmation string: `SELECT CIDRE TARGET ONLY - NO INSTALL`.
+- Requires exact confirmation string: `SELECT JACKROSE TARGET ONLY - NO INSTALL`.
 - Emits locks (`mount_allowed=false`, `format_allowed=false`, etc.).
 
 ---
@@ -30,16 +30,16 @@ To safely commit an eligible partition for future steps:
 To run target selection:
 
 ```bash
-installer/scripts/cidre-wrapper-select-target \
+installer/scripts/jackrose-wrapper-select-target \
   --candidates installer/wrapper/target-candidates.json \
   --target-id disk-example-1 \
-  --confirm "SELECT CIDRE TARGET ONLY - NO INSTALL" \
+  --confirm "SELECT JACKROSE TARGET ONLY - NO INSTALL" \
   --output installer/wrapper/selected-target.json
 ```
 
 To validate the selected target:
 
 ```bash
-installer/scripts/validate-cidre-selected-target \
+installer/scripts/validate-jackrose-selected-target \
   --selected-target installer/wrapper/selected-target.json
 ```

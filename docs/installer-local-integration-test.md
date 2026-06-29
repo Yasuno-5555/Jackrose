@@ -1,6 +1,6 @@
 # Installer Metadata Local Integration Test Guide
 
-This document describes the simulation testing framework designed to verify that Cidre's installer metadata can drive future Asahi-style installation workflows.
+This document describes the simulation testing framework designed to verify that Jackrose's installer metadata can drive future Asahi-style installation workflows.
 
 ---
 
@@ -18,7 +18,7 @@ To perform local integration checks:
 
 ```bash
 # Validate local entries matching constraints
-installer/scripts/list-installer-entries --metadata installer/metadata/cidre-seed.local.json
+installer/scripts/list-installer-entries --metadata installer/metadata/jackrose-seed.local.json
 
 # Run all test pipelines (positive/negative verification)
 installer/scripts/run-local-integration-tests

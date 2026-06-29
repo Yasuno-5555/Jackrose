@@ -1,6 +1,6 @@
-# Cidre Seed Image Assembly Guide
+# Jackrose Seed Image Assembly Guide
 
-This document describes the design and operations for generating local Cidre seed image candidates from base ALARM (Arch Linux ARM) rootfs tarballs.
+This document describes the design and operations for generating local Jackrose seed image candidates from base ALARM (Arch Linux ARM) rootfs tarballs.
 
 ---
 
@@ -28,15 +28,15 @@ Custom disk image formats (like `.img` or `.iso`) are unsupported and will trigg
 
 ### 2.2. Package Set Selection
 A complete baseline desktop profile is installed via Pacman into the target rootfs:
-- Custom Cidre helper packages (welcome, configuration, update, healthcheck).
+- Custom Jackrose helper packages (welcome, configuration, update, healthcheck).
 - Base graphical environment tools (upstream `niri`, `foot`, `fuzzel`, `waybar`, `firefox`, `fcitx5`).
-- The system is configured to boot directly into `greetd` graphical session launching `cidre-session`.
+- The system is configured to boot directly into `greetd` graphical session launching `jackrose-session`.
 
 ### 2.3. Forbidden State Markers
 Seed images must remain uninitialized. The validation process will fail immediately if any of these markers are found in the rootfs:
-- `/var/lib/cidre/firstboot.done`
-- `/var/lib/cidre/welcome.done`
-- `/var/lib/cidre/optimized.done`
+- `/var/lib/jackrose/firstboot.done`
+- `/var/lib/jackrose/welcome.done`
+- `/var/lib/jackrose/optimized.done`
 
 ---
 

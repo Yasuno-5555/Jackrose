@@ -1,19 +1,19 @@
 # GUI Installer Shell Integration
 
-This document details the architecture and integration specification of the Cidre GUI Installer Shell wrapper.
+This document details the architecture and integration specification of the Jackrose GUI Installer Shell wrapper.
 
 ---
 
 ## 1. Architecture
 
 ```text
-SwiftUI GUI (CidreInstallerShellView)
+SwiftUI GUI (JackroseInstallerShellView)
   ↓
-CidreInstallerShellViewModel (State Machine)
+JackroseInstallerShellViewModel (State Machine)
   ↓
-CidreWrapperPipelineService (Swift-to-Script Bridge)
+JackroseWrapperPipelineService (Swift-to-Script Bridge)
   ↓
-CidreWrapperScriptRunner (Process/Runner Utility)
+JackroseWrapperScriptRunner (Process/Runner Utility)
   ↓
 Phase 24-34 Backend Wrapper Scripts
   ↓
@@ -37,5 +37,5 @@ Staging & Freeze JSON Artifacts
 - **Welcome / Mode Selection**: Introduces safety locks and boot policy guidelines.
 - **Verification Stage**: Runs select, fetch, sandbox extract, and validation scripts sequentially.
 - **Disk / Partition Planner**: Encompasses targetcandidates and selection gates. Blocks active recovery, system, and EFI drives.
-- **Final Review**: Binds final contract and displays step actions. Requires typing the exact string: `APPLY CIDRE STAGING TO SELECTED TARGET`.
+- **Final Review**: Binds final contract and displays step actions. Requires typing the exact string: `APPLY JACKROSE STAGING TO SELECTED TARGET`.
 - **Progress + Handoff**: Executes staging, validation, boot handoff document writing, and MVP pipeline freezing.

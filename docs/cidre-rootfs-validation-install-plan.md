@@ -18,9 +18,9 @@ This document details the design and schema specifications of the wrapper rootfs
 
 ## 2. Validation Specifications
 
-To evaluate the sandbox-extracted rootfs as a Cidre desktop seed:
-- Validates conventions (`usr/`, `etc/`, `var/`, `usr/share/cidre/defaults/`).
-- Validates baseline components (`cidre-welcome`, `cidre-doctor`, `cidre-session`).
+To evaluate the sandbox-extracted rootfs as a Jackrose desktop seed:
+- Validates conventions (`usr/`, `etc/`, `var/`, `usr/share/jackrose/defaults/`).
+- Validates baseline components (`jackrose-welcome`, `jackrose-doctor`, `jackrose-session`).
 - Validates Wayland session specifications (`usr/share/wayland-sessions/niri.desktop` or similar).
 - Rejects completed setup flags (e.g. `firstboot.done`).
 
@@ -31,7 +31,7 @@ To evaluate the sandbox-extracted rootfs as a Cidre desktop seed:
 To validate rootfs contents:
 
 ```bash
-installer/scripts/validate-cidre-extracted-rootfs-content \
+installer/scripts/validate-jackrose-extracted-rootfs-content \
   --extracted installer/wrapper/extracted-rootfs.json \
   --output installer/wrapper/rootfs-validation.json
 ```
@@ -39,7 +39,7 @@ installer/scripts/validate-cidre-extracted-rootfs-content \
 To generate a review plan:
 
 ```bash
-installer/scripts/generate-cidre-install-plan \
+installer/scripts/generate-jackrose-install-plan \
   --rootfs-validation installer/wrapper/rootfs-validation.json \
   --output installer/wrapper/install-plan.json
 ```
@@ -47,7 +47,7 @@ installer/scripts/generate-cidre-install-plan \
 To validate the plan:
 
 ```bash
-installer/scripts/validate-cidre-install-plan \
+installer/scripts/validate-jackrose-install-plan \
   --plan installer/wrapper/install-plan.json \
   --require-rootfs
 ```

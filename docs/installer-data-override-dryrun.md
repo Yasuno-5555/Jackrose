@@ -1,6 +1,6 @@
 # Local INSTALLER_DATA Override Dry-run
 
-This document details how Cidre's generated metadata is served, fetched, and configured for dry-run selection overrides.
+This document details how Jackrose's generated metadata is served, fetched, and configured for dry-run selection overrides.
 
 ---
 
@@ -15,7 +15,7 @@ This document details how Cidre's generated metadata is served, fetched, and con
 
 ## 2. Serving Metadata
 
-Cidre metadata can be served locally:
+Jackrose metadata can be served locally:
 
 ```bash
 installer/scripts/serve-installer-data \
@@ -31,7 +31,7 @@ The printer script generates shell exports:
 
 ```bash
 installer/scripts/print-installer-override-env \
-  --installer-data-url http://127.0.0.1:8765/asahi-installer-data.cidre.dev.json \
+  --installer-data-url http://127.0.0.1:8765/asahi-installer-data.jackrose.dev.json \
   --repo-base http://127.0.0.1:8765
 ```
 
@@ -39,5 +39,5 @@ installer/scripts/print-installer-override-env \
 
 ## 4. Relationship to Bootstrap Inspection
 
-Phase 19 proved that Cidre can serve and validate INSTALLER_DATA-shaped URLs.
+Phase 19 proved that Jackrose can serve and validate INSTALLER_DATA-shaped URLs.
 Phase 20 studies how real bootstrap scripts consume those URLs to ensure no danger boundaries are breached.
