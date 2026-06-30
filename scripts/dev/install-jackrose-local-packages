@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# install-jackrose-local-packages: Prepare or execute local pacman -U install for Jackrose package batch
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  install-jackrose-local-packages --input DIR [--exclude PKG] [--dry-run]"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+INPUT_DIR=""
+DRY_RUN=false
+EXCLUDES=()
+ALLOW_PARU=false
+
+SAFE_INSTALL_PKGS=(
+  jackrose-meta-core
+  jackrose-bootstrap
+  jackrose-firstboot
+  jackrose-diagnostics
+  jackrose-config
+  jackrose-session
+  jackrose-wallpapers
+  jackrose-shortcuts
+  jackrose-welcome
+  jackrose-meta-default
+  jackrose-security-base
+  jackrose-pack-student
+  jackrose-pack-security
+  jackrose-ghostty
+)
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --input)
+      INPUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --exclude)
+      EXCLUDES+=("${2:-}")
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --allow-paru)
+      ALLOW_PARU=true
+      shift
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INPUT_DIR" ] || [ ! -d "$INPUT_DIR" ]; then
+  usage
+fi
+
+artifacts=()
+for artifact in "$INPUT_DIR"/*.pkg.tar.*; do
+  [ -f "$artifact" ] || continue
+  name="$(basename "$artifact")"
+  pkg_name="${name%%-[0-9]*}"
+
+  allowed=false
+  for safe_pkg in "${SAFE_INSTALL_PKGS[@]}"; do
+    if [ "$pkg_name" = "$safe_pkg" ]; then
+      allowed=true
+      break
+    fi
+  done
+
+  if [ "$pkg_name" = "jackrose-paru" ] && [ "$ALLOW_PARU" = true ]; then
+    allowed=true
+  fi
+
+  if [ "$allowed" = false ]; then
+    echo "[SKIP] Excluding non-J16-safe artifact: $name"
+    continue
+  fi
+
+  skip=false
+  for excluded in "${EXCLUDES[@]}"; do
+    if [[ "$name" == "$excluded"-* ]]; then
+      skip=true
+      break
+    fi
+  done
+
+  if [[ "$name" == jackrose-paru-* ]]; then
+    if [ "$ALLOW_PARU" = false ]; then
+      echo "[SKIP] jackrose-paru is optional and disabled by default for J16."
+      skip=true
+    elif pacman -Qi paru >/dev/null 2>&1 && ! pacman -Qi jackrose-paru >/dev/null 2>&1; then
+      echo "[SKIP] Existing upstream paru detected; skipping jackrose-paru."
+      skip=true
+    fi
+  fi
+
+  if [ "$skip" = false ]; then
+    artifacts+=("$artifact")
+  fi
+done
+
+if [ "${#artifacts[@]}" -eq 0 ]; then
+  echo "[FAIL] No package artifacts selected for install." >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" = true ]; then
+  echo "sudo pacman -U ${artifacts[*]}"
+  exit 0
+fi
+
+sudo pacman -U "${artifacts[@]}"

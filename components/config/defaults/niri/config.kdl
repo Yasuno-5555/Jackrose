@@ -257,7 +257,7 @@ layout {
 spawn-at-startup "waybar"
 // fcitx5 is managed by fcitx5.service systemd user unit
 // spawn-at-startup "fcitx5" "-d"
-spawn-at-startup "swaybg" "-i" "/usr/share/backgrounds/jackrose-wallpaper.png" "-m" "fill"
+spawn-at-startup "swaybg" "-i" "/usr/share/jackrose/backgrounds/default.png" "-m" "fill"
 
 // To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
 // spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
@@ -351,7 +351,7 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker
-    Mod+Enter hotkey-overlay-title="Open a Terminal: Ghostty/foot" { spawn-sh "ghostty || foot"; }
+    Mod+Return hotkey-overlay-title="Open a Terminal: Ghostty or foot" { spawn "sh" "-lc" "command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot"; }
     Mod+Alt+T hotkey-overlay-title="Open Fallback Terminal: foot" { spawn "foot"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
@@ -543,8 +543,9 @@ binds {
 
     // Cycle through widths set in preset-column-widths.
     Mod+R { switch-preset-column-width; }
-    // Cycling through the presets in reverse order is also possible.
-    Mod+Shift+R { spawn "niri" "msg" "action" "reload-config"; }
+    // Jackrose: reload niri config.
+    // This intentionally uses Mod+Shift+R instead of reverse preset-width cycling.
+    Mod+Shift+R hotkey-overlay-title="Reload niri config" { spawn "niri" "msg" "action" "reload-config"; }
 
     Mod+Ctrl+Shift+R { switch-preset-window-height; }
     Mod+Ctrl+R { reset-window-height; }

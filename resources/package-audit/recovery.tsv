@@ -1,0 +1,26 @@
+package	pack	priority	bucket	strategy	status	notes
+paru	default	P0	B	jackrose-package	validated	AUR helper for recovery/developer/App Center experimental workflows; not normal OOBE dependency source of truth
+ghostty	default	P0	B	jackrose-package	validated	Jackrose standard terminal; artifact rebuilt as 1.3.1-2 with ncurses-owned terminfo removed; official default remains gated
+zotero	default	P0	C	jackrose-package	blocked	Manual license/source review required
+zed	default	P0	C	jackrose-package	research	Build dependency chain under review
+niri-jackrose	default	P0	B	jackrose-package	research	Jackrose compositor/session baseline; must not break upstream niri fallback
+trivy	security	P1	C	jackrose-package	research	Supply-chain/container scanner; recover if ALARM/BlackArch package unavailable
+zizmor	security	P1	C	jackrose-package	research	GitHub Actions security scanner; useful for modern code security workflow
+hadolint	security	P1	C	jackrose-package	research	Dockerfile linter; useful but not OOBE blocker
+opengrep	security	P1	C	jackrose-package	research	Code security scanner; evaluate package/build status
+julia	student	P2	C	wait-for-upstream	deferred	High-value numerical computing; validate aarch64 availability
+quarto-cli	student	P2	C	jackrose-package	research	Research publishing workflow; useful for Student Pack
+texlive	student	P2	C	defer	deferred	Heavy but useful; decide minimal texlive split later
+obsidian	student	P2	C	policy-review	deferred	Proprietary/electron packaging policy needed
+logseq	student	P2	C	policy-review	deferred	Electron app; package and maintenance policy needed
+sagemath	student	P2	C	wait-for-upstream	deferred	Heavy math system; not initial blocker
+openmodelica	student	P3	C	defer	deferred	Engineering-specific and likely heavy
+paraview	student	P3	C	defer	deferred	Scientific visualization; useful but heavy
+rstudio-desktop	student	P3	C	policy-review	deferred	aarch64/proprietary-ish desktop packaging complexity
+positron	student	P3	C	policy-review	deferred	New Posit desktop tool; evaluate later
+jamovi	student	P3	C	defer	deferred	Useful statistics GUI but not initial blocker
+wine	calvados	EXP	C	defer	deferred	Calvados blocker; not shown in OOBE until runtime strategy exists
+fex-emu	calvados	EXP	C	defer	deferred	Apple Silicon compatibility path; research later
+muvm	calvados	EXP	C	defer	deferred	Compatibility runtime; research later
+umu-launcher	calvados	EXP	C	defer	deferred	Useful for game compatibility; App Center experimental only
+lutris	calvados	EXP	C	defer	deferred	GUI compatibility launcher; App Center experimental only

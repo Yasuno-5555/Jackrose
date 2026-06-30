@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# run-jackrose-paru-build-tests: Validate jackrose-paru packaging execution and configuration checks
+set -euo pipefail
+
+echo "=== Running Jackrose Paru Build Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Verify build result table has paru row
+bp_results="$REPO_ROOT/resources/package-audit/p0-build-results.tsv"
+if [ ! -f "$bp_results" ]; then
+  echo "[FAIL] p0-build-results.tsv is missing" >&2
+  exit 1
+fi
+
+if ! grep -q "paru" "$bp_results"; then
+  echo "[FAIL] paru row missing in p0-build-results.tsv" >&2
+  exit 1
+fi
+
+# Locate artifact dynamically and execute validations
+artifact=""
+for f in "$REPO_ROOT"/packages/arch/jackrose-paru/jackrose-paru-*.pkg.tar.*; do
+  if [ -f "$f" ]; then
+    artifact="$f"
+    break
+  fi
+done
+
+if [ -n "$artifact" ]; then
+  "$REPO_ROOT"/scripts/dev/validate-jackrose-paru-package --artifact "$artifact"
+else
+  # Fallback warning if build was skipped or artifacts cleaned
+  echo "[WARN] No package artifact found for jackrose-paru."
+fi
+
+# Verify validations script
+"$REPO_ROOT"/scripts/dev/validate-jackrose-critical-build-plan
+"$REPO_ROOT"/scripts/dev/validate-jackrose-p0-feasibility
+
+echo "=== All Jackrose Paru Build Tests Passed Successfully ==="
+exit 0

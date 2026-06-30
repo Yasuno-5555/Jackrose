@@ -1,0 +1,98 @@
+package	pack	bucket	source	status	notes
+jackrose-bootstrap	default	A	jackrose	confirmed	Jackrose core bootstrap utility
+jackrose-firstboot	default	A	jackrose	confirmed	Jackrose firstboot manager
+jackrose-welcome	default	A	jackrose	confirmed	Jackrose Welcome OOBE dashboard
+jackrose-doctor	default	A	jackrose	confirmed	Jackrose diagnosis tool
+jackrose-config	default	A	jackrose	confirmed	Jackrose configurations base
+jackrose-session	default	A	jackrose	confirmed	Jackrose desktop session base
+jackrose-wallpapers	default	A	jackrose	confirmed	Jackrose default wallpapers
+jackrose-shortcuts	default	A	jackrose	confirmed	Jackrose keybinding shortcuts
+jackrose-pack	default	A	jackrose	confirmed	Jackrose package backend manager
+niri	default	A	alarm	confirmed	Core tiling Wayland compositor
+ghostty	default	B	jackrose-needed	unverified	GPU accelerated terminal; dogfood aarch64 artifact now builds and validates, local install test still pending root-capable run
+foot	default	A	alarm	confirmed	Lightweight fallback terminal
+fuzzel	default	A	alarm	confirmed	Compositor launcher tool
+waybar	default	A	alarm	confirmed	Compositor panel status bar
+swaybg	default	A	alarm	confirmed	Wallpaper compositor tool
+swaylock	default	A	alarm	confirmed	Wayland session screen locker
+wl-clipboard	default	A	alarm	confirmed	Wayland clipboard CLI access
+grim	default	A	alarm	confirmed	Wayland screen grab tool
+slurp	default	A	alarm	confirmed	Wayland display region selection tool
+brightnessctl	default	A	alarm	confirmed	Screen brightness control CLI
+playerctl	default	A	alarm	confirmed	Media player controller CLI
+xdg-desktop-portal	default	A	alarm	confirmed	Portal helper interfaces
+xdg-desktop-portal-gtk	default	A	alarm	confirmed	GTK portal implementation
+xdg-desktop-portal-wlr	default	A	alarm	confirmed	wlroots portal implementation
+fcitx5	default	A	alarm	confirmed	IME framework base
+fcitx5-mozc	default	A	alarm	confirmed	Japanese Mozc input engine
+fcitx5-configtool	default	A	alarm	confirmed	IME configuration UI
+noto-fonts	default	A	alarm	confirmed	Google Noto fonts base
+noto-fonts-cjk	default	A	alarm	confirmed	Google Noto CJK fonts
+noto-fonts-emoji	default	A	alarm	confirmed	Google Noto Emoji fonts
+ttf-dejavu	default	A	alarm	confirmed	DejaVu font faces family
+fish	default	A	alarm	confirmed	Friendly Interactive Shell
+starship	default	A	alarm	confirmed	Modern shell prompt framework
+zoxide	default	A	alarm	confirmed	Modern directory jumper command
+fzf	default	A	alarm	confirmed	Fuzzy finder CLI utility
+ripgrep	default	A	alarm	confirmed	Fast code search engine tool
+fd	default	A	alarm	confirmed	Fast filesystem search utility
+bat	default	A	alarm	confirmed	Syntax highlighted cat replacement
+eza	default	A	alarm	confirmed	Modern ls replacement command
+bottom	default	A	alarm	confirmed	Interactive terminal system monitor
+yazi	default	A	alarm	confirmed	Terminal based file manager
+jq	default	A	alarm	confirmed	JSON parsing CLI utility
+yq	default	A	alarm	confirmed	YAML/XML parsing CLI utility
+glow	default	A	alarm	confirmed	Markdown terminal reader utility
+git	default	A	alarm	confirmed	Distributed version control CLI
+gh	default	A	alarm	confirmed	GitHub interaction CLI tool
+lazygit	default	A	alarm	confirmed	Git terminal interactive dashboard
+git-delta	default	A	alarm	confirmed	Syntax highlighting pager for diffs
+helix	default	A	alarm	confirmed	Modern modal terminal code editor
+zed	default	C	upstream	deferred	Modern GUI editor (fragile aarch64 build)
+micro	default	A	alarm	confirmed	Simple terminal text editor
+python	default	A	alarm	confirmed	Python programming runtime
+uv	default	A	alarm	confirmed	Fast python package installer (avail in aarch64)
+ruff	default	A	alarm	confirmed	Fast python linter and formatter
+nodejs	default	A	alarm	confirmed	Node.js JavaScript server runtime
+pnpm	default	A	alarm	confirmed	Fast disk efficient npm manager
+deno	default	A	alarm	confirmed	V8 based secure JS/TS runtime
+bun	default	C	upstream	deferred	Fast JS runtime (aarch64 support partial upstream)
+rustup	default	A	alarm	confirmed	Rust toolchain installation helper
+go	default	A	alarm	confirmed	Go programming compiler runtime
+clang	default	A	alarm	confirmed	C compiler engine frontend
+llvm	default	A	alarm	confirmed	LLVM compiler backend toolchain
+cmake	default	A	alarm	confirmed	Cross platform build config generator
+ninja	default	A	alarm	confirmed	Small fast build executable compiler
+gdb	default	A	alarm	confirmed	GNU debugger engine CLI
+lldb	default	A	alarm	confirmed	LLVM debugger engine CLI
+pkgconf	default	A	alarm	confirmed	Package compilation configurations manager
+sqlite	default	A	alarm	confirmed	Embedded SQLite database runtime
+duckdb	default	A	alarm	confirmed	In-process analytical database CLI
+typst	default	A	alarm	confirmed	Modern typst document compiler
+pandoc	default	A	alarm	confirmed	Universal markup document converter
+libreoffice-fresh	default	A	alarm	confirmed	Office suite productivity engine
+zotero	default	C	upstream	deferred	Academic citation manager (lacks clean aarch64 packages)
+zathura	default	A	alarm	confirmed	Keyboard driven PDF document viewer
+zathura-pdf-mupdf	default	A	alarm	confirmed	MuPDF rendering engine backend
+hunspell	default	A	alarm	confirmed	Spellchecking program library CLI
+hunspell-en_us	default	A	alarm	confirmed	English spelling dictionary files
+aspell	default	A	alarm	confirmed	Spellchecking CLI program library
+aspell-en	default	A	alarm	confirmed	English dictionary files for aspell
+firefox	default	A	alarm	confirmed	Web browser desktop interface
+thunar	default	A	alarm	confirmed	XFCE desktop file manager
+thunar-archive-plugin	default	A	alarm	confirmed	Desktop archive compression extensions
+gvfs	default	A	alarm	confirmed	GIO virtual filesystem daemon
+gvfs-smb	default	A	alarm	confirmed	SMB network file sharing portal
+file-roller	default	A	alarm	confirmed	Desktop archive manager tool
+pavucontrol	default	A	alarm	confirmed	PulseAudio volume control manager
+mpv	default	A	alarm	confirmed	Keyboard driven media desktop player
+ffmpeg	default	A	alarm	confirmed	Universal media converter processing library
+imagemagick	default	A	alarm	confirmed	CLI image manipulation backend
+syncthing	default	A	alarm	confirmed	Peer-to-peer file synchronization tool
+rclone	default	A	alarm	confirmed	Cloud storage CLI synchronization client
+restic	default	A	alarm	confirmed	Deduplicating backup software command
+tesseract	default	A	alarm	confirmed	OCR text recognition software CLI
+ocrmypdf	default	A	alarm	confirmed	OCR PDF generator script
+recoll	default	A	alarm	confirmed	Desktop full text search database indexer
+paru	default	B	jackrose	unverified	AUR helper; dogfood machine already has upstream paru installed, Jackrose package remains gated and not a normal OOBE source
+quickshell	default	C	unverified	deferred	Desktop shell toolkit candidate for future Jackrose Shell; verify ALARM availability before hard depends

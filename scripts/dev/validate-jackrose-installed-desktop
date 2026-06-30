@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ACCEPTANCE_TSV="$REPO_ROOT/resources/package-audit/installed-desktop-acceptance.tsv"
+PROMOTION_TSV="$REPO_ROOT/resources/package-audit/default-promotion-review.tsv"
+
+echo "=== Validating Jackrose Installed Desktop Acceptance ==="
+
+[ -f "$ACCEPTANCE_TSV" ] || { echo "[FAIL] Missing installed desktop acceptance TSV." >&2; exit 1; }
+[ -f "$PROMOTION_TSV" ] || { echo "[FAIL] Missing default promotion review TSV." >&2; exit 1; }
+
+for key in \
+  $'ghostty\texecutable' \
+  $'ghostty\tversion' \
+  $'ghostty\ttheme' \
+  $'ghostty\tconfig' \
+  $'ghostty\tdesktop-file' \
+  $'ghostty\tfuzzel' \
+  $'niri\tconfig-parse' \
+  $'niri\tcidre-remnants' \
+  $'niri\tterminal-shortcut' \
+  $'doctor\tdaily' \
+  $'doctor\tfirstboot' \
+  $'waybar\tbaseline' \
+  $'quickshell\tpolicy'; do
+  grep -q "^${key}" "$ACCEPTANCE_TSV" || {
+    echo "[FAIL] Missing acceptance row: ${key//$'\t'/ /}" >&2
+    exit 1
+  }
+done
+
+if awk -F$'\t' 'NR > 1 && $1 == "quickshell" && $3 == "fail" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV"; then
+  echo "[FAIL] quickshell cannot be a hard failure in J19 promotion review." >&2
+  exit 1
+fi
+
+if awk -F$'\t' 'NR > 1 && $1 == "ghostty" && $3 == "promote-default" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV"; then
+  for check in executable version theme config desktop-file fuzzel; do
+    awk -F$'\t' -v c="$check" 'NR > 1 && $1 == "ghostty" && $2 == c && $5 == "pass" {found=1} END {exit found ? 0 : 1}' "$ACCEPTANCE_TSV" || {
+      echo "[FAIL] Ghostty is promoted without a passing '$check' acceptance row." >&2
+      exit 1
+    }
+  done
+  awk -F$'\t' 'NR > 1 && $1 == "niri" && $2 == "terminal-shortcut" && $5 == "pass" {found=1} END {exit found ? 0 : 1}' "$ACCEPTANCE_TSV" || {
+    echo "[FAIL] Ghostty is promoted without a passing Mod+Return acceptance row." >&2
+    exit 1
+  }
+fi
+
+if awk -F$'\t' 'NR > 1 && $1 == "ghostty" && $2 == "accepted" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV"; then
+  awk -F$'\t' 'NR > 1 && $1 == "ghostty" && $2 == "fuzzel" && $5 != "pending" {found=1} END {exit found ? 0 : 1}' "$ACCEPTANCE_TSV" || {
+    echo "[FAIL] Accepted Ghostty cannot leave the fuzzel manual check pending." >&2
+    exit 1
+  }
+fi
+
+echo "[OK] Installed desktop acceptance metadata validated."

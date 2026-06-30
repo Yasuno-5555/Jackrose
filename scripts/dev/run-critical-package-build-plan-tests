@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# run-critical-package-build-plan-tests: Execute unit test cases for J10 build plan database validation
+set -euo pipefail
+
+echo "=== Running Jackrose Critical Package Build Plan Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Run validation scripts
+"$REPO_ROOT"/scripts/dev/validate-jackrose-critical-build-plan
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-depends
+"$REPO_ROOT"/scripts/dev/run-custom-package-backlog-tests
+
+echo "=== All Critical Package Build Plan Tests Passed Successfully ==="
+exit 0

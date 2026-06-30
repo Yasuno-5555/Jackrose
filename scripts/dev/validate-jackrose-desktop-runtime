@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo "=== Validating Jackrose Desktop Runtime Integration ==="
+
+"$REPO_ROOT/scripts/dev/validate-jackrose-ghostty-runtime"
+"$REPO_ROOT/scripts/dev/validate-jackrose-niri-runtime"
+"$REPO_ROOT/scripts/dev/validate-jackrose-pack-depends"
+"$REPO_ROOT/scripts/dev/validate-jackrose-p0-feasibility"
+
+for file in \
+  "$REPO_ROOT/resources/package-audit/desktop-runtime-bugs.tsv" \
+  "$REPO_ROOT/resources/package-audit/desktop-runtime-results.tsv"; do
+  [ -f "$file" ] || { echo "[FAIL] Missing desktop runtime audit file: $file" >&2; exit 1; }
+done
+
+grep -q '^niri-jackrose' "$REPO_ROOT/resources/package-audit/recovery.tsv" \
+  || { echo "[FAIL] recovery.tsv is missing niri-jackrose tracking." >&2; exit 1; }
+grep -q '^niri-jackrose' "$REPO_ROOT/resources/package-audit/build-plan.tsv" \
+  || { echo "[FAIL] build-plan.tsv is missing niri-jackrose tracking." >&2; exit 1; }
+grep -q '^niri-jackrose' "$REPO_ROOT/resources/package-audit/p0-feasibility.tsv" \
+  || { echo "[FAIL] p0-feasibility.tsv is missing niri-jackrose tracking." >&2; exit 1; }
+grep -q '^quickshell' "$REPO_ROOT/resources/package-audit/default.tsv" \
+  || { echo "[FAIL] default.tsv is missing quickshell tracking." >&2; exit 1; }
+grep -q '^quickshell' "$REPO_ROOT/resources/package-audit/dogfood-defer.tsv" \
+  || { echo "[FAIL] dogfood-defer.tsv is missing quickshell defer tracking." >&2; exit 1; }
+
+echo "[OK] Desktop runtime integration validated."

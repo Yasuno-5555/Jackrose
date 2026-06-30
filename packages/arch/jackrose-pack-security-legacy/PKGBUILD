@@ -1,0 +1,27 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-security-legacy
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for legacy/classic security auditing tools'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-pack-security'
+  'nmap'
+  'sqlmap'
+  'hydra'
+  'john'
+  'aircrack-ng'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility or size):
+  # 'nikto'
+  # 'metasploit'
+  # 'hashcat'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

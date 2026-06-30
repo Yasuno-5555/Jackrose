@@ -2,13 +2,13 @@
 
 pkgname=jackrose-diagnostics
 pkgver=1.0.0
-pkgrel=1
+pkgrel=3
 pkgdesc='Jackrose environment diagnostic tools'
 url='https://github.com/Yasuno-5555/Jackrose'
 arch=('any')
 license=('custom')
 depends=('bash')
-provides=('cidre-diagnostics')
+provides=('cidre-diagnostics' 'jackrose-doctor')
 conflicts=('cidre-diagnostics')
 replaces=('cidre-diagnostics')
 
@@ -22,4 +22,3 @@ _repo_root="${startdir}/../../.."
 package() {
   install -Dm755 "${_repo_root}/scripts/jackrose-doctor" "${pkgdir}/usr/bin/jackrose-doctor"
 }
-

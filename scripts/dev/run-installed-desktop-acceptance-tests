@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo "=== Running Jackrose Installed Desktop Acceptance Tests ==="
+
+"$REPO_ROOT/scripts/dev/validate-jackrose-installed-desktop"
+"$REPO_ROOT/scripts/dev/validate-jackrose-default-promotion-review"
+"$REPO_ROOT/scripts/dev/validate-jackrose-desktop-runtime"
+"$REPO_ROOT/scripts/dev/run-desktop-runtime-integration-tests"
+"$REPO_ROOT/scripts/dev/run-host-install-bugfix-tests"
+"$REPO_ROOT/scripts/dev/run-welcome-dogfood-tests"
+
+echo "=== Jackrose Installed Desktop Acceptance Tests Passed ==="

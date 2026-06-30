@@ -1,0 +1,38 @@
+package	pack	bucket	source	status	notes
+jupyterlab	student	A	alarm	confirmed	Interactive web notebook
+python-numpy	student	A	alarm	confirmed	Scientific math library
+python-scipy	student	A	alarm	confirmed	Scientific library packages
+python-pandas	student	A	alarm	confirmed	Data analysis tables structure
+python-polars	student	A	alarm	confirmed	Fast DataFrame column library
+python-matplotlib	student	A	alarm	confirmed	2D plotting chart library
+python-statsmodels	student	A	alarm	confirmed	Statistical analysis model packages
+python-scikit-learn	student	A	alarm	confirmed	Machine learning python backend
+python-sympy	student	A	alarm	confirmed	Symbolic math python package
+python-openpyxl	student	A	alarm	confirmed	Excel file parsing package
+r	student	A	alarm	confirmed	R language statistical platform
+gretl	student	A	alarm	confirmed	Econometrics statistics package CLI
+jamovi	student	C	aur	deferred	GUI statistics tool (aur/unverified aarch64)
+pspp	student	A	alarm	confirmed	GNU statistical analysis program
+julia	student	C	alarm	deferred	High performance math runtime (aarch64 builds can be fragile)
+octave	student	A	alarm	confirmed	Scientific math calculations program
+sagemath	student	C	alarm	deferred	Symbolic mathematics environment (very heavy)
+maxima	student	A	alarm	confirmed	Computer algebra calculation program
+gnuplot	student	A	alarm	confirmed	Classic command line graphing engine
+openmodelica	student	C	upstream	deferred	Modeling simulation compiler (no package on ALARM)
+paraview	student	C	alarm	deferred	3D scientific data visualizer (heavy dependencies)
+hdf5	student	A	alarm	confirmed	Hierarchical data format storage
+netcdf	student	A	alarm	confirmed	Network Common Data Form library
+vtk	student	A	alarm	confirmed	Visualization toolkit parsing engine
+krita	student	A	alarm	confirmed	Digital painting illustration program
+inkscape	student	A	alarm	confirmed	Vector graphics document designer
+gimp	student	A	alarm	confirmed	Image processing bitmap editor
+obs-studio	student	A	alarm	confirmed	Screen video recording mixer
+audacity	student	A	alarm	confirmed	Audio wave multitrack editor
+kdenlive	student	A	alarm	confirmed	Nonlinear video desktop editor
+blender	student	A	alarm	confirmed	3D graphic modeling studio
+quarto-cli	student	C	aur	deferred	Scientific writing publishing tool; revisit after base writing stack is fully dogfooded
+logseq	student	C	aur	deferred	Privacy first knowledge notebook
+obsidian	student	C	aur	deferred	Markdown knowledge desktop client
+rstudio-desktop	student	C	aur	deferred	R IDE desktop interface (AUR unverified)
+positron	student	C	aur	deferred	Modern science IDE (AUR unverified)
+texlive	student	C	alarm	deferred	TeX Live publication documents tool

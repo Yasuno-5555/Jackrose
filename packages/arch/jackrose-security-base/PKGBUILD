@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-security-base
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Security Base configuration and trust boundary management'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=('bash')
+source=()
+sha256sums=()
+
+package() {
+  true
+}

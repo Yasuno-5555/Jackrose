@@ -1,12 +1,13 @@
 pkgbase = jackrose-firstboot
-	pkgdesc = Jackrose environment first-boot diagnostic verification script
+	pkgdesc = Jackrose environment first-boot OOBE systemd service and triggers
 	pkgver = 1.0.0
 	pkgrel = 1
 	url = https://github.com/Yasuno-5555/Jackrose
 	arch = any
 	license = custom
 	depends = bash
-	source = jackrose-firstboot
-	sha256sums = SKIP
+	provides = cidre-firstboot
+	conflicts = cidre-firstboot
+	replaces = cidre-firstboot
 
 pkgname = jackrose-firstboot

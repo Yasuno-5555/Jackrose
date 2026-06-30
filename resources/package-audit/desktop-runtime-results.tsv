@@ -1,0 +1,12 @@
+id	component	check	result	notes
+J18-001	ghostty-theme	catppuccin-file	pass	Theme file is present in repo defaults and runtime resources
+J18-002	ghostty-desktop	desktop-file	pass	Ghostty desktop file is packaged for launcher discovery
+J18-003	niri-shortcut	ghostty-fallback	pass	Mod+Return uses Ghostty with foot fallback
+J18-004	ghostty-config	invalid-hx-line	pass	No shell command lines remain in Ghostty config defaults
+J18-005	niri-config	cidre-remnants	pass	No Cidre or niri-cidre runtime references remain in shipped config
+J18-006	niri-jackrose	p0-tracking	pass	Tracked as P0 recovery and build-plan candidate
+J18-007	quickshell	audit-entry	pass	Tracked as deferred default candidate while Waybar stays baseline
+J19-001	ghostty-launch	host-runtime	pass	Ghostty launched on installed host with no theme or invalid-config warnings
+J19-002	ghostty-fuzzel	launcher-runtime	pass	Ghostty appeared in fuzzel and launched successfully
+J19-003	niri-shortcut	host-runtime	pass	Mod+Return opened Ghostty on installed host
+J19-004	doctor-firstboot	host-runtime	pass	Firstboot diagnostics passed after host state reconciliation

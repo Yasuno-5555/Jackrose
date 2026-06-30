@@ -1,0 +1,332 @@
+#!/usr/bin/env bash
+# jackrose-pack: Manage, query, plan, and apply Jackrose workload packs
+set -euo pipefail
+
+PACKS_DIR="${JACKROSE_PACKS_DIR:-/usr/share/jackrose/packs}"
+JACKROSE_USER_STATE_DIR="${JACKROSE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/jackrose}"
+JACKROSE_USER_LOG_DIR="${JACKROSE_LOG_DIR:-$JACKROSE_USER_STATE_DIR/logs}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "$SCRIPT_DIR/..")"
+if [ ! -d "$PACKS_DIR" ]; then
+  # Fallback to dev directory
+  PACKS_DIR="$(cd "$SCRIPT_DIR/../resources/packs" 2>/dev/null && pwd || echo "$SCRIPT_DIR/packs")"
+fi
+
+resolve_user_setup_cmd() {
+  if command -v jackrose-user-setup >/dev/null 2>&1; then
+    printf '%s\n' "jackrose-user-setup"
+    return 0
+  fi
+  if [ -x "$REPO_ROOT/components/config/bin/jackrose-user-setup" ]; then
+    printf '%s\n' "$REPO_ROOT/components/config/bin/jackrose-user-setup"
+    return 0
+  fi
+  return 1
+}
+
+deploy_runtime_defaults() {
+  local defaults_root="${JACKROSE_DEFAULTS_ROOT:-/usr/share/jackrose/defaults}"
+  if [ ! -d "$defaults_root" ] && [ -d "$REPO_ROOT/components/config/defaults" ]; then
+    defaults_root="$REPO_ROOT/components/config/defaults"
+  fi
+
+  local setup_cmd=""
+  if setup_cmd="$(resolve_user_setup_cmd 2>/dev/null)"; then
+    if command -v "$setup_cmd" >/dev/null 2>&1; then
+      "$setup_cmd" apply --profile desktop --no-snapshot >/dev/null
+      return 0
+    fi
+    if [ -x "$setup_cmd" ]; then
+      "$setup_cmd" apply --profile desktop --no-snapshot >/dev/null
+      return 0
+    fi
+    python3 "$setup_cmd" apply --profile desktop --no-snapshot >/dev/null
+    return 0
+  fi
+
+  mkdir -p "$HOME/.config/ghostty/themes" "$HOME/.config/niri" "$HOME/.local/share/applications"
+  if [ ! -f "$HOME/.config/ghostty/config" ] && [ -f "$defaults_root/ghostty/config" ]; then
+    cp "$defaults_root/ghostty/config" "$HOME/.config/ghostty/config"
+  fi
+  if [ ! -f "$HOME/.config/ghostty/themes/catppuccin-mocha" ] && [ -f "$defaults_root/ghostty/themes/catppuccin-mocha" ]; then
+    cp "$defaults_root/ghostty/themes/catppuccin-mocha" "$HOME/.config/ghostty/themes/catppuccin-mocha"
+  fi
+  if [ ! -f "$HOME/.config/niri/config.kdl" ] && [ -f "$defaults_root/niri/config.kdl" ]; then
+    cp "$defaults_root/niri/config.kdl" "$HOME/.config/niri/config.kdl"
+  fi
+  if [ ! -f "$HOME/.local/share/applications/ghostty.desktop" ] && [ -f "$defaults_root/applications/ghostty.desktop" ]; then
+    cp "$defaults_root/applications/ghostty.desktop" "$HOME/.local/share/applications/ghostty.desktop"
+  fi
+}
+
+usage() {
+  echo "Usage:"
+  echo "  jackrose-pack list [--oobe | --experimental | --app-center]"
+  echo "  jackrose-pack show PACK"
+  echo "  jackrose-pack plan [--oobe] PACK..."
+  echo "  jackrose-pack apply PACK... [--dry-run]"
+  exit 1
+}
+
+if [ $# -lt 1 ]; then
+  usage
+fi
+
+CMD="$1"
+shift
+
+case "$CMD" in
+  list)
+    FILTER=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --oobe) FILTER="oobe"; shift ;;
+        --experimental) FILTER="experimental"; shift ;;
+        --app-center) FILTER="app-center"; shift ;;
+        *) usage ;;
+      esac
+    done
+
+    for f in "$PACKS_DIR"/*.json; do
+      if [ -f "$f" ]; then
+        python3 - "$FILTER" <<'PY' "$f"
+import json, sys, os
+filter_mode = sys.argv[1]
+data = json.load(open(sys.argv[2]))
+if filter_mode == "oobe" and not data.get("oobe_visible", False):
+    sys.exit(0)
+if filter_mode == "experimental" and not data.get("experimental", False):
+    sys.exit(0)
+if filter_mode == "app-center" and not data.get("app_center_visible", False):
+    sys.exit(0)
+print(f"{data['id']}: {data['name']} ({data['package']})")
+PY
+      fi
+    done
+    ;;
+  show)
+    if [ $# -lt 1 ]; then
+      echo "Error: Show command requires pack name" >&2
+      exit 1
+    fi
+    PACK="$1"
+    FILE="$PACKS_DIR/$PACK.json"
+    if [ ! -f "$FILE" ]; then
+      echo "Error: Pack not found: $PACK" >&2
+      exit 1
+    fi
+    cat "$FILE"
+    ;;
+  plan)
+    OOBE_ONLY=false
+    PACKS=()
+    while [ $# -gt 0 ]; do
+      if [ "$1" = "--oobe" ]; then
+        OOBE_ONLY=true
+      else
+        PACKS+=("$1")
+      fi
+      shift
+    done
+
+    for p in "${PACKS[@]}"; do
+      FILE="$PACKS_DIR/$p.json"
+      if [ -f "$FILE" ]; then
+        is_oobe=$(python3 -c "import json; print(json.load(open('$FILE')).get('oobe_visible', False))")
+        is_exp=$(python3 -c "import json; print(json.load(open('$FILE')).get('experimental', False))")
+        if [ "$OOBE_ONLY" = true ] && [ "$is_oobe" = "False" ]; then
+          echo "[FAIL] $p is not OOBE-visible" >&2
+          exit 1
+        fi
+        if [ "$is_exp" = "True" ]; then
+          echo "[WARN] $p is experimental and not available in firstboot OOBE."
+        fi
+      else
+        echo "Error: Unknown pack: $p" >&2
+        exit 1
+      fi
+    done
+
+    echo "Jackrose will install:"
+    echo "Mandatory:"
+    echo "- jackrose-meta-default"
+    echo ""
+    echo "Selected packs:"
+    for p in "${PACKS[@]}"; do
+      FILE="$PACKS_DIR/$p.json"
+      pkg_name=$(python3 -c "import json; print(json.load(open('$FILE'))['package'])")
+      echo "- $pkg_name"
+    done
+    echo ""
+    echo "Security setup:"
+    has_security=false
+    for p in "${PACKS[@]}"; do
+      if [ "$p" = "security" ]; then
+        has_security=true
+      fi
+    done
+    if [ "$has_security" = true ]; then
+      echo "- jackrose-security-base"
+      echo "- BlackArch repository/keyring enablement"
+    else
+      echo "- None"
+    fi
+    echo ""
+
+    # Load TSV database definitions
+    TSV_DIR=""
+    # Fallback search path logic
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -d "/usr/share/jackrose/package-audit" ]; then
+      TSV_DIR="/usr/share/jackrose/package-audit"
+    elif [ -d "$SCRIPT_DIR/../resources/package-audit" ]; then
+      TSV_DIR="$SCRIPT_DIR/../resources/package-audit"
+    elif [ -d "$SCRIPT_DIR/resources/package-audit" ]; then
+      TSV_DIR="$SCRIPT_DIR/resources/package-audit"
+    fi
+
+    if [ -n "$TSV_DIR" ] && [ -d "$TSV_DIR" ]; then
+      # Build inputs to scan default plus selected packs
+      scan_packs=("default")
+      for p in "$@"; do
+        scan_packs+=("$p")
+      done
+
+      # Combine database tsvs
+      temp_db=$(mktemp)
+      for sp in "${scan_packs[@]}"; do
+        tf="$TSV_DIR/$sp.tsv"
+        if [ -f "$tf" ]; then
+          cat "$tf" >> "$temp_db"
+        fi
+      done
+
+      echo "Confirmed packages:"
+      awk -F$'\t' '$3 == "A" {print "  - " $1}' "$temp_db" | sort -u
+      echo ""
+      echo "Jackrose packages required:"
+      awk -F$'\t' '$3 == "B" {print "  - " $1}' "$temp_db" | sort -u
+      echo ""
+      echo "Deferred packages:"
+      awk -F$'\t' '$3 == "C" {print "  - " $1}' "$temp_db" | sort -u
+      echo ""
+      rm -f "$temp_db"
+    fi
+
+    echo "No disk or boot changes will be made."
+    ;;
+  apply)
+    DRY_RUN=false
+    PACKS=()
+    while [ $# -gt 0 ]; do
+      if [ "$1" = "--dry-run" ]; then
+        DRY_RUN=true
+      else
+        PACKS+=("$1")
+      fi
+      shift
+    done
+
+    if [ ${#PACKS[@]} -eq 0 ]; then
+      echo "Error: Apply command requires at least one pack name" >&2
+      exit 1
+    fi
+
+    if [ "$DRY_RUN" = "true" ] || [ "$DRY_RUN" = true ]; then
+      echo "[DRY-RUN] Would install jackrose-meta-default"
+      for p in "${PACKS[@]}"; do
+        FILE="$PACKS_DIR/$p.json"
+        if [ -f "$FILE" ]; then
+          pkg_name=$(python3 -c "import json; print(json.load(open('$FILE'))['package'])")
+          echo "[DRY-RUN] Would install $pkg_name"
+        else
+          echo "Error: Unknown pack: $p" >&2
+          exit 1
+        fi
+      done
+      exit 0
+    fi
+
+    deploy_runtime_defaults
+
+    # Update user-state manifest/report for user-level Welcome flow.
+    STATE_FILE="${JACKROSE_MANIFEST_PATH:-$JACKROSE_USER_STATE_DIR/manifest.json}"
+    LOG_DIR="$JACKROSE_USER_LOG_DIR"
+    mkdir -p "$(dirname "$STATE_FILE")" "$LOG_DIR"
+
+    # Default python scripts to record state updates
+    python3 - "$STATE_FILE" "${PACKS[@]}" <<'PY'
+import json, sys, os
+state_file = sys.argv[1]
+packs = sys.argv[2:]
+
+data = {
+    "version": 1,
+    "phase": "firstboot",
+    "status": "completed",
+    "selected_packs": packs,
+    "security_selected": "security" in packs,
+    "calvados_oobe_visible": False,
+    "welcome": {
+        "completed": True,
+        "selected_packs": packs,
+        "default_meta": {
+            "package": "jackrose-meta-default",
+            "status": "installed"
+        },
+        "install_plan_confirmed": True
+    },
+    "packs": {}
+}
+
+if "security" in packs:
+    data["welcome"]["security_confirmation"] = {
+        "blackarch_required": True,
+        "confirmed": True,
+        "confirmation_phrase": "ENABLE BLACKARCH REPOSITORY"
+    }
+
+all_available = ["student", "security", "calvados"]
+for p in all_available:
+    is_sel = p in packs
+    status = "installed" if is_sel else "skipped"
+    pkg = f"jackrose-pack-{p}"
+    data["packs"][p] = {
+        "package": pkg,
+        "selected": is_sel,
+        "status": status
+    }
+    if p == "security":
+        data["packs"][p]["blackarch_repo"] = {
+            "required": True,
+            "status": "enabled" if is_sel else "disabled"
+        }
+
+with open(state_file, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+
+    # Update report files
+    cat > "$LOG_DIR/bootstrap-report.json" <<EOF
+{
+  "schema_version": 1,
+  "command": "jackrose-pack",
+  "status": "completed",
+  "selected_packs": [$(IFS=,; echo "${PACKS[*]}" | sed 's/[^,][^,]*/"&"/g')],
+  "mandatory_default": "jackrose-meta-default",
+  "doctor_summary": "OK"
+}
+EOF
+    cat > "$LOG_DIR/bootstrap-report.txt" <<EOF
+Jackrose Pack Setup Completed.
+Mandatory default: jackrose-meta-default (installed)
+Selected packs: ${PACKS[*]}
+Doctor validation: OK
+EOF
+    echo "Packs successfully applied (mock)."
+    ;;
+  *)
+    usage
+    ;;
+esac

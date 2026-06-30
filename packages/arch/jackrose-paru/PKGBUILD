@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-paru
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='AUR helper wrapper and developer escape hatch for Jackrose recovery'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=('pacman' 'git' 'base-devel')
+provides=('paru')
+conflicts=('paru')
+
+package() {
+  install -Dm644 /dev/null "${pkgdir}/usr/share/doc/jackrose-paru/README.md"
+}

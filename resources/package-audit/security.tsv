@@ -1,0 +1,46 @@
+package	pack	bucket	source	status	notes
+subfinder	security	A	blackarch	confirmed-after-repo	Passive subdomain discovery tool
+dnsx	security	A	blackarch	confirmed-after-repo	Fast DNS resolver CLI tool
+naabu	security	A	blackarch	confirmed-after-repo	Fast port scanner utility
+httpx	security	A	blackarch	confirmed-after-repo	HTTP probe scanner utility
+katana	security	A	blackarch	confirmed-after-repo	Web crawler spider tool
+nuclei	security	A	blackarch	confirmed-after-repo	Template based security vulnerability scanner
+nuclei-templates	security	A	blackarch	confirmed-after-repo	Vulnerability test rules templates
+interactsh-client	security	A	blackarch	confirmed-after-repo	Out-of-band interaction client
+ffuf	security	A	blackarch	confirmed-after-repo	Fast web directory fuzzer
+feroxbuster	security	A	blackarch	confirmed-after-repo	Recursive content discovery crawler
+mitmproxy	security	A	alarm	confirmed	Interactive SSL capable interception proxy
+websocat	security	A	alarm	confirmed	WebSocket client CLI tool
+xh	security	A	alarm	confirmed	User friendly HTTP request client
+opengrep	security	C	upstream	deferred	Static code analysis scanning tool
+osv-scanner	security	A	blackarch	confirmed-after-repo	Vulnerability scanner for OSV data
+trivy	security	C	upstream	deferred	Container image SBOM vulnerability scanner; security pack was not dogfooded in J15
+zizmor	security	C	upstream	deferred	GitHub actions workflow security linter
+actionlint	security	A	alarm	confirmed	GitHub actions workflow validator
+hadolint	security	C	upstream	deferred	Dockerfile linter static analyzer
+gitleaks	security	A	alarm	confirmed	Secrets scanner for git repositories
+trufflehog	security	A	blackarch	confirmed-after-repo	High entropy secrets detector scanner
+syft	security	A	blackarch	confirmed-after-repo	SBOM generation tool for directories
+grype	security	A	blackarch	confirmed-after-repo	Vulnerability scanner for SBOM files
+glow	security	A	alarm	confirmed	Markdown reader rendering engine
+caido	security	C	upstream	deferred	Modern GUI web interception proxy
+owasp-zap	security	C	upstream	deferred	Dynamic application vulnerability testing scanner
+wireshark	security	C	alarm	deferred	Graphical network packet analyzer
+rizin	security	A	alarm	confirmed	Reverse engineering framework platform
+cutter	security	C	upstream	deferred	GUI frontend interface for rizin
+ghidra	security	C	alarm	deferred	Java based software reverse engineering studio
+binwalk	security	A	alarm	confirmed	Firmware analysis extraction tool
+hexyl	security	A	alarm	confirmed	Terminal hex viewer CLI tool
+imhex	security	C	upstream	deferred	Hex editor visual layout visualizer
+exiftool	security	A	alarm	confirmed	Metadata reader writer program
+cve-bin-tool	security	A	alarm	confirmed	Local binary vulnerability scanning tool
+cvemap	security	C	upstream	deferred	Command line CVE details explorer
+vulnx	security	C	upstream	deferred	Web application vulnerability exploit scanner
+nmap	security	A	alarm	confirmed	Classic network scanner utility
+nikto	security	C	upstream	deferred	Legacy web server vulnerability scanner
+sqlmap	security	A	alarm	confirmed	SQL injection vulnerability exploitation utility
+metasploit	security	C	blackarch	deferred	Offensive exploitation orchestration framework
+hydra	security	A	alarm	confirmed	Network login brute force tools
+john	security	A	alarm	confirmed	Password cracker offline utility
+hashcat	security	C	upstream	deferred	Advanced GPU accelerated password recovery tool
+aircrack-ng	security	A	alarm	confirmed	Wireless audit security scanner suite

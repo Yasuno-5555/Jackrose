@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# run-jackrose-ghostty-build-tests: Validate jackrose-ghostty packaging probes and catalog constraints
+set -euo pipefail
+
+echo "=== Running Jackrose Ghostty Build Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+"$REPO_ROOT"/scripts/dev/probe-jackrose-p0-packages --package ghostty --printsrcinfo
+"$REPO_ROOT"/scripts/dev/probe-jackrose-p0-packages --package ghostty --namcap
+"$REPO_ROOT"/scripts/dev/validate-jackrose-p0-feasibility
+"$REPO_ROOT"/scripts/dev/validate-jackrose-critical-build-plan
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-depends
+
+artifact=""
+for candidate in \
+  /tmp/jackrose-build-artifacts/jackrose-ghostty-*.pkg.tar.* \
+  "$REPO_ROOT"/packages/arch/jackrose-ghostty/jackrose-ghostty-*.pkg.tar.*; do
+  if [ -f "$candidate" ]; then
+    artifact="$candidate"
+    break
+  fi
+done
+
+if [ -n "$artifact" ]; then
+  "$REPO_ROOT"/scripts/dev/validate-jackrose-ghostty-package --artifact "$artifact"
+else
+  echo "[WARN] No package artifact found for jackrose-ghostty."
+fi
+
+echo "=== All Jackrose Ghostty Build Tests Passed Successfully ==="
+exit 0

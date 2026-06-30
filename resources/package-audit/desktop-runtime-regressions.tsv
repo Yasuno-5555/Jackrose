@@ -1,0 +1,4 @@
+id	component	severity	status	summary	notes
+J19-001	jackrose-user-setup	P1	mitigated	Installed jackrose-user-setup crashes on legacy manifest without files key	Repo fix is queued as jackrose-user-setup-1.0.0-2; host was unblocked by normalizing manifest.json
+J19-002	firstboot-state	P1	mitigated	Doctor firstboot check reported failed state due to stale failure marker and manifest status	Host state was reconciled and doctor --firstboot now passes
+J19-003	jackrose-security	P1	mitigated	Security Pack firstboot path still wrote bootstrap state/logs under /var as normal user	Repo fix is queued in jackrose-welcome 1.0.0-3 with user-state logging

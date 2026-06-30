@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# run-custom-package-backlog-tests: Validate backlog database, constraints, and custom CLI planning flags
+set -euo pipefail
+
+echo "=== Running Jackrose Backlog Tests ==="
+
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_PACKS_DIR="$TEST_DIR/packs"
+
+mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT" "$JACKROSE_PACKS_DIR"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Copy metadata to temporary testing dir
+cp "$REPO_ROOT"/resources/packs/*.json "$JACKROSE_PACKS_DIR"/
+cp "$REPO_ROOT"/resources/package-audit/*.tsv "$TEST_DIR/"
+
+# 1. Verify list filters
+echo "Testing: jackrose-pack list filters..."
+oobe_list=$("$REPO_ROOT/scripts/jackrose-pack" list --oobe)
+if ! echo "$oobe_list" | grep -q "student"; then exit 1; fi
+if ! echo "$oobe_list" | grep -q "security"; then exit 1; fi
+if echo "$oobe_list" | grep -q "calvados"; then
+  echo "[FAIL] Calvados must not be shown in OOBE list" >&2
+  exit 1
+fi
+
+exp_list=$("$REPO_ROOT/scripts/jackrose-pack" list --experimental)
+if ! echo "$exp_list" | grep -q "calvados"; then exit 1; fi
+if echo "$exp_list" | grep -q "student"; then exit 1; fi
+echo "[OK] jackrose-pack list filters verified."
+
+# 2. Verify plan --oobe strict mode
+echo "Testing: jackrose-pack plan --oobe constraint checks..."
+if "$REPO_ROOT/scripts/jackrose-pack" plan --oobe calvados 2>/dev/null; then
+  echo "[FAIL] plan --oobe calvados should have failed" >&2
+  exit 1
+fi
+echo "[OK] plan --oobe constraint checks verified."
+
+# 3. Verify plan --oobe student security warnings
+plan_warn=$("$REPO_ROOT/scripts/jackrose-pack" plan calvados)
+if ! echo "$plan_warn" | grep -q "experimental"; then
+  echo "[FAIL] plan output did not warn about experimental pack calvados" >&2
+  exit 1
+fi
+echo "[OK] plan experimental warning verified."
+
+# 4. Verify Welcome walkthrough (Calvados is hidden, Student/Security only)
+echo "Testing: jackrose-welcome firstboot walkthrough checks..."
+# Stdin mock inputs:
+# Screen 1 (Welcome): Enter
+# Screen 2 (Bootstrap Status): Enter
+# Screen 3 (Default Overview): Enter
+# Screen 4 (Keyboard & Input): Enter
+# Screen 5 (Desktop Basics): Enter
+# Screen 6 (Additional Packs): 3 (Confirm defaults)
+# Screen 7 (Security): skipped
+# Screen 8 (Install Plan): y (Confirm)
+# Screen 9 (Apply): auto
+# Screen 10 (Doctor): Enter
+# Screen 11 (Finish): 2 (Finish without reboot)
+inputs=$(printf "\n\n\n\n\n3\ny\n\n2\n")
+echo "$inputs" | "$REPO_ROOT/components/welcome/bin/jackrose-welcome" --firstboot > "$TEST_DIR/welcome.log"
+
+if [ ! -f "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" ]; then
+  echo "[FAIL] state.json was not written during welcome apply" >&2
+  exit 1
+fi
+
+# Verify calvados is false / unselected
+python3 - "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+if data.get('packs', {}).get('calvados', {}).get('selected', True):
+    sys.exit(1)
+PY
+echo "[OK] jackrose-welcome walkthrough constraints verified."
+
+echo "=== All J9 Backlog Tests Passed Successfully ==="
+exit 0

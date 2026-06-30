@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# run-firstboot-welcome-tests: Contract tests for Jackrose firstboot Welcome flow
+set -euo pipefail
+
+echo "=== Running Jackrose Firstboot Welcome Tests ==="
+
+# 1. Setup temporary workspace
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_HOME="$TEST_DIR/home"
+export JACKROSE_TARGET_USER="testuser"
+
+mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT" "$JACKROSE_HOME"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Verify help
+echo "Testing: jackrose-firstboot --help..."
+"$REPO_ROOT/scripts/jackrose-firstboot" --help >/dev/null
+
+# Verify status with no state
+echo "Testing: jackrose-firstboot --status with no state..."
+status_out="$("$REPO_ROOT/scripts/jackrose-firstboot" --status)"
+if [ "$status_out" != "status: inactive" ]; then
+  echo "[FAIL] Expected status to be inactive, got: $status_out" >&2
+  exit 1
+fi
+echo "[OK] Status is inactive with no state."
+
+# Verify bootstrap --apply --dry-run shows firstboot_enable plan
+echo "Testing: bootstrap --apply --dry-run shows firstboot_enable plan..."
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply --dry-run > "$TEST_DIR/bootstrap-dry.log"
+if ! grep -q "Would enable firstboot welcome" "$TEST_DIR/bootstrap-dry.log"; then
+  echo "[FAIL] dry-run output did not describe firstboot enable step" >&2
+  exit 1
+fi
+echo "[OK] Dry-run output verified."
+
+# Execute bootstrap to create state/report
+echo "Testing: bootstrap state & report records firstboot_enable..."
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply > "$TEST_DIR/bootstrap-apply.log" || true
+if [ ! -f "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" ]; then
+  echo "[FAIL] state.json was not created" >&2
+  exit 1
+fi
+if ! grep -q '"firstboot_enable": "done"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"; then
+  echo "[FAIL] state.json did not record firstboot_enable step completion" >&2
+  exit 1
+fi
+if ! grep -q "jackrose-firstboot --run" "$JACKROSE_BOOTSTRAP_LOG_ROOT/bootstrap-report.txt"; then
+  echo "[FAIL] bootstrap-report.txt did not record fallback command" >&2
+  exit 1
+fi
+echo "[OK] Bootstrap state and report records are correct."
+
+# Verify status is now pending
+echo "Testing: jackrose-firstboot --status is now pending..."
+status_out="$("$REPO_ROOT/scripts/jackrose-firstboot" --status)"
+if [ "$status_out" != "status: pending" ]; then
+  echo "[FAIL] Expected status to be pending, got: $status_out" >&2
+  exit 1
+fi
+echo "[OK] Status is pending after bootstrap."
+
+# Verify fake welcome success
+echo "Testing: jackrose-firstboot --run with fake welcome success..."
+FAKE_SUCCESS_WELCOME="$TEST_DIR/fake-success-welcome"
+cat > "$FAKE_SUCCESS_WELCOME" <<EOF
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$FAKE_SUCCESS_WELCOME"
+
+export JACKROSE_WELCOME_COMMAND="$FAKE_SUCCESS_WELCOME"
+"$REPO_ROOT/scripts/jackrose-firstboot" --run
+
+# Verify firstboot.done exists
+if [ ! -f "$JACKROSE_HOME/.local/state/jackrose/firstboot.done" ]; then
+  echo "[FAIL] firstboot.done marker was not written on welcome success" >&2
+  exit 1
+fi
+echo "[OK] firstboot.done created on welcome success."
+
+if [ ! -f "$JACKROSE_HOME/.local/state/jackrose/manifest.json" ]; then
+  echo "[FAIL] manifest.json was not written on welcome success" >&2
+  exit 1
+fi
+echo "[OK] manifest.json created on welcome success."
+
+# Verify firstboot.done prevents relaunch
+echo "Testing: firstboot.done prevents relaunch..."
+# If it runs again, it should exit 0 immediately without calling fake welcome
+# We delete fake welcome to verify it isn't called
+rm -f "$FAKE_SUCCESS_WELCOME"
+"$REPO_ROOT/scripts/jackrose-firstboot" --run
+echo "[OK] firstboot.done prevents relaunch."
+
+# Verify reset allows rerun
+echo "Testing: firstboot reset allows rerun..."
+"$REPO_ROOT/scripts/jackrose-firstboot" --reset
+if [ -f "$JACKROSE_HOME/.local/state/jackrose/firstboot.done" ]; then
+  echo "[FAIL] done marker was not deleted by reset" >&2
+  exit 1
+fi
+echo "[OK] Reset cleared done marker."
+
+# Verify status is pending again
+status_out="$("$REPO_ROOT/scripts/jackrose-firstboot" --status)"
+if [ "$status_out" != "status: pending" ]; then
+  echo "[FAIL] Expected status to revert to pending, got: $status_out" >&2
+  exit 1
+fi
+
+# Verify fake welcome failure
+echo "Testing: jackrose-firstboot --run with fake welcome failure..."
+FAKE_FAIL_WELCOME="$TEST_DIR/fake-fail-welcome"
+cat > "$FAKE_FAIL_WELCOME" <<EOF
+#!/usr/bin/env bash
+exit 4
+EOF
+chmod +x "$FAKE_FAIL_WELCOME"
+
+export JACKROSE_WELCOME_COMMAND="$FAKE_FAIL_WELCOME"
+if "$REPO_ROOT/scripts/jackrose-firstboot" --run 2>/dev/null; then
+  echo "[FAIL] Expected jackrose-firstboot to fail when welcome fails" >&2
+  exit 1
+fi
+if [ -f "$JACKROSE_HOME/.local/state/jackrose/firstboot.done" ]; then
+  echo "[FAIL] firstboot.done was written despite welcome failure!" >&2
+  exit 1
+fi
+if [ ! -f "$JACKROSE_HOME/.local/state/jackrose/firstboot.failure" ]; then
+  echo "[FAIL] firstboot.failure marker was not written" >&2
+  exit 1
+fi
+echo "[OK] welcome failure handled correctly."
+
+# Verify welcome firstboot mode reads fake report
+echo "Testing: welcome --firstboot reads fake bootstrap report..."
+# We can run it TUI-style but redirecting inputs, or check with python parts
+# Let's run it with dry-run style or mock terminal input
+export JACKROSE_WELCOME_TEST_NONINTERACTIVE=true
+echo "1" | "$REPO_ROOT/components/welcome/bin/jackrose-welcome" --firstboot > "$TEST_DIR/welcome-firstboot.log"
+unset JACKROSE_WELCOME_TEST_NONINTERACTIVE
+if ! grep -q "niri config deployed" "$TEST_DIR/welcome-firstboot.log"; then
+  echo "[FAIL] welcome --firstboot did not render bootstrap status summary" >&2
+  exit 1
+fi
+echo "[OK] welcome firstboot mode successfully parsed state."
+
+# Forbidden command scan
+echo "Testing: forbidden command scan passes..."
+FORBIDDEN_WORDS=("diskutil" "apfs" "resizeContainer" "parted" "sgdisk" "fdisk" "mkfs" "mount /dev" "umount" "nvram" "bless" "m1n1" "update-m1n1" "grub-install" "efibootmgr" "bootctl")
+for word in "${FORBIDDEN_WORDS[@]}"; do
+  if grep -E "^[^#]*\b$word\b" "$REPO_ROOT/scripts/jackrose-firstboot"; then
+    echo "[FAIL] Forbidden active command execution path found in jackrose-firstboot for: $word" >&2
+    exit 1
+  fi
+  if grep -E "^[^#]*\b$word\b" "$REPO_ROOT/components/welcome/bin/jackrose-welcome"; then
+    echo "[FAIL] Forbidden active command execution path found in jackrose-welcome for: $word" >&2
+    exit 1
+  fi
+done
+echo "[OK] Forbidden command scan passed."
+
+echo "=== All Tests Passed Successfully ==="
+exit 0

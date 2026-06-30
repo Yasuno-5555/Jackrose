@@ -16,5 +16,5 @@ source=('jackrose-wallpaper.png')
 sha256sums=('SKIP')
 
 package() {
-  install -Dm644 "${srcdir}/jackrose-wallpaper.png" "${pkgdir}/usr/share/backgrounds/jackrose-wallpaper.png"
+  install -Dm644 "${srcdir}/jackrose-wallpaper.png" "${pkgdir}/usr/share/jackrose/backgrounds/default.png"
 }

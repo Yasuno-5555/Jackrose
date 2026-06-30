@@ -8,10 +8,6 @@ url='https://github.com/Yasuno-5555/Jackrose'
 arch=('aarch64')
 license=('custom')
 depends=(
-provides=('cidre-meta-core')
-conflicts=('cidre-meta-core')
-replaces=('cidre-meta-core')
-
   'base'
   'base-devel'
   'sudo'
@@ -37,11 +33,17 @@ replaces=('cidre-meta-core')
   'openssh'
   'rsync'
 )
+provides=('cidre-meta-core')
+conflicts=('cidre-meta-core')
+replaces=('cidre-meta-core')
+source=('profile.txt')
+sha256sums=('SKIP')
+
 # Monorepo-local packaging path.
 _repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm644 profile.txt "${pkgdir}/usr/share/doc/${pkgname}/profile.txt"
+  install -Dm644 "${srcdir}/profile.txt" "${pkgdir}/usr/share/doc/${pkgname}/profile.txt"
   install -Dm755 "${_repo_root}/scripts/jackrose" "${pkgdir}/usr/bin/jackrose"
   install -Dm755 "${_repo_root}/scripts/jackrose-migrate" "${pkgdir}/usr/bin/jackrose-migrate"
 }

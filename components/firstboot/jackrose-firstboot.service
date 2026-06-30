@@ -1,0 +1,9 @@
+[Unit]
+Description=Jackrose Firstboot Welcome
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jackrose-firstboot --run
+
+[Install]
+WantedBy=default.target

@@ -394,8 +394,8 @@ EOF
   run_cmd "Deploying Waybar config"      cp -r "$JACKROSE_ROOT"/config/waybar/*        /usr/share/jackrose/defaults/waybar/
   run_cmd "Deploying desktop entries"    cp -r "$JACKROSE_ROOT"/config/applications/*  /usr/share/jackrose/defaults/applications/
 
-  run_cmd "Creating backgrounds folder" mkdir -p /usr/share/backgrounds
-  run_cmd "Deploying wallpaper"  cp "$JACKROSE_ROOT"/config/jackrose-wallpaper.png /usr/share/backgrounds/jackrose-wallpaper.png
+  run_cmd "Creating backgrounds folder" mkdir -p /usr/share/jackrose/backgrounds
+  run_cmd "Deploying wallpaper"  cp "$JACKROSE_ROOT"/resources/backgrounds/jackrose-default.png /usr/share/jackrose/backgrounds/default.png
 
   # --- Install jackrose-session ---
   local pkg_dir="$JACKROSE_ROOT/packages/arch/jackrose-session"

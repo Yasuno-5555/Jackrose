@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo "=== Validating Jackrose Ghostty Runtime Assets ==="
+
+config_file="$REPO_ROOT/resources/ghostty/config"
+theme_file="$REPO_ROOT/resources/ghostty/themes/catppuccin-mocha"
+desktop_file="$REPO_ROOT/resources/ghostty/ghostty.desktop"
+pkgbuild="$REPO_ROOT/packages/arch/jackrose-ghostty/PKGBUILD"
+
+[ -f "$config_file" ] || { echo "[FAIL] Missing Ghostty config resource." >&2; exit 1; }
+[ -f "$theme_file" ] || { echo "[FAIL] Missing Catppuccin Mocha theme resource." >&2; exit 1; }
+[ -f "$desktop_file" ] || { echo "[FAIL] Missing Ghostty desktop resource." >&2; exit 1; }
+
+if grep -Eq '^hx[[:space:]]+' "$config_file"; then
+  echo "[FAIL] Ghostty config contains invalid shell command lines." >&2
+  exit 1
+fi
+
+if grep -Eq '^theme[[:space:]]*=[[:space:]]*catppuccin-mocha$' "$config_file" && [ ! -f "$theme_file" ]; then
+  echo "[FAIL] Ghostty config references catppuccin-mocha but the theme file is missing." >&2
+  exit 1
+fi
+
+grep -q '^Exec=ghostty$' "$desktop_file" || { echo "[FAIL] ghostty.desktop must use Exec=ghostty." >&2; exit 1; }
+grep -q '^Terminal=false$' "$desktop_file" || { echo "[FAIL] ghostty.desktop must set Terminal=false." >&2; exit 1; }
+
+if grep -Eq 'install .*terminfo/.*/ghostty|cp .*terminfo/.*/ghostty|tic ' "$pkgbuild"; then
+  echo "[FAIL] Ghostty PKGBUILD still appears to add a conflicting terminfo payload." >&2
+  exit 1
+fi
+
+echo "[OK] Ghostty runtime assets validated."

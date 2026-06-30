@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# run-pack-selection-tests: Test pack selection validation and confirmation constraints
+set -euo pipefail
+
+echo "=== Running Jackrose Pack Selection Tests ==="
+
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_PACKS_DIR="$TEST_DIR/packs"
+
+mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT" "$JACKROSE_PACKS_DIR"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Copy metadata to temporary testing dir
+cp "$REPO_ROOT"/resources/packs/*.json "$JACKROSE_PACKS_DIR"/
+
+# Test pack selection with security trust boundary review
+# Mock inputs:
+# Screen 1 (Welcome): Enter
+# Screen 2 (Bootstrap Status): Enter
+# Screen 3 (Default Overview): Enter
+# Screen 4 (Keyboard & Input): Enter
+# Screen 5 (Desktop Basics): Enter
+# Screen 6 (Additional Packs): 2 (Toggle Security on) -> 3 (Confirm selection: Student & Security selected)
+# Screen 7 (Security Review): WRONG PHRASE (returns to packs selection) -> 2 (Toggle Security on again) -> 3 (Confirm selection again: Student & Security) -> ENABLE BLACKARCH REPOSITORY (Correct phrase)
+# Screen 8 (Install Plan): y (Confirm)
+# Screen 9 (Apply): auto
+# Screen 10 (Doctor): Enter
+# Screen 11 (Finish): 2 (Finish without reboot)
+inputs=$(printf "\n\n\n\n\n2\n3\nWRONG PHRASE\n2\n3\nENABLE BLACKARCH REPOSITORY\ny\n\n2\n")
+export JACKROSE_PACKS_DIR
+echo "$inputs" | "$REPO_ROOT/components/welcome/bin/jackrose-welcome" --firstboot > "$TEST_DIR/welcome.log"
+
+if [ ! -f "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" ]; then
+  echo "[FAIL] state.json was not written during welcome apply with security" >&2
+  exit 1
+fi
+
+# Verify state content has security and blackarch confirmed
+grep -q '"security"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+grep -q '"package": "jackrose-pack-security"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+grep -q '"confirmation_phrase": "ENABLE BLACKARCH REPOSITORY"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+grep -q '"status": "enabled"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+
+echo "[OK] Security confirmation boundary tested and verified."
+
+echo "=== All Pack Selection Tests Passed Successfully ==="
+exit 0

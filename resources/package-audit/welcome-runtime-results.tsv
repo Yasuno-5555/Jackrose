@@ -1,0 +1,15 @@
+check	expected	actual	result	notes
+command_availability	jackrose-welcome jackrose-pack jackrose-doctor available after local install	not installed in PATH during sandbox run	warn	repo fallback scripts were used for J16 runtime verification because local pacman -U did not complete
+oobe_list	student security	security student	pass	Calvados absent from OOBE-visible list
+experimental_list	calvados	calvados	pass	Experimental/App Center path preserved
+student_default	student selected by default	Student Pack initialized selected and scripted firstboot path used student-only selection	pass	welcome code sets sel_student=true and sel_security=false at pack selection screen
+security_confirmation	explicit confirmation required	ENABLE BLACKARCH REPOSITORY phrase required before repo enable	pass	no silent BlackArch enablement path observed
+calvados_hidden	not visible in firstboot OOBE	not listed by jackrose-pack list --oobe and plan --oobe calvados fails	pass	Calvados remains experimental-only
+welcome_launch	firstboot opens	firstboot flow launched from repo fallback script and reached finish screen	pass	installed command path still pending real host install
+doctor_daily	installed environment should pass	repo fallback doctor reported missing commands and services	fail	expected until local package install is completed
+doctor_bootstrap	installed environment should pass	repo fallback doctor failed because packages are not installed	fail	expected until local package install is completed
+doctor_firstboot	installed environment should pass	repo fallback doctor failed because packages are not installed	fail	expected until local package install is completed
+user_state_policy	no user welcome writes under /var	validate-jackrose-user-state-paths passed	pass	Welcome and pack apply now use XDG user state paths
+manifest_creation	manifest written under ~/.local/state/jackrose	run-firstboot-welcome-tests passed	pass	firstboot success path now produces manifest.json
+doctor_user_state	Doctor prefers user-state manifest and logs	run-doctor-bootstrap-firstboot-tests passed	pass	system bootstrap log downgraded when root bootstrap was not run
+ghostty_terminfo	no ncurses-owned ghostty terminfo in package	validate-jackrose-ghostty-terminfo passed	pass	jackrose-ghostty 1.3.1-2 no longer owns usr/share/terminfo/g/ghostty

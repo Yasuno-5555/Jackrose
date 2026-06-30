@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# validate-jackrose-critical-build-plan: Verify J10 build plan databases, skeletons, and constraints
+set -euo pipefail
+
+echo "=== Validating Jackrose Critical Build Plan ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Verify build-plan.tsv database existence and headers
+bp_file="$REPO_ROOT/resources/package-audit/build-plan.tsv"
+if [ ! -f "$bp_file" ]; then
+  echo "[FAIL] build-plan.tsv catalog does not exist" >&2
+  exit 1
+fi
+
+headers=$(head -n 1 "$bp_file")
+for expected_h in package jackrose_package priority source_strategy build_strategy status meta_integration notes; do
+  if ! echo "$headers" | grep -q "$expected_h"; then
+    echo "[FAIL] build-plan.tsv headers missing expected: $expected_h" >&2
+    exit 1
+  fi
+done
+
+# Verify recovery.tsv has P0 entries
+rec_file="$REPO_ROOT/resources/package-audit/recovery.tsv"
+if [ -f "$rec_file" ]; then
+  for p0 in paru ghostty zotero zed niri-jackrose; do
+    if ! awk -F$'\t' -v package="$p0" '$1 == package {found=1} END {exit found ? 0 : 1}' "$rec_file"; then
+      echo "[FAIL] recovery.tsv is missing P0 definition for $p0" >&2
+      exit 1
+    fi
+  done
+fi
+
+# Verify Default.tsv contains paru
+def_file="$REPO_ROOT/resources/package-audit/default.tsv"
+if [ -f "$def_file" ]; then
+  if ! grep -q "paru" "$def_file"; then
+    echo "[FAIL] default.tsv is missing paru definition" >&2
+    exit 1
+  fi
+  if ! grep -q "^quickshell" "$def_file"; then
+    echo "[FAIL] default.tsv is missing quickshell definition" >&2
+    exit 1
+  fi
+fi
+
+# Verify package skeletons exist
+for p0_pkg in jackrose-paru jackrose-ghostty jackrose-zotero jackrose-zed; do
+  pdir="$REPO_ROOT/packages/arch/$p0_pkg"
+  if [ ! -d "$pdir" ] || [ ! -f "$pdir/PKGBUILD" ]; then
+    echo "[FAIL] Skeleton PKGBUILD is missing for $p0_pkg" >&2
+    exit 1
+  fi
+  # Verify pkgname matches
+  if ! grep -q "pkgname=$p0_pkg" "$pdir/PKGBUILD"; then
+    echo "[FAIL] PKGBUILD for $p0_pkg has incorrect pkgname" >&2
+    exit 1
+  fi
+done
+
+ghostty_pkg="$REPO_ROOT/packages/arch/jackrose-ghostty/PKGBUILD"
+if ! grep -q "provides=('ghostty')" "$ghostty_pkg"; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD must provide ghostty" >&2
+  exit 1
+fi
+if grep -Eq 'paru|pacman -S|pacman\.conf' "$ghostty_pkg"; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD contains forbidden package-management commands." >&2
+  exit 1
+fi
+
+# Verify security policy documentation references paru escape hatch constraints
+policy_doc="$REPO_ROOT/docs/jackrose-aur-and-custom-package-policy.md"
+if [ -f "$policy_doc" ]; then
+  if ! grep -q "paru" "$policy_doc"; then
+    echo "[FAIL] AUR policy documentation must reference paru escape hatch workflows" >&2
+    exit 1
+  fi
+fi
+
+# Verify p0-build-results.tsv headers and paru results
+build_results="$REPO_ROOT/resources/package-audit/p0-build-results.tsv"
+if [ -f "$build_results" ]; then
+  headers=$(head -n 1 "$build_results")
+  for expected_h in package jackrose_package build_status artifact artifact_check namcap_pkg contents_check provides_check install_scripts_check integration_status notes; do
+    if ! echo "$headers" | grep -q "$expected_h"; then
+      echo "[FAIL] p0-build-results.tsv headers missing expected: $expected_h" >&2
+      exit 1
+    fi
+  done
+  if ! grep -q "paru" "$build_results"; then
+    echo "[FAIL] p0-build-results.tsv is missing entry for paru" >&2
+    exit 1
+  fi
+  if ! grep -q "^ghostty" "$build_results"; then
+    echo "[FAIL] p0-build-results.tsv is missing entry for ghostty" >&2
+    exit 1
+  fi
+fi
+
+echo "[OK] Jackrose critical package build plan validated successfully."
+exit 0

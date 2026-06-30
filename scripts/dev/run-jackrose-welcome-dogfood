@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# run-jackrose-welcome-dogfood: Execute dogfood-safe Welcome/OOBE command checks and capture output
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  run-jackrose-welcome-dogfood --firstboot [--log PATH]"
+  echo "  run-jackrose-welcome-dogfood --normal [--log PATH]"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MODE=""
+LOG_PATH="$REPO_ROOT/docs/jackrose-welcome-dogfood-activation-log.md"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --firstboot)
+      MODE="firstboot"
+      shift
+      ;;
+    --normal)
+      MODE="normal"
+      shift
+      ;;
+    --log)
+      LOG_PATH="${2:-}"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$MODE" ]; then
+  usage
+fi
+
+welcome_cmd="jackrose-welcome"
+pack_cmd="jackrose-pack"
+doctor_cmd="jackrose-doctor"
+
+if ! command -v "$welcome_cmd" >/dev/null 2>&1; then
+  welcome_cmd="$REPO_ROOT/components/welcome/bin/jackrose-welcome"
+fi
+if ! command -v "$pack_cmd" >/dev/null 2>&1; then
+  pack_cmd="$REPO_ROOT/scripts/jackrose-pack"
+fi
+if ! command -v "$doctor_cmd" >/dev/null 2>&1; then
+  doctor_cmd="$REPO_ROOT/scripts/jackrose-doctor"
+fi
+
+echo "=== Jackrose Welcome Dogfood Runner ==="
+echo "Welcome command: $welcome_cmd"
+echo "Pack command: $pack_cmd"
+echo "Doctor command: $doctor_cmd"
+echo "Log path: $LOG_PATH"
+
+command -v "$pack_cmd" >/dev/null 2>&1 || true
+command -v "$doctor_cmd" >/dev/null 2>&1 || true
+
+echo "--- OOBE list ---"
+"$pack_cmd" list --oobe
+echo "--- Experimental list ---"
+"$pack_cmd" list --experimental
+echo "--- Student plan ---"
+"$pack_cmd" plan student
+echo "--- Security plan ---"
+"$pack_cmd" plan security
+echo "--- OOBE calvados plan ---"
+"$pack_cmd" plan --oobe calvados || true
+
+echo "--- Doctor daily ---"
+"$doctor_cmd" --daily || true
+echo "--- Doctor bootstrap ---"
+"$doctor_cmd" --bootstrap || true
+echo "--- Doctor firstboot ---"
+"$doctor_cmd" --firstboot || true
+
+if [ "$MODE" = "firstboot" ]; then
+  TEST_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TEST_DIR"' EXIT
+  export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+  export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+  export JACKROSE_PACKS_DIR="$REPO_ROOT/resources/packs"
+  mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT"
+  printf '\n\n\n\n\n3\ny\n\n2\n' | "$welcome_cmd" --firstboot || true
+else
+  printf '\n' | "$welcome_cmd" || true
+fi

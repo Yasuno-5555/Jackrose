@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# record-jackrose-dogfood-package: Append a dogfood package record to a selected catalog
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  record-jackrose-dogfood-package --catalog installed <tab-separated-row>"
+  echo "  record-jackrose-dogfood-package --catalog missing <tab-separated-row>"
+  echo "  record-jackrose-dogfood-package --catalog promote <tab-separated-row>"
+  echo "  record-jackrose-dogfood-package --catalog defer <tab-separated-row>"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+CATALOG=""
+
+if [ "${1:-}" != "--catalog" ] || [ $# -lt 3 ]; then
+  usage
+fi
+
+CATALOG="$2"
+shift 2
+
+case "$CATALOG" in
+  installed) target="$REPO_ROOT/resources/package-audit/dogfood-installed.tsv" ;;
+  missing) target="$REPO_ROOT/resources/package-audit/dogfood-missing.tsv" ;;
+  promote) target="$REPO_ROOT/resources/package-audit/dogfood-promote.tsv" ;;
+  defer) target="$REPO_ROOT/resources/package-audit/dogfood-defer.tsv" ;;
+  *) usage ;;
+esac
+
+printf '%s\n' "$*" >> "$target"

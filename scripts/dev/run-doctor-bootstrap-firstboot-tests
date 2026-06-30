@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# run-doctor-bootstrap-firstboot-tests: Test suite for jackrose-doctor bootstrap and firstboot check integrations
+set -euo pipefail
+
+echo "=== Running Jackrose Doctor Bootstrap & Firstboot Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Define fixtures directory in tmp
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+# Function to setup mock layout
+setup_mock_layout() {
+  local target="$1"
+  mkdir -p "$target/fake-usr/usr/bin"
+  mkdir -p "$target/fake-usr/usr/lib/systemd/user"
+  mkdir -p "$target/fake-usr/usr/share/jackrose/defaults/niri"
+  mkdir -p "$target/fake-usr/usr/share/jackrose/backgrounds"
+  mkdir -p "$target/fake-usr/usr/share/jackrose/welcome/content"
+  mkdir -p "$target/fake-var/lib/jackrose/bootstrap"
+  mkdir -p "$target/fake-var/lib/jackrose/firstboot"
+  mkdir -p "$target/fake-var/log/jackrose"
+  mkdir -p "$target/fake-home/.local/state/jackrose"
+
+  # Populate binaries
+  touch "$target/fake-usr/usr/bin/jackrose-bootstrap"
+  touch "$target/fake-usr/usr/bin/jackrose-firstboot"
+  touch "$target/fake-usr/usr/bin/jackrose-welcome"
+  chmod +x "$target/fake-usr/usr/bin/jackrose-bootstrap"
+  chmod +x "$target/fake-usr/usr/bin/jackrose-firstboot"
+  chmod +x "$target/fake-usr/usr/bin/jackrose-welcome"
+
+  # Populate service unit
+  cat > "$target/fake-usr/usr/lib/systemd/user/jackrose-firstboot.service" <<EOF
+[Service]
+ExecStart=/usr/bin/jackrose-firstboot --run
+EOF
+
+  # Populate default config
+  cat > "$target/fake-usr/usr/share/jackrose/defaults/niri/config.kdl" <<EOF
+// niri config
+spawn "foot"
+wallpaper "/usr/share/jackrose/backgrounds/default.png"
+EOF
+
+  # Populate wallpaper
+  touch "$target/fake-usr/usr/share/jackrose/backgrounds/default.png"
+
+  # Populate welcome content
+  touch "$target/fake-usr/usr/share/jackrose/welcome/content/desktop-basics.md"
+  touch "$target/fake-usr/usr/share/jackrose/welcome/content/desktop-basics.ja.md"
+
+  # Populate bootstrap state
+  cat > "$target/fake-var/lib/jackrose/bootstrap/state.json" <<EOF
+{
+  "steps": {
+    "config_deploy": "done"
+  },
+  "firstboot": {
+    "status": "completed"
+  }
+}
+EOF
+
+  # Populate bootstrap reports
+  cat > "$target/fake-var/log/jackrose/bootstrap-report.json" <<EOF
+{}
+EOF
+  touch "$target/fake-var/log/jackrose/bootstrap-report.txt"
+}
+
+# 1. Test case: jackrose-doctor --bootstrap with all assets present (OK)
+echo "Testing: jackrose-doctor --bootstrap with all assets present..."
+setup_mock_layout "$TEST_DIR/case1"
+export JACKROSE_USR_ROOT="$TEST_DIR/case1/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case1/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case1/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case1/fake-home"
+
+"$REPO_ROOT/scripts/jackrose-doctor" --bootstrap > "$TEST_DIR/case1.log"
+grep -q "jackrose-bootstrap installed" "$TEST_DIR/case1.log" || (cat "$TEST_DIR/case1.log"; exit 1)
+grep -q "firstboot user service installed" "$TEST_DIR/case1.log" || (cat "$TEST_DIR/case1.log"; exit 1)
+grep -q "bootstrap state found" "$TEST_DIR/case1.log" || (cat "$TEST_DIR/case1.log"; exit 1)
+grep -q "config_deploy completed" "$TEST_DIR/case1.log" || (cat "$TEST_DIR/case1.log"; exit 1)
+grep -q "firstboot completed" "$TEST_DIR/case1.log" || (cat "$TEST_DIR/case1.log"; exit 1)
+echo "[OK] all assets present case passed."
+
+# 2. Test case: jackrose-doctor --bootstrap with missing niri config
+echo "Testing: jackrose-doctor --bootstrap with missing niri config..."
+setup_mock_layout "$TEST_DIR/case2"
+rm -f "$TEST_DIR/case2/fake-usr/usr/share/jackrose/defaults/niri/config.kdl"
+export JACKROSE_USR_ROOT="$TEST_DIR/case2/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case2/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case2/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case2/fake-home"
+
+if "$REPO_ROOT/scripts/jackrose-doctor" --bootstrap > "$TEST_DIR/case2.log" 2>/dev/null; then
+  echo "[FAIL] Expected doctor to exit non-zero for missing config asset" >&2
+  exit 1
+fi
+grep -q "niri baseline config not installed" "$TEST_DIR/case2.log" || (cat "$TEST_DIR/case2.log"; exit 1)
+echo "[OK] missing niri config case passed."
+
+# 3. Test case: jackrose-doctor --bootstrap with missing state
+echo "Testing: jackrose-doctor --bootstrap with missing state..."
+setup_mock_layout "$TEST_DIR/case3"
+rm -f "$TEST_DIR/case3/fake-var/lib/jackrose/bootstrap/state.json"
+export JACKROSE_USR_ROOT="$TEST_DIR/case3/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case3/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case3/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case3/fake-home"
+
+"$REPO_ROOT/scripts/jackrose-doctor" --bootstrap > "$TEST_DIR/case3.log"
+grep -q "bootstrap state not found" "$TEST_DIR/case3.log" || (cat "$TEST_DIR/case3.log"; exit 1)
+echo "[OK] missing state case passed."
+
+# 4. Test case: jackrose-doctor --bootstrap with failed config_deploy state
+echo "Testing: jackrose-doctor --bootstrap with failed config_deploy state..."
+setup_mock_layout "$TEST_DIR/case4"
+cat > "$TEST_DIR/case4/fake-var/lib/jackrose/bootstrap/state.json" <<EOF
+{
+  "steps": {
+    "config_deploy": "failed"
+  },
+  "firstboot": {
+    "status": "failed"
+  }
+}
+EOF
+export JACKROSE_USR_ROOT="$TEST_DIR/case4/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case4/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case4/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case4/fake-home"
+
+if "$REPO_ROOT/scripts/jackrose-doctor" --bootstrap > "$TEST_DIR/case4.log" 2>/dev/null; then
+  echo "[FAIL] Expected doctor to exit non-zero for failed config_deploy state" >&2
+  exit 1
+fi
+grep -q "config_deploy failed" "$TEST_DIR/case4.log" || (cat "$TEST_DIR/case4.log"; exit 1)
+grep -q "firstboot failed" "$TEST_DIR/case4.log" || (cat "$TEST_DIR/case4.log"; exit 1)
+echo "[OK] failed config_deploy state case passed."
+
+# 5. Test case: jackrose-doctor --firstboot with done marker
+echo "Testing: jackrose-doctor --firstboot with done marker..."
+setup_mock_layout "$TEST_DIR/case5"
+touch "$TEST_DIR/case5/fake-home/.local/state/jackrose/firstboot.done"
+cat > "$TEST_DIR/case5/fake-home/.local/state/jackrose/manifest.json" <<EOF
+{"version":1,"phase":"firstboot","status":"completed","selected_packs":["student"],"security_selected":false,"calvados_oobe_visible":false}
+EOF
+export JACKROSE_USR_ROOT="$TEST_DIR/case5/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case5/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case5/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case5/fake-home"
+
+"$REPO_ROOT/scripts/jackrose-doctor" --firstboot > "$TEST_DIR/case5.log"
+grep -q "firstboot.done exists for target user" "$TEST_DIR/case5.log" || (cat "$TEST_DIR/case5.log"; exit 1)
+grep -q "user-state firstboot manifest exists" "$TEST_DIR/case5.log" || (cat "$TEST_DIR/case5.log"; exit 1)
+echo "[OK] firstboot done marker case passed."
+
+# 6. Test case: jackrose-doctor --firstboot with pending marker only
+echo "Testing: jackrose-doctor --firstboot with pending marker only..."
+setup_mock_layout "$TEST_DIR/case6"
+touch "$TEST_DIR/case6/fake-var/lib/jackrose/firstboot/pending.json"
+export JACKROSE_USR_ROOT="$TEST_DIR/case6/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case6/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case6/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case6/fake-home"
+
+"$REPO_ROOT/scripts/jackrose-doctor" --firstboot > "$TEST_DIR/case6.log"
+grep -q "firstboot pending metadata exists" "$TEST_DIR/case6.log" || (cat "$TEST_DIR/case6.log"; exit 1)
+grep -q "firstboot welcome is pending" "$TEST_DIR/case6.log" || (cat "$TEST_DIR/case6.log"; exit 1)
+echo "[OK] firstboot pending case passed."
+
+# 7. Test case: jackrose-doctor --firstboot with failure report
+echo "Testing: jackrose-doctor --firstboot with failure report..."
+setup_mock_layout "$TEST_DIR/case7"
+touch "$TEST_DIR/case7/fake-home/.local/state/jackrose/firstboot.failure"
+export JACKROSE_USR_ROOT="$TEST_DIR/case7/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case7/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case7/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case7/fake-home"
+
+if "$REPO_ROOT/scripts/jackrose-doctor" --firstboot > "$TEST_DIR/case7.log" 2>/dev/null; then
+  echo "[FAIL] Expected doctor to exit non-zero for firstboot failure report" >&2
+  exit 1
+fi
+grep -q "firstboot failed (failure report found)" "$TEST_DIR/case7.log" || (cat "$TEST_DIR/case7.log"; exit 1)
+echo "[OK] firstboot failed case passed."
+
+# 8. Test case: jackrose-doctor --firstboot with missing service unit
+echo "Testing: jackrose-doctor --firstboot with missing service unit..."
+setup_mock_layout "$TEST_DIR/case8"
+rm -f "$TEST_DIR/case8/fake-usr/usr/lib/systemd/user/jackrose-firstboot.service"
+export JACKROSE_USR_ROOT="$TEST_DIR/case8/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case8/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case8/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case8/fake-home"
+
+if "$REPO_ROOT/scripts/jackrose-doctor" --firstboot > "$TEST_DIR/case8.log" 2>/dev/null; then
+  echo "[FAIL] Expected doctor to exit non-zero for missing service unit" >&2
+  exit 1
+fi
+grep -q "firstboot service unit missing" "$TEST_DIR/case8.log" || (cat "$TEST_DIR/case8.log"; exit 1)
+echo "[OK] missing service unit case passed."
+
+# 9. Test case: jackrose-doctor --daily integration check
+echo "Testing: jackrose-doctor --daily integration..."
+setup_mock_layout "$TEST_DIR/case9"
+touch "$TEST_DIR/case9/fake-home/.local/state/jackrose/firstboot.done"
+export JACKROSE_USR_ROOT="$TEST_DIR/case9/fake-usr"
+export JACKROSE_STATE_ROOT="$TEST_DIR/case9/fake-var/lib/jackrose/bootstrap"
+export JACKROSE_LOG_ROOT="$TEST_DIR/case9/fake-var/log/jackrose"
+export JACKROSE_HOME="$TEST_DIR/case9/fake-home"
+
+# Mock command -v and other dependencies to run --daily without exit on failures
+"$REPO_ROOT/scripts/jackrose-doctor" --daily > "$TEST_DIR/case9.log" || true
+grep -q "Firstboot Welcome has completed" "$TEST_DIR/case9.log" || (cat "$TEST_DIR/case9.log"; exit 1)
+echo "[OK] --daily integration check passed."
+
+# 10. Test case: forbidden command scan
+echo "Testing: forbidden command scan..."
+# Extract the newly added functions to a temp file and scan them
+sed -n '/run_bootstrap_checks()/,/^}/p' "$REPO_ROOT/scripts/jackrose-doctor" > "$TEST_DIR/added_functions.sh"
+sed -n '/run_firstboot_checks()/,/^}/p' "$REPO_ROOT/scripts/jackrose-doctor" >> "$TEST_DIR/added_functions.sh"
+sed -n '/check_cmd_installed()/,/^}/p' "$REPO_ROOT/scripts/jackrose-doctor" >> "$TEST_DIR/added_functions.sh"
+sed -n '/check_file_installed()/,/^}/p' "$REPO_ROOT/scripts/jackrose-doctor" >> "$TEST_DIR/added_functions.sh"
+
+FORBIDDEN_WORDS=("diskutil" "apfs" "resizeContainer" "parted" "sgdisk" "fdisk" "mkfs" "mount /dev" "umount" "nvram" "bless" "m1n1" "update-m1n1" "grub-install" "efibootmgr" "bootctl" "systemctl --user enable" "systemctl --user disable" "pacman -S")
+for word in "${FORBIDDEN_WORDS[@]}"; do
+  if grep -E "^[^#]*\b$word\b" "$TEST_DIR/added_functions.sh" 2>/dev/null; then
+    echo "[FAIL] Forbidden active command execution path found in added doctor checks for: $word" >&2
+    exit 1
+  fi
+done
+echo "[OK] forbidden command scan passed."
+
+echo "=== All Doctor Bootstrap & Firstboot Tests Passed ==="
+exit 0

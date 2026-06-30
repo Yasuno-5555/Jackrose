@@ -1,0 +1,21 @@
+phase	component	action	result	notes
+J16	local-packages	build	pass	all-safe batch build completed into /tmp/jackrose-pkgs including jackrose-ghostty artifact reuse
+J16	local-packages	install-dry-run	pass	install helper produced filtered sudo pacman -U command for J16-safe artifacts only
+J16	local-packages	install	blocked	host install requires root-capable real dogfood session; sandbox sudo hit no_new_privileges
+J16	welcome	command-availability	blocked	jackrose-welcome not installed in PATH; repo fallback script used for runtime probe
+J16	welcome	firstboot	pass	repo fallback jackrose-welcome --firstboot launched and completed scripted student-default path
+J16	oobe	oobe-list	pass	jackrose-pack list --oobe returned student and security only
+J16	oobe	experimental-list	pass	jackrose-pack list --experimental returned calvados
+J16	oobe	calvados-hidden	pass	jackrose-pack plan --oobe calvados failed as not OOBE-visible
+J16	oobe	student-default	pass	welcome selection screen initializes Student=true and Security=false
+J16	oobe	security-explicit	pass	security flow requires ENABLE BLACKARCH REPOSITORY confirmation phrase before repo enable
+J16	doctor	daily	fail	repo fallback jackrose-doctor --daily reported missing installed commands and services
+J16	doctor	bootstrap	fail	repo fallback jackrose-doctor --bootstrap failed because Jackrose packages are not installed
+J16	doctor	firstboot	fail	repo fallback jackrose-doctor --firstboot failed because Jackrose packages are not installed
+J16	ghostty	build-validation	pass	jackrose-ghostty artifact already built and validated on dogfood aarch64 machine
+J16	ghostty	install	blocked	local pacman -U still requires root-capable real dogfood session
+J17	welcome	user-state-paths	pass	welcome and pack apply now write manifest and logs under XDG user state
+J17	doctor	user-state-expectations	pass	doctor now checks user-state manifest and logs first and downgrades missing system bootstrap log
+J17	ghostty	terminfo-fix	pass	jackrose-ghostty rebuilt at pkgrel 2 without ncurses-owned ghostty terminfo
+J17	local-packages	rebuild	pass	jackrose-welcome, jackrose-diagnostics, and jackrose-ghostty rebuilt successfully
+J17	local-packages	reinstall-pending	blocked	real host pacman -U still pending outside agent sandbox

@@ -1,0 +1,22 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-security-intel
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for Vulnerability Intel and validation'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-pack-security'
+  'cve-bin-tool'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility or API key rules):
+  # 'cvemap'
+  # 'vulnx'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

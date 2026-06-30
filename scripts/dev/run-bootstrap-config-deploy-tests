@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== Running Jackrose Bootstrap Config Deploy Tests ==="
+
+# 1. Setup temporary workspace
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_TEST_HOME="$TEST_DIR/home"
+
+mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT" "$JACKROSE_TEST_HOME"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Run check on canonical config file validation
+echo "Testing: Validation passes for resources/niri/config.kdl..."
+"$REPO_ROOT/scripts/dev/validate-jackrose-niri-config" "$REPO_ROOT/resources/niri/config.kdl"
+
+# Verify validation failures
+echo "Testing: Validation fails if 'cidre' appears..."
+INVALID_CIDRE_CONFIG="$TEST_DIR/config-cidre.kdl"
+cp "$REPO_ROOT/resources/niri/config.kdl" "$INVALID_CIDRE_CONFIG"
+echo "// cidre legacy comment" >> "$INVALID_CIDRE_CONFIG"
+if "$REPO_ROOT/scripts/dev/validate-jackrose-niri-config" "$INVALID_CIDRE_CONFIG" 2>/dev/null; then
+  echo "[FAIL] Expected validation to fail for cidre reference" >&2
+  exit 1
+fi
+echo "[OK] Validation failed as expected for cidre reference."
+
+echo "Testing: Validation fails if runtime config hard-requires niri-jackrose..."
+INVALID_GHOSTTY_CONFIG="$TEST_DIR/config-ghostty.kdl"
+cp "$REPO_ROOT/resources/niri/config.kdl" "$INVALID_GHOSTTY_CONFIG"
+sed -i 's/exec foot/exec niri-jackrose/g' "$INVALID_GHOSTTY_CONFIG"
+if "$REPO_ROOT/scripts/dev/validate-jackrose-niri-config" "$INVALID_GHOSTTY_CONFIG" 2>/dev/null; then
+  echo "[FAIL] Expected validation to fail for runtime niri-jackrose dependency" >&2
+  exit 1
+fi
+echo "[OK] Validation failed as expected for runtime niri-jackrose dependency."
+
+# Test Welcome shortcut consistency
+echo "Testing: Welcome shortcuts match active niri config..."
+# Retrieve basic shortcuts from niri config and basics welcome md files, then verify
+# English basics:
+if ! grep -q 'Mod + Shift + /' "$REPO_ROOT/components/welcome/content/desktop-basics.md"; then
+  echo "[FAIL] Welcome content does not contain Mod + Shift + /" >&2
+  exit 1
+fi
+if ! grep -q 'Mod + Enter' "$REPO_ROOT/components/welcome/content/desktop-basics.md" && ! grep -q 'Mod + Return' "$REPO_ROOT/components/welcome/content/desktop-basics.md"; then
+  echo "[FAIL] Welcome content does not contain terminal shortcut" >&2
+  exit 1
+fi
+
+# Test dry-run
+echo "Testing: jackrose-bootstrap --apply --dry-run..."
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply --dry-run > "$TEST_DIR/dry-run.log"
+if ! grep -q "Would deploy niri config" "$TEST_DIR/dry-run.log"; then
+  echo "[FAIL] Dry-run log does not contain planned deployment" >&2
+  exit 1
+fi
+if [ -f "$JACKROSE_TEST_HOME/.config/niri/config.kdl" ]; then
+  echo "[FAIL] Dry-run wrote config file to target!" >&2
+  exit 1
+fi
+echo "[OK] Dry-run passed verification."
+
+# Test dry-run with target-user
+echo "Testing: jackrose-bootstrap --apply --dry-run --target-user testuser..."
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply --dry-run --target-user testuser > "$TEST_DIR/dry-run-user.log"
+if ! grep -q "target: $JACKROSE_TEST_HOME/.config/niri/config.kdl" "$TEST_DIR/dry-run-user.log"; then
+  echo "[FAIL] Dry-run target home was not correctly resolved" >&2
+  exit 1
+fi
+echo "[OK] Dry-run with target-user passed verification."
+
+# Test real deployment (missing target config)
+echo "Testing: config deploy with missing target config..."
+# Mock system checks: We need to pass check phase or mock it.
+# Wait, let's run apply which should deploy config.
+# If we run as non-root, it won't check privilege as failure but warn, so let's check.
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply > "$TEST_DIR/apply-clean.log" || true
+if [ ! -f "$JACKROSE_TEST_HOME/.config/niri/config.kdl" ]; then
+  echo "[FAIL] config was not deployed to missing target" >&2
+  exit 1
+fi
+echo "[OK] config deployed successfully to empty home."
+
+# Verify state records config_deploy result
+echo "Testing: state records config_deploy result..."
+if [ ! -f "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" ]; then
+  echo "[FAIL] state.json was not written" >&2
+  exit 1
+fi
+if ! grep -q '"config_deploy":' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"; then
+  echo "[FAIL] state.json does not contain config_deploy section" >&2
+  exit 1
+fi
+if ! grep -q '"niri_config_action": "installed"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"; then
+  echo "[FAIL] state.json action is not 'installed'" >&2
+  exit 1
+fi
+echo "[OK] state records are correct."
+
+# Verify report records config_deploy result
+echo "Testing: report records config_deploy result..."
+if [ ! -f "$JACKROSE_BOOTSTRAP_LOG_ROOT/bootstrap-report.txt" ]; then
+  echo "[FAIL] bootstrap-report.txt not found" >&2
+  exit 1
+fi
+if ! grep -q "Niri config installed" "$JACKROSE_BOOTSTRAP_LOG_ROOT/bootstrap-report.txt"; then
+  echo "[FAIL] report does not mention config installation" >&2
+  exit 1
+fi
+echo "[OK] report records are correct."
+
+# Test existing config preserve
+echo "Testing: config deploy with existing target config (no-overwrite)..."
+echo "user custom config" > "$JACKROSE_TEST_HOME/.config/niri/config.kdl"
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply > "$TEST_DIR/apply-preserve.log" || true
+if ! grep -q "user custom config" "$JACKROSE_TEST_HOME/.config/niri/config.kdl"; then
+  echo "[FAIL] Existing target config was overwritten by default!" >&2
+  exit 1
+fi
+if ! grep -q '"niri_config_action": "preserved_existing"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"; then
+  echo "[FAIL] state.json action did not update to 'preserved_existing'" >&2
+  exit 1
+fi
+echo "[OK] no-overwrite policy verified."
+
+# Test force config overwrite
+echo "Testing: config deploy with force mode..."
+"$REPO_ROOT/scripts/jackrose-bootstrap" --apply --force-config > "$TEST_DIR/apply-force.log" || true
+if grep -q "user custom config" "$JACKROSE_TEST_HOME/.config/niri/config.kdl"; then
+  echo "[FAIL] Existing target config was NOT overwritten in force mode!" >&2
+  exit 1
+fi
+# check if backup file was created
+if [ "$(find "$JACKROSE_TEST_HOME/.config/niri" -name "config.kdl.jackrose-backup-*" | wc -l)" -eq 0 ]; then
+  echo "[FAIL] Backup file was not created in force mode" >&2
+  exit 1
+fi
+if ! grep -q '"niri_config_action": "backup_and_replaced"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"; then
+  echo "[FAIL] state.json action did not update to 'backup_and_replaced'" >&2
+  exit 1
+fi
+echo "[OK] force mode policy verified."
+
+# Forbidden command scan
+echo "Testing: forbidden command scan passes..."
+FORBIDDEN_WORDS=("diskutil" "apfs" "resizeContainer" "parted" "sgdisk" "fdisk" "mkfs" "mount /dev" "umount" "nvram" "bless" "m1n1" "update-m1n1" "grub-install" "efibootmgr" "bootctl")
+for word in "${FORBIDDEN_WORDS[@]}"; do
+  # Search only in scripts/jackrose-bootstrap
+  if grep -q "$word" "$REPO_ROOT/scripts/jackrose-bootstrap"; then
+    # Allowed only if it is in comments/documentation, but we check if we run it
+    # Since we shouldn't introduce any command execution of these:
+    if grep -E "^[^#]*\b$word\b" "$REPO_ROOT/scripts/jackrose-bootstrap"; then
+      echo "[FAIL] Forbidden active command execution path found for: $word" >&2
+      exit 1
+    fi
+  fi
+done
+echo "[OK] Forbidden command scan passed."
+
+echo "=== All Tests Passed Successfully ==="
+exit 0

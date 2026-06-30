@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# validate-jackrose-ghostty-package: Validate generated jackrose-ghostty package artifact structure
+set -euo pipefail
+
+usage() {
+  echo "Usage: validate-jackrose-ghostty-package [--artifact PATH]"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+ARTIFACT=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact)
+      ARTIFACT="${2:-}"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$ARTIFACT" ]; then
+  ARTIFACT="$(
+    find \
+      "$REPO_ROOT/packages/arch/jackrose-ghostty" \
+      /tmp/jackrose-build-artifacts \
+      /tmp/jackrose-pkgs \
+      -maxdepth 1 \
+      -type f \
+      -name 'jackrose-ghostty-*.pkg.tar.*' 2>/dev/null | sort -V | tail -n 1 || true
+  )"
+fi
+
+if [ -z "$ARTIFACT" ] || [ ! -f "$ARTIFACT" ]; then
+  echo "[FAIL] No jackrose-ghostty package artifact found." >&2
+  exit 1
+fi
+
+echo "=== Validating package artifact: $(basename "$ARTIFACT") ==="
+
+if [[ ! "$(basename "$ARTIFACT")" =~ ^jackrose-ghostty-.*\.pkg\.tar\.(zst|xz)$ ]]; then
+  echo "[FAIL] Filename does not begin with jackrose-ghostty" >&2
+  exit 1
+fi
+
+pkginfo=$(bsdtar -xOf "$ARTIFACT" .PKGINFO)
+if ! echo "$pkginfo" | grep -q "pkgname = jackrose-ghostty"; then
+  echo "[FAIL] .PKGINFO pkgname is not jackrose-ghostty" >&2
+  exit 1
+fi
+if ! echo "$pkginfo" | grep -q "provides = ghostty"; then
+  echo "[FAIL] .PKGINFO does not provide ghostty" >&2
+  exit 1
+fi
+
+if bsdtar -tf "$ARTIFACT" | grep -q '\.INSTALL$'; then
+  echo "[FAIL] Package contains custom install scripts." >&2
+  exit 1
+fi
+
+pkg_listing="$(bsdtar -tf "$ARTIFACT")"
+
+if ! printf '%s\n' "$pkg_listing" | grep -q '^usr/bin/ghostty$'; then
+  echo "[FAIL] Package does not contain /usr/bin/ghostty" >&2
+  exit 1
+fi
+
+if printf '%s\n' "$pkg_listing" | grep -Eq 'pacman\.conf|paru|pacman -S'; then
+  echo "[FAIL] Package artifact contains forbidden package-management content." >&2
+  exit 1
+fi
+
+if printf '%s\n' "$pkg_listing" | grep -Eq '^usr/share/applications/(com\.mitchellh\.ghostty|ghostty)\.desktop$'; then
+  echo "[OK] Desktop entry detected."
+else
+  echo "[WARN] No primary desktop entry detected in standard applications path."
+fi
+
+if printf '%s\n' "$pkg_listing" | grep -Eq '^usr/share/(terminfo|lib/terminfo)/'; then
+  echo "[OK] terminfo payload detected."
+else
+  echo "[WARN] No terminfo payload detected in artifact."
+fi
+
+if command -v namcap >/dev/null 2>&1; then
+  namcap "$ARTIFACT" || echo "[WARN] Namcap reported warnings."
+else
+  echo "[WARN] namcap not installed. Skipping package artifact namcap scan."
+fi
+
+echo "[OK] jackrose-ghostty package artifact static validation completed."
+exit 0

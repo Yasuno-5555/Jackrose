@@ -1,0 +1,56 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-student
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for Academic, Research, and Creative workflows'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-meta-default'
+  'jupyterlab'
+  'python-numpy'
+  'python-scipy'
+  'python-pandas'
+  'python-polars'
+  'python-matplotlib'
+  'python-statsmodels'
+  'python-scikit-learn'
+  'python-sympy'
+  'python-openpyxl'
+  'r'
+  'octave'
+  'maxima'
+  'gnuplot'
+  'gretl'
+  'pspp'
+  'hdf5'
+  'netcdf'
+  'vtk'
+  'krita'
+  'inkscape'
+  'gimp'
+  'obs-studio'
+  'audacity'
+  'kdenlive'
+  'blender'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility or size):
+  # 'jamovi'
+  # 'julia'
+  # 'sagemath'
+  # 'openmodelica'
+  # 'paraview'
+  # 'quarto-cli'
+  # 'logseq'
+  # 'obsidian'
+  # 'rstudio-desktop'
+  # 'positron'
+  # 'texlive'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

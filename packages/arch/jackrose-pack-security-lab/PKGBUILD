@@ -1,0 +1,26 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-security-lab
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for Malware Lab and reverse engineering'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-pack-security'
+  'rizin'
+  'binwalk'
+  'hexyl'
+  'exiftool'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility):
+  # 'cutter'
+  # 'ghidra'
+  # 'imhex'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

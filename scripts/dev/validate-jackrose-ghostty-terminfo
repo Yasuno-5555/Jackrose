@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# validate-jackrose-ghostty-terminfo: Enforce J17 Ghostty terminfo ownership policy
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PKGBUILD="$REPO_ROOT/packages/arch/jackrose-ghostty/PKGBUILD"
+
+echo "=== Validating Jackrose Ghostty Terminfo Policy ==="
+
+[ -f "$PKGBUILD" ] || { echo "[FAIL] Missing PKGBUILD: $PKGBUILD" >&2; exit 1; }
+
+pkgrel_value="$(sed -n 's/^pkgrel=//p' "$PKGBUILD" | head -n 1)"
+if [ -z "$pkgrel_value" ] || [ "$pkgrel_value" -lt 2 ]; then
+  echo "[FAIL] jackrose-ghostty pkgrel must remain at least 2 after the terminfo fix." >&2
+  exit 1
+fi
+
+if ! grep -Eq "'ncurses'" "$PKGBUILD"; then
+  echo "[FAIL] jackrose-ghostty does not depend on ncurses." >&2
+  exit 1
+fi
+
+if grep -Eq 'install -D.*terminfo|tic ' "$PKGBUILD"; then
+  echo "[FAIL] PKGBUILD still appears to install or compile Ghostty terminfo directly." >&2
+  exit 1
+fi
+
+if grep -Eq 'install .*usr/share/terminfo/g/ghostty|cp .*usr/share/terminfo/g/ghostty' "$PKGBUILD"; then
+  echo "[FAIL] PKGBUILD still appears to copy Ghostty terminfo into the package." >&2
+  exit 1
+fi
+
+artifact="$(
+  find \
+    "$REPO_ROOT/packages/arch/jackrose-ghostty" \
+    /tmp/jackrose-build-artifacts \
+    /tmp/jackrose-pkgs \
+    -maxdepth 1 \
+    -type f \
+    -name 'jackrose-ghostty-*.pkg.tar.*' 2>/dev/null | sort -V | tail -n 1 || true
+)"
+
+if [ -z "$artifact" ]; then
+  echo "[FAIL] No jackrose-ghostty artifact found for terminfo inspection." >&2
+  exit 1
+fi
+
+if bsdtar -tf "$artifact" | grep -q '^usr/share/terminfo/g/ghostty$'; then
+  echo "[FAIL] Ghostty artifact still contains ncurses-owned terminfo file." >&2
+  exit 1
+fi
+
+if bsdtar -tf "$artifact" | grep -q '^usr/share/lib/terminfo/g/ghostty$'; then
+  echo "[FAIL] Ghostty artifact still contains terminfo in lib/terminfo path." >&2
+  exit 1
+fi
+
+echo "[OK] Ghostty terminfo policy validated successfully."

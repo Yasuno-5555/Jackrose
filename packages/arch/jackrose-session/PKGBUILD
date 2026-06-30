@@ -8,14 +8,13 @@ url='https://github.com/Yasuno-5555/Jackrose'
 arch=('any')
 license=('custom')
 depends=(
-provides=('cidre-session')
-conflicts=('cidre-session')
-replaces=('cidre-session')
-
   'niri'
   'greetd'
   'greetd-tuigreet'
 )
+provides=('cidre-session')
+conflicts=('cidre-session')
+replaces=('cidre-session')
 source=(
   'jackrose-session'
   'jackrose.desktop'

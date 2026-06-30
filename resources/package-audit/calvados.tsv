@@ -1,0 +1,7 @@
+package	pack	bucket	source	status	notes
+wine	calvados	C	alarm	deferred	Windows application compatibility runtime (complex x86_64 emulator configurations)
+winetricks	calvados	A	alarm	confirmed	Wine prefix libraries setup script
+lutris	calvados	C	upstream	deferred	Desktop gaming client platform
+umu-launcher	calvados	C	upstream	deferred	Steam proton compatibility launcher
+fex-emu	calvados	C	upstream	deferred	Fast x86/x86-64 emulator environment
+muvm	calvados	C	upstream	deferred	MicroVM graphics redirection system

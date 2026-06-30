@@ -1,0 +1,13 @@
+package	source	category	installed	status	promote_candidate	notes
+fish	pacman	shell	installed	keep	yes	default shell available on dogfood machine
+starship	pacman	shell	installed	keep	yes	prompt available on dogfood machine
+zoxide	pacman	shell	installed	keep	yes	directory jumping available on dogfood machine
+foot	pacman	terminal	installed	keep	yes	fallback terminal available and working
+helix	pacman	editor	installed	keep	yes	editor available for immediate development work
+firefox	pacman	desktop	installed	keep	yes	browser present on dogfood machine
+fcitx5	pacman	desktop	installed	keep	maybe	IME packages present; interactive input not verified in this environment
+pandoc	pacman	writing	installed	keep	yes	document conversion tool already available
+mpv	pacman	media	installed	keep	maybe	media playback available
+gvfs-smb	pacman	desktop	installed	keep	maybe	SMB backend package installed; mount probe limited by environment permissions
+jackrose-paru	local-package	dev	not-installed	blocked	maybe	local install remains intentionally gated; upstream paru 2.1.0-2 is present and this is still not normal OOBE source
+ghostty	local-package	terminal	installed	accepted	yes	host has jackrose-ghostty 1.3.1-3 installed with theme, launcher, and shortcut integration verified

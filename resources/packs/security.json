@@ -1,0 +1,14 @@
+{
+  "id": "security",
+  "name": "Security Pack",
+  "package": "jackrose-pack-security",
+  "bootstrap_package": "jackrose-security-base",
+  "default_checked": false,
+  "category": "advanced",
+  "oobe_visible": true,
+  "app_center_visible": true,
+  "description": "Modern security workflow tools for authorized testing, recon, code security, secrets scanning, SBOM, and reporting.",
+  "requires_external_repo": true,
+  "external_repo": "blackarch",
+  "requires_explicit_confirmation": true
+}

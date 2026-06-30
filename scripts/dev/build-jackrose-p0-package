@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# build-jackrose-p0-package: Build targeted P0 package skeletons safely
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  build-jackrose-p0-package --package [paru|ghostty|zotero|zed] [--no-build]"
+  echo "  build-jackrose-p0-package --package [paru|ghostty|zotero|zed] --verifysource"
+  echo "  build-jackrose-p0-package --package [paru|ghostty|zotero|zed] --allow-build [--artifact-dir DIR]"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+PACK=""
+ALLOW_BUILD=false
+NO_BUILD=false
+VERIFYSOURCE=false
+ARTIFACT_DIR=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --package)
+      PACK="${2:-}"
+      shift 2
+      ;;
+    --allow-build)
+      ALLOW_BUILD=true
+      shift
+      ;;
+    --no-build)
+      NO_BUILD=true
+      shift
+      ;;
+    --verifysource)
+      VERIFYSOURCE=true
+      shift
+      ;;
+    --artifact-dir)
+      ARTIFACT_DIR="${2:-}"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$PACK" ]; then
+  usage
+fi
+
+pdir="$REPO_ROOT/packages/arch/jackrose-$PACK"
+if [ ! -d "$pdir" ]; then
+  echo "Error: Package directory not found for $PACK" >&2
+  exit 1
+fi
+
+check_ghostty_deps() {
+  local missing=()
+  local cmd
+  local pc
+
+  for cmd in zig pkgconf pkg-config git; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  for pc in fontconfig freetype2 glib-2.0 gtk4 harfbuzz libpng oniguruma wayland-client xkbcommon; do
+    if ! pkg-config --exists "$pc" 2>/dev/null; then
+      missing+=("pkg-config:$pc")
+    fi
+  done
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "[FAIL] Missing build dependencies for jackrose-ghostty."
+    printf '  - %s\n' "${missing[@]}"
+    return 1
+  fi
+}
+
+run_makepkg() {
+  local -a args=("$@")
+  if [ -n "$ARTIFACT_DIR" ]; then
+    mkdir -p "$ARTIFACT_DIR"
+    (cd "$pdir" && PKGDEST="$ARTIFACT_DIR" makepkg "${args[@]}")
+  else
+    (cd "$pdir" && makepkg "${args[@]}")
+  fi
+}
+
+echo "=== jackrose-$PACK helper ==="
+
+if [ "$VERIFYSOURCE" = true ]; then
+  echo "=== Running makepkg --verifysource ==="
+  run_makepkg --verifysource
+fi
+
+if [ "$NO_BUILD" = true ] || { [ "$ALLOW_BUILD" = false ] && [ "$VERIFYSOURCE" = false ]; }; then
+  echo "=== Running makepkg --printsrcinfo ==="
+  run_makepkg --printsrcinfo >/dev/null
+  echo "[OK] Static metadata probe completed."
+fi
+
+if [ "$ALLOW_BUILD" = true ]; then
+  if [ "${JACKROSE_ALLOW_PACKAGE_BUILD:-0}" != "1" ]; then
+    echo "[FAIL] Full build requires JACKROSE_ALLOW_PACKAGE_BUILD=1." >&2
+    exit 1
+  fi
+
+  if [ "$PACK" = "ghostty" ]; then
+    check_ghostty_deps
+  fi
+
+  echo "=== Building jackrose-$PACK ==="
+  run_makepkg --clean --noconfirm
+  echo "=== Build finished ==="
+fi
+
+exit 0

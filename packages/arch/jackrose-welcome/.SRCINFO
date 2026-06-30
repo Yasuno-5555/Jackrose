@@ -6,7 +6,8 @@ pkgbase = jackrose-welcome
 	arch = any
 	license = custom
 	depends = bash
-	source = jackrose-welcome
-	sha256sums = SKIP
+	provides = cidre-welcome
+	conflicts = cidre-welcome
+	replaces = cidre-welcome
 
 pkgname = jackrose-welcome

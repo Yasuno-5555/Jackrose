@@ -1,0 +1,8 @@
+id	component	severity	status	summary	fix
+J18-001	ghostty	P1	open	Catppuccin Mocha theme missing	Package and deploy theme file
+J18-002	ghostty/fuzzel	P1	open	Ghostty not visible in fuzzel	Add desktop file and app metadata
+J18-003	niri/ghostty	P1	open	Terminal shortcut does not open Ghostty	Fix niri Mod+Return spawn with foot fallback
+J18-004	ghostty-config	P1	open	Ghostty config contains invalid command line hx ~/.config/ghostty/config	Remove shell command from config
+J18-005	niri-config	P0	open	Niri config parse error from niri-cidre/niri-jackrose fallout	Remove Cidre remnants and ensure upstream niri parse compatibility
+J18-006	niri-jackrose	P2	open	niri-jackrose not tracked as P0 recovery target	Add to recovery/build-plan without making it mandatory yet
+J18-007	quickshell	P2	open	Quickshell missing from package model	Add to default audit candidate and future shell plan

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# run-jackrose-dogfood-tests: Run J15 dogfood validation stack
+set -euo pipefail
+
+echo "=== Running Jackrose Dogfood Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+"$REPO_ROOT"/scripts/dev/validate-jackrose-dogfood-catalogs
+"$REPO_ROOT"/scripts/dev/validate-jackrose-p0-feasibility
+"$REPO_ROOT"/scripts/dev/validate-jackrose-critical-build-plan
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-depends
+
+for artifact in /tmp/jackrose-build-artifacts/jackrose-ghostty-*.pkg.tar.* "$REPO_ROOT"/packages/arch/jackrose-ghostty/jackrose-ghostty-*.pkg.tar.*; do
+  if [ -f "$artifact" ]; then
+    "$REPO_ROOT"/scripts/dev/validate-jackrose-ghostty-package --artifact "$artifact"
+    break
+  fi
+done
+
+echo "=== All Jackrose Dogfood Tests Passed Successfully ==="

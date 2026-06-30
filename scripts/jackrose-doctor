@@ -59,14 +59,21 @@ CONTROLLED_INSTALL_MODE=false
 INSTALL_TARGET_MODE=false
 NO_DEFAULT_BOOT_MODE=false
 MANUAL_BOOT_GUIDE_MODE=false
+BOOTSTRAP_MODE=false
 
-STATE_DIR="${HOME}/.local/state/jackrose"
+USER_HOME="${JACKROSE_HOME:-$HOME}"
+STATE_DIR="${JACKROSE_STATE_DIR:-${XDG_STATE_HOME:-$USER_HOME/.local/state}/jackrose}"
+USER_LOG_DIR="${JACKROSE_LOG_DIR:-$STATE_DIR/logs}"
+WELCOME_LOG_PATH="${USER_LOG_DIR}/welcome.log"
+USER_BOOTSTRAP_LOG_PATH="${USER_LOG_DIR}/bootstrap.log"
+MANIFEST_PATH="${STATE_DIR}/manifest.json"
 DOCTOR_DIR="${STATE_DIR}/doctor"
 LAST_SUMMARY="${DOCTOR_DIR}/last-summary.txt"
 HISTORY_LOG="${DOCTOR_DIR}/history.log"
 JACKROSE_SYSTEM_ROOT="${JACKROSE_SYSTEM_ROOT:-/var/lib/jackrose}"
 SYSTEM_SEED_DIR="${JACKROSE_SYSTEM_ROOT}/seed"
 SYSTEM_RESUME_DIR="${JACKROSE_SYSTEM_ROOT}/resume"
+SYSTEM_BOOTSTRAP_LOG="${JACKROSE_BOOTSTRAP_LOG_ROOT:-/var/log/jackrose}/bootstrap.log"
 
 show_help() {
   echo "Usage: jackrose-doctor [options]"
@@ -124,6 +131,7 @@ show_help() {
   echo "  --live-drill        Inspect live drill command status"
   echo "  --live-drill-fixtures Inspect live drill fixture coverage"
   echo "  --live-drill-state  Inspect latest live drill state"
+  echo "  --bootstrap         Inspect bootstrap readiness, state, and report"
   echo "  --help              Show this help message"
 }
 
@@ -136,6 +144,7 @@ while [ $# -gt 0 ]; do
     --verbose) VERBOSE_MODE=true; shift ;;
     --last) LAST_MODE=true; shift ;;
     --history) HISTORY_MODE=true; shift ;;
+    --bootstrap) BOOTSTRAP_MODE=true; shift ;;
     --fix-suggestions) SUGGESTIONS_MODE=true; shift ;;
     --maintenance|--update-readiness|--state) MAINTENANCE_MODE=true; shift ;;
     --rc-readiness) RC_READINESS_MODE=true; shift ;;
@@ -303,6 +312,246 @@ valid_profile() {
     *) return 1 ;;
   esac
 }
+
+check_cmd_installed() {
+  local cmd_name="$1"
+  local usr_root="${JACKROSE_USR_ROOT:-}"
+  if [ -n "$usr_root" ]; then
+    [ -x "${usr_root}/usr/bin/${cmd_name}" ] && return 0
+    return 1
+  fi
+  if command -v "${cmd_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+check_file_installed() {
+  local rel_path="$1"
+  local usr_root="${JACKROSE_USR_ROOT:-}"
+  if [ -n "$usr_root" ]; then
+    [ -f "${usr_root}/${rel_path}" ] && return 0
+    return 1
+  fi
+  if [ -f "/${rel_path}" ]; then
+    return 0
+  fi
+  return 1
+}
+
+run_bootstrap_checks() {
+  if [ "$SUMMARY_MODE" = false ]; then
+    echo "Jackrose Bootstrap Health"
+    echo ""
+  fi
+
+  if check_cmd_installed "jackrose-bootstrap"; then
+    print_result OK "jackrose-bootstrap installed"
+  else
+    print_result FAIL "jackrose-bootstrap not installed"
+  fi
+
+  if check_cmd_installed "jackrose-firstboot"; then
+    print_result OK "jackrose-firstboot installed"
+  else
+    print_result FAIL "jackrose-firstboot not installed"
+  fi
+
+  if check_cmd_installed "jackrose-welcome"; then
+    print_result OK "jackrose-welcome installed"
+  else
+    print_result FAIL "jackrose-welcome not installed"
+  fi
+
+  if check_file_installed "usr/lib/systemd/user/jackrose-firstboot.service"; then
+    print_result OK "firstboot user service installed"
+  else
+    print_result FAIL "firstboot user service not installed"
+  fi
+
+  if check_file_installed "usr/share/jackrose/defaults/niri/config.kdl"; then
+    print_result OK "niri baseline config installed"
+  else
+    print_result FAIL "niri baseline config not installed"
+  fi
+
+  if check_file_installed "usr/share/jackrose/backgrounds/default.png"; then
+    print_result OK "wallpaper installed"
+  else
+    print_result FAIL "wallpaper not installed"
+  fi
+
+  if check_file_installed "usr/share/jackrose/welcome/content/desktop-basics.md" && \
+     check_file_installed "usr/share/jackrose/welcome/content/desktop-basics.ja.md"; then
+    print_result OK "Welcome desktop basics content installed"
+  else
+    print_result FAIL "Welcome desktop basics content not installed"
+  fi
+
+  local state_file="${JACKROSE_STATE_ROOT:-/var/lib/jackrose/bootstrap}/state.json"
+  if [ -f "$state_file" ]; then
+    print_result OK "bootstrap state found"
+  else
+    print_result WARN "bootstrap state not found"
+  fi
+
+  local log_dir="${JACKROSE_LOG_ROOT:-/var/log/jackrose}"
+  if [ -f "$log_dir/bootstrap-report.json" ] && [ -f "$log_dir/bootstrap-report.txt" ]; then
+    print_result OK "bootstrap report found"
+  else
+    print_result WARN "bootstrap report not found"
+  fi
+
+  if [ -f "$state_file" ]; then
+    local python_output
+    python_output=$(python3 - "$state_file" <<'PY'
+import json, sys
+state_file = sys.argv[1]
+try:
+    with open(state_file, "r") as fh:
+        data = json.load(fh)
+    
+    steps = data.get("steps", {})
+    cfg_deploy = steps.get("config_deploy")
+    
+    if cfg_deploy == "done":
+        print("RESULT|OK|config_deploy completed")
+    elif cfg_deploy == "failed":
+        print("RESULT|FAIL|config_deploy failed")
+    else:
+        print("RESULT|WARN|config_deploy status unknown")
+        
+    firstboot = data.get("firstboot", {})
+    fb_status = firstboot.get("status")
+    if fb_status == "completed":
+        print("RESULT|OK|firstboot completed")
+    elif fb_status == "failed":
+        print("RESULT|FAIL|firstboot failed")
+    elif fb_status == "pending" or fb_status == "enabled" or fb_status == "manual_fallback_required":
+        print("RESULT|WARN|firstboot has not completed yet")
+    else:
+        print("RESULT|WARN|firstboot status unknown")
+except Exception as e:
+    print("RESULT|WARN|Bootstrap state exists but could not be parsed")
+PY
+)
+    while IFS='|' read -r status_prefix level msg; do
+      if [ "$status_prefix" = "RESULT" ]; then
+        print_result "$level" "$msg"
+      fi
+    done <<< "$python_output"
+  fi
+
+  local usr_root="${JACKROSE_USR_ROOT:-}"
+  local niri_config_path="${usr_root}/usr/share/jackrose/defaults/niri/config.kdl"
+  if [ -z "$usr_root" ] && [ ! -f "$niri_config_path" ]; then
+    niri_config_path="/usr/share/jackrose/defaults/niri/config.kdl"
+  fi
+
+  if [ -f "$niri_config_path" ]; then
+    if grep -qi 'cidre-w[a]llpaper\|/usr/share/backgrounds/c[i]dre' "$niri_config_path" 2>/dev/null; then
+      print_result FAIL "packaged config has legacy Cidre wallpaper reference"
+    else
+      print_result OK "packaged config has no legacy Cidre reference"
+    fi
+
+    if grep -q 'command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot' "$niri_config_path" 2>/dev/null; then
+      print_result OK "packaged config uses Ghostty with foot fallback"
+    else
+      print_result FAIL "packaged config is missing Ghostty with foot fallback"
+    fi
+  fi
+}
+
+run_firstboot_checks() {
+  if [ "$SUMMARY_MODE" = false ]; then
+    echo "Jackrose Firstboot Health"
+    echo ""
+  fi
+
+  if check_cmd_installed "jackrose-firstboot"; then
+    print_result OK "jackrose-firstboot command exists"
+  else
+    print_result FAIL "jackrose-firstboot command missing"
+  fi
+
+  if check_cmd_installed "jackrose-welcome"; then
+    print_result OK "jackrose-welcome command exists"
+  else
+    print_result FAIL "jackrose-welcome command missing"
+  fi
+
+  local usr_root="${JACKROSE_USR_ROOT:-}"
+  local service_file="${usr_root}/usr/lib/systemd/user/jackrose-firstboot.service"
+  if [ -z "$usr_root" ] && [ ! -f "$service_file" ]; then
+    service_file="/usr/lib/systemd/user/jackrose-firstboot.service"
+  fi
+
+  if [ -f "$service_file" ]; then
+    print_result OK "firstboot service unit exists"
+    
+    if grep -q 'ExecStart=/usr/bin/jackrose-firstboot --run' "$service_file" 2>/dev/null; then
+      print_result OK "service ExecStart is correct"
+    else
+      print_result FAIL "service ExecStart is incorrect or relative"
+    fi
+  else
+    print_result FAIL "firstboot service unit missing"
+  fi
+
+  local firstboot_dir="$(dirname "${JACKROSE_STATE_ROOT:-/var/lib/jackrose/bootstrap}")/firstboot"
+  local pending_file="$firstboot_dir/pending.json"
+
+  local pending_exists=0
+  if [ -f "$pending_file" ]; then
+    pending_exists=1
+    print_result OK "firstboot pending metadata exists"
+  fi
+
+  local done_file="${STATE_DIR}/firstboot.done"
+  local fail_file="${STATE_DIR}/firstboot.failure"
+  local legacy_fail_file="${STATE_DIR}/firstboot-report.json"
+  local manifest_file="${STATE_DIR}/manifest.json"
+
+  if [ -f "$done_file" ]; then
+    print_result OK "firstboot.done exists for target user"
+  elif [ -f "$fail_file" ] || [ -f "$legacy_fail_file" ]; then
+    print_result FAIL "firstboot failed (failure report found)"
+  elif [ "$pending_exists" -eq 1 ]; then
+    print_result WARN "firstboot welcome is pending (not run yet)"
+  else
+    print_result WARN "firstboot welcome is not enabled or not run"
+  fi
+
+  if [ -f "$manifest_file" ]; then
+    print_result OK "user-state firstboot manifest exists"
+  elif [ -f "$done_file" ]; then
+    print_result FAIL "user-state firstboot manifest is missing after completion"
+  else
+    print_result WARN "user-state firstboot manifest is not present yet"
+  fi
+
+  local welcome_bin=""
+  if [ -x "${usr_root}/usr/bin/jackrose-welcome" ]; then
+    welcome_bin="${usr_root}/usr/bin/jackrose-welcome"
+  elif [ -z "$usr_root" ] && command -v jackrose-welcome >/dev/null 2>&1; then
+    welcome_bin="jackrose-welcome"
+  fi
+
+  if [ -n "$welcome_bin" ]; then
+    print_result OK "Welcome firstboot mode is available"
+  else
+    print_result FAIL "Welcome command missing"
+  fi
+
+  local state_file="${JACKROSE_STATE_ROOT:-/var/lib/jackrose/bootstrap}/state.json"
+  if [ -f "$state_file" ]; then
+    print_result OK "bootstrap state/report readable"
+  else
+    print_result WARN "bootstrap state/report unreadable or missing"
+  fi
+}
+
 
 load_env_value() {
   local file_path="$1"
@@ -598,47 +847,11 @@ elif [ "$IMAGE_MODE" = true ]; then
 
   print_result WARN "Prototype artifacts are not boot-validated yet."
 
+elif [ "$BOOTSTRAP_MODE" = true ]; then
+  run_bootstrap_checks
+
 elif [ "$FIRSTBOOT_MODE" = true ]; then
-  if [ -z "${JACKROSE_SYSTEM_ROOT:-}" ] || [ "${JACKROSE_SYSTEM_ROOT}" = "/var/lib/jackrose" ]; then
-    FIRSTBOOT_STATE_DIR="/var/lib/jackrose/firstboot-root"
-  else
-    FIRSTBOOT_STATE_DIR="${JACKROSE_SYSTEM_ROOT}/var/lib/jackrose/firstboot-root"
-  fi
-
-  for file in \
-    scripts/jackrose-firstboot-root \
-    scripts/jackrose-oobe \
-    scripts/jackrose-firstboot-state \
-    scripts/jackrose-firstboot-handoff \
-    systemd/jackrose-firstboot-root.service \
-    downstream/rootfs-overlay/usr/lib/jackrose/jackrose-firstboot-root \
-    downstream/rootfs-overlay/usr/lib/jackrose/jackrose-oobe \
-    downstream/rootfs-overlay/usr/lib/jackrose/jackrose-firstboot-state \
-    downstream/rootfs-overlay/usr/lib/jackrose/jackrose-firstboot-handoff; do
-    if [ -f "$file" ]; then
-      print_result OK "File present: $file"
-    else
-      print_result FAIL "Missing file: $file"
-    fi
-  done
-
-  if [ -d "$FIRSTBOOT_STATE_DIR" ]; then
-    print_result OK "Firstboot state directory exists at $FIRSTBOOT_STATE_DIR."
-  else
-    print_result WARN "Firstboot state directory is missing at $FIRSTBOOT_STATE_DIR."
-  fi
-
-  for marker in started completed failed skipped; do
-    if [ -f "$FIRSTBOOT_STATE_DIR/$marker" ]; then
-      print_result OK "Firstboot marker present: $marker"
-    fi
-  done
-
-  if [ -f "$FIRSTBOOT_STATE_DIR/handoff.txt" ]; then
-    print_result OK "Firstboot handoff is present."
-  else
-    print_result WARN "Firstboot handoff is missing."
-  fi
+  run_firstboot_checks
 
 elif [ "$FIRSTBOOT_FIXUP_MODE" = true ]; then
   if [ -z "${JACKROSE_SYSTEM_ROOT:-}" ] || [ "${JACKROSE_SYSTEM_ROOT}" = "/var/lib/jackrose" ]; then
@@ -1940,7 +2153,7 @@ elif [ "$MAINTENANCE_MODE" = true ]; then
   fi
 
   # 7. firstboot status
-  if [ -f "$STATE_DIR/firstboot-done" ]; then
+  if [ -f "$STATE_DIR/firstboot.done" ]; then
     print_result OK "Firstboot configuration has completed."
   else
     print_result WARN "Firstboot configuration is not marked complete."
@@ -2019,13 +2232,21 @@ else
   check_file_exists "$HOME/.config/waybar/config" "Waybar configuration"
   check_file_exists "$HOME/.config/ghostty/config" "Ghostty configuration"
   check_file_exists "$HOME/.config/fish/config.fish" "Fish configuration"
-  check_file_exists "$HOME/.local/state/jackrose/manifest.json" "Jackrose setup manifest"
+  check_file_exists "$HOME/.config/ghostty/themes/catppuccin-mocha" "Ghostty Catppuccin Mocha theme"
+
+  if [ -f "$MANIFEST_PATH" ]; then
+    print_result OK "Jackrose setup manifest is present."
+  elif [ -f "$STATE_DIR/firstboot.done" ]; then
+    print_result FAIL "Jackrose setup manifest is missing at $MANIFEST_PATH."
+  else
+    print_result WARN "Jackrose setup manifest is missing at $MANIFEST_PATH."
+  fi
 
   # 3. Fcitx5 systemd user service check
   if systemctl --user is-active --quiet fcitx5 2>/dev/null; then
     print_result OK "Fcitx5 user service is active."
   elif systemctl --user is-enabled --quiet fcitx5 2>/dev/null; then
-    print_result WARN "Fcitx5 user service is enabled but not currently running."
+    print_result WARN "Fcitx5 user service is enabled but not currently running. Run 'systemctl --user start fcitx5'."
   else
     print_result FAIL "Fcitx5 user service is inactive or not configured."
   fi
@@ -2059,6 +2280,54 @@ else
       print_result FAIL "Core executable '$cmd' is missing on the system."
     fi
   done
+
+  if [ -f "$HOME/.config/ghostty/config" ]; then
+    if grep -Eq '^hx[[:space:]]+' "$HOME/.config/ghostty/config" 2>/dev/null; then
+      print_result FAIL "Ghostty config contains shell command text instead of valid config."
+    else
+      print_result OK "Ghostty config does not contain invalid shell command lines."
+    fi
+
+    if grep -Eq '^theme[[:space:]]*=[[:space:]]*catppuccin-mocha$' "$HOME/.config/ghostty/config" 2>/dev/null; then
+      if [ -f "$HOME/.config/ghostty/themes/catppuccin-mocha" ] || [ -f "/usr/share/ghostty/themes/Catppuccin Mocha" ]; then
+        print_result OK "Ghostty Catppuccin Mocha theme is available."
+      else
+        print_result FAIL "Ghostty config references catppuccin-mocha but no theme file is available."
+      fi
+    fi
+  fi
+
+  if check_file_installed "usr/share/applications/ghostty.desktop"; then
+    print_result OK "Ghostty desktop entry is installed."
+  else
+    print_result FAIL "Ghostty desktop entry is missing at /usr/share/applications/ghostty.desktop."
+  fi
+
+  if check_file_installed "usr/share/icons/hicolor/256x256/apps/ghostty.png"; then
+    print_result OK "Ghostty application icon is installed."
+  else
+    print_result WARN "Ghostty application icon is missing."
+  fi
+
+  if [ -f "$HOME/.config/niri/config.kdl" ]; then
+    if grep -Eqi 'cidre|niri-cidre' "$HOME/.config/niri/config.kdl" 2>/dev/null; then
+      print_result FAIL "Niri config still contains stale Cidre runtime references."
+    else
+      print_result OK "Niri config has no stale Cidre runtime references."
+    fi
+
+    if grep -q 'command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot' "$HOME/.config/niri/config.kdl" 2>/dev/null; then
+      print_result OK "Niri terminal shortcut uses Ghostty with foot fallback."
+    else
+      print_result FAIL "Niri terminal shortcut is missing Ghostty with foot fallback."
+    fi
+  fi
+
+  if command -v quickshell >/dev/null 2>&1; then
+    print_result OK "Quickshell is installed."
+  else
+    print_result WARN "Quickshell is not installed. This is expected until Jackrose Shell work begins."
+  fi
 
   # 8. Daily driver specific checks
   if [ "$DAILY_MODE" = true ] || [ "$VERBOSE_MODE" = true ]; then
@@ -2098,17 +2367,35 @@ else
     fi
 
     # Firstboot completion state check
-    if [ -f "$HOME/.local/state/jackrose/firstboot-done" ]; then
-      print_result OK "Firstboot diagnostic check has run successfully."
-    else
-      print_result WARN "Firstboot diagnostic is pending or has not completed."
+    usr_root="${JACKROSE_USR_ROOT:-}"
+    service_path="${usr_root}/usr/lib/systemd/user/jackrose-firstboot.service"
+    if [ ! -f "$service_path" ] && [ ! -f "/usr/lib/systemd/user/jackrose-firstboot.service" ]; then
+      print_result FAIL "Jackrose firstboot service missing"
     fi
 
-    # Install logs
-    if [ -f "/var/log/jackrose/bootstrap.log" ]; then
-      print_result OK "Jackrose installation log is present."
+    fb_done="${STATE_DIR}/firstboot.done"
+    if [ -f "$fb_done" ]; then
+      print_result OK "Firstboot Welcome has completed."
     else
-      print_result WARN "Jackrose installation log not found at /var/log/jackrose/bootstrap.log."
+      print_result WARN "Firstboot Welcome has not completed."
+    fi
+
+    if [ -f "$WELCOME_LOG_PATH" ]; then
+      print_result OK "User Welcome log is present."
+    else
+      print_result WARN "User Welcome log not found at $WELCOME_LOG_PATH."
+    fi
+
+    if [ -f "$USER_BOOTSTRAP_LOG_PATH" ]; then
+      print_result OK "User bootstrap log is present."
+    else
+      print_result WARN "User bootstrap log not found at $USER_BOOTSTRAP_LOG_PATH."
+    fi
+
+    if [ -f "$SYSTEM_BOOTSTRAP_LOG" ]; then
+      print_result OK "System bootstrap log is present."
+    else
+      print_result OK "System bootstrap log not present. Expected if root bootstrap was not run."
     fi
   fi
 fi

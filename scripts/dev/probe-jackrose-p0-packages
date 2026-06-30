@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# probe-jackrose-p0-packages: Perform non-destructive package metadata validation scans
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  probe-jackrose-p0-packages --package [paru|ghostty|zotero|zed]"
+  echo "  probe-jackrose-p0-packages --all"
+  echo "  probe-jackrose-p0-packages --printsrcinfo"
+  echo "  probe-jackrose-p0-packages --namcap"
+  echo "  probe-jackrose-p0-packages --verifysource"
+  echo "  probe-jackrose-p0-packages --tsv"
+  echo "  probe-jackrose-p0-packages --json"
+  exit 1
+}
+
+if [ $# -lt 1 ]; then
+  usage
+fi
+
+CMD_PACK=""
+ALL_PACKS=false
+PRINTSRCINFO=false
+NAMCAP_CHECK=false
+VERIFYSOURCE=false
+TSV_MODE=false
+JSON_MODE=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --package) CMD_PACK="$2"; shift 2 ;;
+    --all) ALL_PACKS=true; shift ;;
+    --printsrcinfo) PRINTSRCINFO=true; shift ;;
+    --namcap) NAMCAP_CHECK=true; shift ;;
+    --verifysource) VERIFYSOURCE=true; shift ;;
+    --tsv) TSV_MODE=true; shift ;;
+    --json) JSON_MODE=true; shift ;;
+    *) usage ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+P0_PACKS=("jackrose-paru" "jackrose-ghostty" "jackrose-zotero" "jackrose-zed")
+if [ -n "$CMD_PACK" ]; then
+  P0_PACKS=("jackrose-$CMD_PACK")
+fi
+
+run_printsrcinfo() {
+  local p="$1"
+  local pdir="$REPO_ROOT/packages/arch/$p"
+  if [ -d "$pdir" ] && [ -f "$pdir/PKGBUILD" ]; then
+    echo "=== Running makepkg --printsrcinfo for $p ==="
+    (cd "$pdir" && makepkg --printsrcinfo >/dev/null && echo "[OK] Metadata printsrcinfo validated.")
+  fi
+}
+
+run_namcap() {
+  local p="$1"
+  local pdir="$REPO_ROOT/packages/arch/$p"
+  if [ -d "$pdir" ] && [ -f "$pdir/PKGBUILD" ]; then
+    echo "=== Running namcap PKGBUILD for $p ==="
+    if command -v namcap >/dev/null 2>&1; then
+      namcap "$pdir/PKGBUILD" || echo "[WARN] Namcap reported warnings."
+    else
+      echo "[SKIP] namcap not installed. Skipping static checks."
+    fi
+  fi
+}
+
+run_verifysource() {
+  local p="$1"
+  local pdir="$REPO_ROOT/packages/arch/$p"
+  if [ -d "$pdir" ] && [ -f "$pdir/PKGBUILD" ]; then
+    echo "=== Running makepkg --verifysource for $p ==="
+    (cd "$pdir" && makepkg --verifysource && echo "[OK] Source verification completed.")
+  fi
+}
+
+for p in "${P0_PACKS[@]}"; do
+  if [ "$PRINTSRCINFO" = true ]; then
+    run_printsrcinfo "$p"
+  fi
+  if [ "$NAMCAP_CHECK" = true ]; then
+    run_namcap "$p"
+  fi
+  if [ "$VERIFYSOURCE" = true ]; then
+    run_verifysource "$p"
+  fi
+done
+
+if [ "$TSV_MODE" = true ]; then
+  cat "$REPO_ROOT/resources/package-audit/p0-feasibility.tsv"
+elif [ "$JSON_MODE" = true ]; then
+  python3 - "$REPO_ROOT/resources/package-audit/p0-feasibility.tsv" <<'PY'
+import json, sys
+data = []
+with open(sys.argv[1]) as f:
+    headers = f.readline().strip().split('\t')
+    for line in f:
+        row = line.strip().split('\t')
+        data.append(dict(zip(headers, row)))
+print(json.dumps(data, indent=2))
+PY
+fi
+exit 0

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROMOTION_TSV="$REPO_ROOT/resources/package-audit/default-promotion-review.tsv"
+ACCEPTANCE_TSV="$REPO_ROOT/resources/package-audit/installed-desktop-acceptance.tsv"
+
+echo "=== Validating Jackrose Default Promotion Review ==="
+
+[ -f "$PROMOTION_TSV" ] || { echo "[FAIL] Missing default promotion review TSV." >&2; exit 1; }
+[ -f "$ACCEPTANCE_TSV" ] || { echo "[FAIL] Missing installed desktop acceptance TSV." >&2; exit 1; }
+
+for component in ghostty foot fish helix pandoc waybar quickshell niri-jackrose zotero zed; do
+  awk -F$'\t' -v c="$component" 'NR > 1 && $1 == c {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV" || {
+    echo "[FAIL] Missing promotion review row for $component." >&2
+    exit 1
+  }
+done
+
+awk -F$'\t' 'NR > 1 && $1 == "foot" && $3 == "keep-default-fallback" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV" || {
+  echo "[FAIL] foot must remain the default fallback terminal in J19." >&2
+  exit 1
+}
+
+awk -F$'\t' 'NR > 1 && $1 == "quickshell" && $3 == "defer" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV" || {
+  echo "[FAIL] quickshell must remain deferred until Jackrose Shell exists." >&2
+  exit 1
+}
+
+awk -F$'\t' 'NR > 1 && $1 == "niri-jackrose" && $3 == "defer-build-phase" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV" || {
+  echo "[FAIL] niri-jackrose must remain a deferred build-phase candidate in J19." >&2
+  exit 1
+}
+
+if awk -F$'\t' 'NR > 1 && $1 == "ghostty" && $3 == "promote-default" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV"; then
+  for check in executable version theme config desktop-file fuzzel; do
+    awk -F$'\t' -v c="$check" 'NR > 1 && $1 == "ghostty" && $2 == c && $5 == "pass" {found=1} END {exit found ? 0 : 1}' "$ACCEPTANCE_TSV" || {
+      echo "[FAIL] Ghostty promotion lacks passing acceptance evidence for $check." >&2
+      exit 1
+    }
+  done
+  awk -F$'\t' 'NR > 1 && $1 == "niri" && $2 == "terminal-shortcut" && $5 == "pass" {found=1} END {exit found ? 0 : 1}' "$ACCEPTANCE_TSV" || {
+    echo "[FAIL] Ghostty promotion lacks the terminal shortcut acceptance pass." >&2
+    exit 1
+  }
+fi
+
+awk -F$'\t' 'NR > 1 && $3 ~ /^defer/ && $5 == "" {found=1} END {exit found ? 0 : 1}' "$PROMOTION_TSV" && {
+  echo "[FAIL] Deferred promotion entries must keep a blocker string." >&2
+  exit 1
+}
+
+echo "[OK] Default promotion review validated."

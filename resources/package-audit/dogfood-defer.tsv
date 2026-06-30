@@ -1,0 +1,5 @@
+package	reason	revisit_phase	notes
+zed	build complexity	J17	Helix exists and immediate dogfood need is already covered
+zotero	license and source review	J18	still important for research workflow but not solved here
+ghostty	installed-host acceptance pending	J19	build artifact is ready, but promotion stays gated until pacman -U, config redeploy, fuzzel, and Mod+Return checks are recorded
+quickshell	Jackrose Shell not implemented	J19	Keep Waybar as current baseline

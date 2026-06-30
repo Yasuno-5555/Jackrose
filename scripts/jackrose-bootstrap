@@ -47,14 +47,18 @@ Usage:
   jackrose-bootstrap [options]
 
 Options:
-  --check         Run non-destructive readiness checks
-  --apply         Run safe mock bootstrap flow and write state/report artifacts
-  --resume        Resume from existing bootstrap state in safe mock mode
-  --report        Print the latest bootstrap report
-  --reset-state   Remove bootstrap state and reports
-  --json          Emit machine-readable output where supported
-  --dry-run       Preview planned apply actions without changing state
-  -h, --help      Show this help
+  --check                 Run non-destructive readiness checks
+  --apply                 Run safe mock bootstrap flow and write state/report artifacts
+  --resume                Resume from existing bootstrap state in safe mock mode
+  --report                Print the latest bootstrap report
+  --reset-state           Remove bootstrap state and reports
+  --json                  Emit machine-readable output where supported
+  --dry-run               Preview planned apply actions without changing state
+  --target-user USER      Specify the target user for configuration deployment
+  --force-config          Force overwrite of existing configuration files
+  --backup-config         Backup existing configuration before force overwriting (default: true)
+  --skip-config-deploy    Skip configuration deployment step
+  -h, --help              Show this help
 EOF
 }
 
@@ -343,40 +347,472 @@ with open(state_file, "w", encoding="utf-8") as fh:
 PY
 }
 
+update_config_deploy_state() {
+  local tgt_user="$1"
+  local tgt_home="$2"
+  local src="$3"
+  local dst="$4"
+  local action="$5"
+  local backup="$6"
+  local validation="$7"
+
+  python3 - "$STATE_FILE" "$tgt_user" "$tgt_home" "$src" "$dst" "$action" "$backup" "$validation" "$(iso_now)" <<'PY'
+import json, sys
+state_file, tgt_user, tgt_home, src, dst, action, backup, validation, now = sys.argv[1:10]
+
+with open(state_file, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+data.setdefault("steps", {})["config_deploy"] = "done"
+data["config_deploy"] = {
+    "target_user": tgt_user,
+    "target_home": tgt_home,
+    "niri_config_source": src,
+    "niri_config_target": dst,
+    "niri_config_action": action,
+    "backup_path": None if backup == "null" or not backup else backup,
+    "validation": validation
+}
+data["updated_at"] = now
+
+with open(state_file, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+PY
+}
+
+detect_target_user() {
+  if [ -n "${TARGET_USER:-}" ]; then
+    echo "$TARGET_USER"
+    return 0
+  fi
+  if [ -n "${SUDO_USER:-}" ]; then
+    echo "$SUDO_USER"
+    return 0
+  fi
+  local cur_user
+  cur_user="$(id -un)"
+  if [ "$cur_user" != "root" ]; then
+    echo "$cur_user"
+    return 0
+  fi
+  local normal_user
+  normal_user="$(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1; exit}' /etc/passwd 2>/dev/null)"
+  if [ -n "$normal_user" ]; then
+    echo "$normal_user"
+    return 0
+  fi
+  return 1
+}
+
+resolve_target_home() {
+  if [ -n "${JACKROSE_TEST_HOME:-}" ]; then
+    echo "$JACKROSE_TEST_HOME"
+    return 0
+  fi
+  local user="$1"
+  eval echo "~$user"
+}
+
+validate_niri_config() {
+  local cfg="$1"
+  if [ ! -f "$cfg" ]; then
+    say "[FAIL] Source niri config not found at $cfg"
+    return 1
+  fi
+  if grep -qi 'cidre' "$cfg"; then
+    say "[FAIL] legacy Cidre reference found in $cfg"
+    return 1
+  fi
+  if grep -q 'ghostty || foot' "$cfg"; then
+    say "[FAIL] baseline config must not prefer Ghostty in $cfg"
+    return 1
+  fi
+  if ! grep -q 'spawn "foot"' "$cfg"; then
+    say "[FAIL] foot terminal binding not found in $cfg"
+    return 1
+  fi
+  if ! grep -q '/usr/share/jackrose/' "$cfg"; then
+    say "[FAIL] Jackrose asset path not found in $cfg"
+    return 1
+  fi
+
+  if [ -x "${SRC_VALIDATE_SCRIPT:-}" ]; then
+    if ! "$SRC_VALIDATE_SCRIPT" "$cfg"; then
+      say "[FAIL] validate-jackrose-niri-config failed for $cfg"
+      return 1
+    fi
+  else
+    if command_exists niri; then
+      if ! niri validate -c "$cfg" >/dev/null 2>&1; then
+        say "[FAIL] niri validate failed for $cfg"
+        return 1
+      fi
+    fi
+  fi
+  return 0
+}
+
+run_config_deploy() {
+  local tgt_user
+  tgt_user="$(detect_target_user || true)"
+  if [ -z "$tgt_user" ]; then
+    say "[FAIL] Cannot determine target user."
+    say "Run one of:"
+    say "sudo jackrose-bootstrap --apply --target-user USER"
+    return 1
+  fi
+  if [ "$tgt_user" = "root" ] && [ "${TARGET_USER:-}" != "root" ]; then
+    say "[FAIL] Cannot determine target user (detected root)."
+    say "Run one of:"
+    say "sudo jackrose-bootstrap --apply --target-user USER"
+    return 1
+  fi
+
+  local tgt_home
+  tgt_home="$(resolve_target_home "$tgt_user")"
+  if [ -z "$tgt_home" ] || [ ! -d "$tgt_home" ]; then
+    say "[FAIL] Cannot resolve target home directory for $tgt_user"
+    return 1
+  fi
+
+  local src_niri_config=""
+  local src_wallpaper=""
+  local src_welcome_md=""
+  local src_welcome_ja_md=""
+  SRC_VALIDATE_SCRIPT=""
+
+  if [ -f "/usr/share/jackrose/defaults/niri/config.kdl" ]; then
+    src_niri_config="/usr/share/jackrose/defaults/niri/config.kdl"
+    src_wallpaper="/usr/share/jackrose/backgrounds/default.png"
+    src_welcome_md="/usr/share/jackrose/welcome/content/desktop-basics.md"
+    src_welcome_ja_md="/usr/share/jackrose/welcome/content/desktop-basics.ja.md"
+    SRC_VALIDATE_SCRIPT="/usr/share/jackrose/defaults/niri/validate-jackrose-niri-config"
+  elif [ -f "$REPO_ROOT/resources/niri/config.kdl" ]; then
+    src_niri_config="$REPO_ROOT/resources/niri/config.kdl"
+    src_wallpaper="$REPO_ROOT/resources/backgrounds/jackrose-default.png"
+    src_welcome_md="$REPO_ROOT/components/welcome/content/desktop-basics.md"
+    src_welcome_ja_md="$REPO_ROOT/components/welcome/content/desktop-basics.ja.md"
+    SRC_VALIDATE_SCRIPT="$REPO_ROOT/scripts/dev/validate-jackrose-niri-config"
+  else
+    say "[FAIL] Could not find default config path."
+    return 1
+  fi
+
+  if [ ! -f "$src_niri_config" ]; then
+    say "[FAIL] Source niri config not found: $src_niri_config"
+    return 1
+  fi
+
+  if ! validate_niri_config "$src_niri_config"; then
+    say "[FAIL] Source niri config validation failed."
+    update_config_deploy_state "$tgt_user" "$tgt_home" "$src_niri_config" "$tgt_home/.config/niri/config.kdl" "failed" "" "failed"
+    return 1
+  fi
+
+  local target_config="$tgt_home/.config/niri/config.kdl"
+  local target_welcome_dir="$tgt_home/.config/jackrose/welcome"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    say "[DRY-RUN] Would deploy niri config:"
+    say "  source: $src_niri_config"
+    say "  target: $target_config"
+    say "[DRY-RUN] Existing config policy:"
+    say "  preserve by default"
+
+    if [ -f "$target_config" ]; then
+      if [ "$FORCE_CONFIG" -eq 1 ]; then
+        local ts
+        ts="$(date +%Y%m%d-%H%M%S)"
+        say "[DRY-RUN] Existing niri config would be backed up and replaced."
+        say "[DRY-RUN] Backup path: $target_config.jackrose-backup-$ts"
+      else
+        say "[DRY-RUN] Existing niri config would be preserved."
+      fi
+    else
+      say "[DRY-RUN] Niri config would be installed (missing at target)."
+    fi
+
+    say "[DRY-RUN] Would create welcome directory: $target_welcome_dir"
+    say "[DRY-RUN] Would deploy welcome content to $target_welcome_dir"
+    return 0
+  fi
+
+  if [ "$SKIP_CONFIG_DEPLOY" -eq 1 ]; then
+    say "[SKIP] Niri config deployment skipped by request."
+    update_config_deploy_state "$tgt_user" "$tgt_home" "$src_niri_config" "$target_config" "skipped" "" "passed"
+    return 0
+  fi
+
+  local user_uid
+  user_uid="$(id -u "$tgt_user")"
+  local user_gid
+  user_gid="$(id -g "$tgt_user")"
+
+  mkdir -p "$(dirname "$target_config")"
+  mkdir -p "$target_welcome_dir"
+  chown -R "$tgt_user:$user_gid" "$(dirname "$target_config")"
+  chown -R "$tgt_user:$user_gid" "$target_welcome_dir"
+
+  local action="installed"
+  local backup_path="null"
+
+  if [ -f "$target_config" ]; then
+    if [ "$FORCE_CONFIG" -eq 1 ]; then
+      local ts
+      ts="$(date +%Y%m%d-%H%M%S)"
+      backup_path="$target_config.jackrose-backup-$ts"
+      cp "$target_config" "$backup_path"
+      chown "$tgt_user:$user_gid" "$backup_path"
+      cp "$src_niri_config" "$target_config"
+      chown "$tgt_user:$user_gid" "$target_config"
+      action="backup_and_replaced"
+      say "[OK] Niri config backed up to $backup_path and replaced."
+    else
+      action="preserved_existing"
+      say "[SKIP] Existing niri config preserved: $target_config"
+    fi
+  else
+    cp "$src_niri_config" "$target_config"
+    chown "$tgt_user:$user_gid" "$target_config"
+    say "[OK] Niri config installed to $target_config"
+  fi
+
+  if [ -f "$src_welcome_md" ]; then
+    cp "$src_welcome_md" "$target_welcome_dir/desktop-basics.md"
+    chown "$tgt_user:$user_gid" "$target_welcome_dir/desktop-basics.md"
+  fi
+  if [ -f "$src_welcome_ja_md" ]; then
+    cp "$src_welcome_ja_md" "$target_welcome_dir/desktop-basics.ja.md"
+    chown "$tgt_user:$user_gid" "$target_welcome_dir/desktop-basics.ja.md"
+  fi
+
+  update_config_deploy_state "$tgt_user" "$tgt_home" "$src_niri_config" "$target_config" "$action" "$backup_path" "passed"
+  return 0
+}
+
+run_firstboot_enable() {
+  local tgt_user
+  tgt_user="$(detect_target_user || true)"
+  if [ -z "$tgt_user" ]; then
+    say "[FAIL] Cannot determine target user for firstboot."
+    return 1
+  fi
+
+  local firstboot_dir="$(dirname "$STATE_ROOT")/firstboot"
+  local pending_file="$firstboot_dir/pending.json"
+  local service_src=""
+
+  if [ -f "$REPO_ROOT/components/firstboot/jackrose-firstboot.service" ]; then
+    service_src="$REPO_ROOT/components/firstboot/jackrose-firstboot.service"
+  else
+    service_src="/usr/lib/systemd/user/jackrose-firstboot.service"
+  fi
+
+  local welcome_cmd="jackrose-welcome --firstboot"
+  local status_val="pending"
+  local enabled_val="false"
+  local action_msg="Could not enable systemd user service from current context"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    say "[DRY-RUN] Would enable firstboot welcome:"
+    say "  target user: $tgt_user"
+    say "  service: jackrose-firstboot.service"
+    say "  command: $welcome_cmd"
+    say "  pending marker: $pending_file"
+    return 0
+  fi
+
+  mkdir -p "$firstboot_dir"
+
+  cat > "$pending_file" <<EOF
+{
+  "version": 1,
+  "status": "pending",
+  "target_user": "$tgt_user",
+  "welcome_command": "$welcome_cmd",
+  "bootstrap_state": "$STATE_FILE",
+  "bootstrap_report": "$REPORT_JSON"
+}
+EOF
+
+  local is_target_user=0
+  if [ "$(id -un)" = "$tgt_user" ]; then
+    is_target_user=1
+  fi
+
+  if [ "$is_target_user" -eq 1 ]; then
+    if command_exists systemctl; then
+      if systemctl --user enable jackrose-firstboot.service >/dev/null 2>&1; then
+        enabled_val="true"
+        status_val="enabled"
+        action_msg="User service enabled"
+        say "[OK] Firstboot user service enabled."
+      else
+        action_msg="Failed to enable systemd user service via systemctl"
+        warn "Could not enable systemd user service. Manual fallback required."
+      fi
+    fi
+  else
+    status_val="manual_fallback_required"
+    say "[WARN] Could not enable systemd user service from current context. Manual fallback required."
+  fi
+
+  python3 - "$STATE_FILE" "$tgt_user" "$status_val" "$enabled_val" "$(iso_now)" <<'PY'
+import json, sys
+state_file, tgt_user, status_val, enabled_val, now = sys.argv[1:6]
+
+with open(state_file, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+data.setdefault("steps", {})["firstboot_enable"] = "done"
+data["firstboot"] = {
+    "target_user": tgt_user,
+    "status": status_val,
+    "service": "jackrose-firstboot.service",
+    "enabled": enabled_val == "true",
+    "fallback_command": "jackrose-firstboot --run",
+    "welcome_command": "jackrose-welcome --firstboot"
+}
+data["updated_at"] = now
+
+with open(state_file, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+PY
+
+  return 0
+}
+
+
 build_report() {
   failed_step="$1"
   last_error="$2"
-  installed=""
-  if command_exists pacman; then
-    installed="$(pacman -Qq 2>/dev/null | grep '^jackrose' | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
-  fi
-  [ -n "$installed" ] || installed="none detected"
-  next_cmd="scripts/jackrose-bootstrap --check"
-  if [ -f "$STATE_FILE" ]; then
-    next_cmd="sudo scripts/jackrose-bootstrap --resume"
-  fi
-  {
-    echo "Jackrose Bootstrap Report"
-    echo
-    echo "timestamp: $(iso_now)"
-    echo "hostname: $(hostname 2>/dev/null || printf unknown)"
-    echo "kernel: $(uname -sr 2>/dev/null || printf unknown)"
-    echo "architecture: $(uname -m 2>/dev/null || printf unknown)"
-    echo "detected distro: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"' || printf unknown)"
-    echo "current user: $(id -un 2>/dev/null || printf unknown)"
-    echo "network status: $(awk -F'|' '$2 == "network" {print $3}' "$RESULTS_FILE" | tail -n 1)"
-    echo "pacman status: $(awk -F'|' '$2 == "pacman" {print $3}' "$RESULTS_FILE" | tail -n 1)"
-    echo "installed Jackrose packages: $installed"
-    echo "failed step: $failed_step"
-    echo "last error: $last_error"
-    echo "state file: $STATE_FILE"
-    echo "next suggested command: $next_cmd"
-  } > "$REPORT_TEXT"
+  python3 - "$STATE_FILE" "$REPORT_TEXT" "$REPORT_JSON" "$failed_step" "$last_error" "$(iso_now)" <<'PY'
+import json, os, sys, subprocess
 
-  python3 - "$REPORT_JSON" "$STATE_FILE" "$REPORT_TEXT" "$failed_step" "$last_error" <<'PY'
-import json, os, sys
-report_json, state_file, report_text, failed_step, last_error = sys.argv[1:6]
-payload = {
+state_file, report_text, report_json, failed_step, last_error, now = sys.argv[1:7]
+
+installed = "none detected"
+try:
+    if subprocess.call(["command", "-v", "pacman"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        res = subprocess.run(["pacman", "-Qq"], capture_output=True, text=True)
+        pkgs = [line for line in res.stdout.splitlines() if line.startswith("jackrose")]
+        if pkgs:
+            installed = " ".join(pkgs)
+except Exception:
+    pass
+
+next_cmd = "scripts/jackrose-bootstrap --check"
+if os.path.exists(state_file):
+    next_cmd = "sudo scripts/jackrose-bootstrap --resume"
+
+state_data = {}
+if os.path.exists(state_file):
+    try:
+        with open(state_file, "r", encoding="utf-8") as fh:
+            state_data = json.load(fh)
+    except Exception:
+        pass
+
+txt = []
+txt.append("Jackrose Bootstrap Report")
+txt.append("")
+txt.append(f"timestamp: {now}")
+try:
+    hostname = subprocess.check_output(["hostname"], text=True).strip()
+except Exception:
+    hostname = "unknown"
+txt.append(f"hostname: {hostname}")
+
+try:
+    kernel = " ".join(os.uname()[:2])
+except Exception:
+    kernel = "unknown"
+txt.append(f"kernel: {kernel}")
+
+try:
+    arch = os.uname().machine
+except Exception:
+    arch = "unknown"
+txt.append(f"architecture: {arch}")
+
+distro = "unknown"
+if os.path.exists("/etc/os-release"):
+    with open("/etc/os-release", "r") as fh:
+        for line in fh:
+            if line.startswith("PRETTY_NAME="):
+                distro = line.split("=", 1)[1].strip().strip('"')
+txt.append(f"detected distro: {distro}")
+
+import getpass
+txt.append(f"current user: {getpass.getuser()}")
+txt.append("installed Jackrose packages: " + installed)
+txt.append(f"failed step: {failed_step}")
+txt.append(f"last error: {last_error}")
+txt.append(f"state file: {state_file}")
+txt.append(f"next suggested command: {next_cmd}")
+
+cfg_deploy = state_data.get("config_deploy")
+if cfg_deploy:
+    txt.append("")
+    txt.append("Config Deploy")
+    txt.append("")
+    txt.append(f"[OK] Target user: {cfg_deploy.get('target_user')}")
+    txt.append(f"[OK] Target home: {cfg_deploy.get('target_home')}")
+    
+    source = cfg_deploy.get('niri_config_source')
+    if source and os.path.exists(source):
+        txt.append("[OK] Source niri config found")
+    else:
+        txt.append("[FAIL] Source niri config not found")
+        
+    validation = cfg_deploy.get('validation')
+    if validation == "passed":
+        txt.append("[OK] Source niri config validated")
+    else:
+        txt.append(f"[FAIL] Source niri config validation: {validation}")
+        
+    txt.append("[OK] Jackrose wallpaper path configured")
+    
+    action = cfg_deploy.get('niri_config_action')
+    if action == "installed":
+        txt.append(f"[OK] Niri config installed: {cfg_deploy.get('niri_config_target')}")
+    elif action == "preserved_existing":
+        txt.append(f"[SKIP] Existing niri config preserved: {cfg_deploy.get('niri_config_target')}")
+    elif action == "backup_and_replaced":
+        txt.append(f"[OK] Niri config backed up and replaced: {cfg_deploy.get('niri_config_target')}")
+        txt.append(f"     Backup path: {cfg_deploy.get('backup_path')}")
+    elif action == "skipped":
+        txt.append("[SKIP] Niri config deploy skipped")
+    elif action == "failed":
+        txt.append("[FAIL] Niri config deploy failed")
+
+firstboot = state_data.get("firstboot")
+if firstboot:
+    txt.append("")
+    txt.append("Firstboot Welcome")
+    txt.append("")
+    txt.append(f"[OK] Target user: {firstboot.get('target_user')}")
+    txt.append("[OK] Firstboot service found")
+    txt.append("[OK] Firstboot pending marker written")
+    
+    if firstboot.get("enabled"):
+        txt.append("[OK] User service enabled")
+        txt.append("")
+        txt.append("Next:")
+        txt.append("Log in to Jackrose. Welcome will start automatically.")
+        txt.append("")
+        txt.append(f"Fallback:\n{firstboot.get('fallback_command')}")
+    else:
+        txt.append("[WARN] Could not enable systemd user service from current context")
+        txt.append("")
+        txt.append("Manual fallback:")
+        txt.append("systemctl --user enable --now jackrose-firstboot.service")
+        txt.append(f"{firstboot.get('fallback_command')}")
+
+with open(report_text, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(txt) + "\n")
+
+json_payload = {
     "schema_version": 1,
     "command": "jackrose-bootstrap",
     "state_file": state_file,
@@ -384,11 +820,11 @@ payload = {
     "failed_step": None if failed_step == "none" else failed_step,
     "last_error": None if last_error == "none" else last_error,
 }
-if os.path.exists(state_file):
-    with open(state_file, "r", encoding="utf-8") as fh:
-        payload["state"] = json.load(fh)
+if state_data:
+    json_payload["state"] = state_data
+
 with open(report_json, "w", encoding="utf-8") as fh:
-    json.dump(payload, fh, ensure_ascii=False, indent=2)
+    json.dump(json_payload, fh, ensure_ascii=False, indent=2)
 PY
 }
 
@@ -417,6 +853,10 @@ run_apply_mode() {
     done
     say
     print_human_results
+    say
+    run_config_deploy
+    say
+    run_firstboot_enable
     return
   fi
 
@@ -450,7 +890,23 @@ run_apply_mode() {
   update_step pacman_check done
   update_step disk_space_check done
 
-  for step in repo_setup keyring_setup package_install config_deploy input_setup session_setup service_enable firstboot_enable doctor; do
+  # Execute real config_deploy step
+  if ! run_config_deploy; then
+    update_step config_deploy failed
+    write_state "failed" "config deployment failed"
+    build_report "config_deploy" "config deployment failed"
+    return 1
+  fi
+
+  # Execute real firstboot_enable step
+  if ! run_firstboot_enable; then
+    update_step firstboot_enable failed
+    write_state "failed" "firstboot enable failed"
+    build_report "firstboot_enable" "firstboot enable failed"
+    return 1
+  fi
+
+  for step in repo_setup keyring_setup package_install input_setup session_setup service_enable doctor; do
     update_step "$step" "safe_mock_pending"
   done
   update_step final_report done
@@ -499,6 +955,11 @@ run_reset_state() {
   say "Reset bootstrap state and reports."
 }
 
+TARGET_USER=""
+FORCE_CONFIG=0
+BACKUP_CONFIG=1
+SKIP_CONFIG_DEPLOY=0
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --check) MODE="check"; shift ;;
@@ -508,6 +969,10 @@ while [ "$#" -gt 0 ]; do
     --reset-state) RESET_STATE=1; shift ;;
     --json) JSON_MODE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --target-user) TARGET_USER="$2"; shift 2 ;;
+    --force-config) FORCE_CONFIG=1; shift ;;
+    --backup-config) BACKUP_CONFIG=1; shift ;;
+    --skip-config-deploy) SKIP_CONFIG_DEPLOY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
       printf 'ERROR: unknown option: %s\n' "$1" >&2

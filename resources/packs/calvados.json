@@ -1,0 +1,13 @@
+{
+  "id": "calvados",
+  "name": "Calvados Compatibility Pack",
+  "package": "jackrose-pack-calvados",
+  "default_checked": false,
+  "category": "experimental",
+  "oobe_visible": false,
+  "app_center_visible": true,
+  "experimental": true,
+  "description": "Experimental Windows compatibility and legacy application/game support for Apple Silicon Linux.",
+  "requires_external_repo": false,
+  "status": "deferred"
+}

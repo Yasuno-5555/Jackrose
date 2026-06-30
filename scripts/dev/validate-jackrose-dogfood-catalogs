@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# validate-jackrose-dogfood-catalogs: Validate J15 dogfood tracking catalogs and gating rules
+set -euo pipefail
+
+echo "=== Validating Jackrose Dogfood Catalogs ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+installed_tsv="$REPO_ROOT/resources/package-audit/dogfood-installed.tsv"
+missing_tsv="$REPO_ROOT/resources/package-audit/dogfood-missing.tsv"
+promote_tsv="$REPO_ROOT/resources/package-audit/dogfood-promote.tsv"
+defer_tsv="$REPO_ROOT/resources/package-audit/dogfood-defer.tsv"
+meta_pkgbuild="$REPO_ROOT/packages/arch/jackrose-meta-default/PKGBUILD"
+build_results="$REPO_ROOT/resources/package-audit/p0-build-results.tsv"
+
+require_file() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    echo "[FAIL] Missing required dogfood catalog: $file" >&2
+    exit 1
+  fi
+}
+
+assert_headers() {
+  local file="$1"
+  shift
+  local headers
+  headers=$(head -n 1 "$file")
+  local expected
+  for expected in "$@"; do
+    if ! printf '%s\n' "$headers" | grep -q "$expected"; then
+      echo "[FAIL] $(basename "$file") headers missing expected column: $expected" >&2
+      exit 1
+    fi
+  done
+}
+
+require_file "$installed_tsv"
+require_file "$missing_tsv"
+require_file "$promote_tsv"
+require_file "$defer_tsv"
+
+assert_headers "$installed_tsv" package source category installed status promote_candidate notes
+assert_headers "$missing_tsv" package category reason next_action notes
+assert_headers "$promote_tsv" package target reason evidence status
+assert_headers "$defer_tsv" package reason revisit_phase notes
+
+awk -F$'\t' 'NR > 1 && $1 == "" {exit 1}' "$installed_tsv" || {
+  echo "[FAIL] dogfood-installed.tsv contains an empty package name." >&2
+  exit 1
+}
+awk -F$'\t' 'NR > 1 && $1 == "" {exit 1}' "$missing_tsv" || {
+  echo "[FAIL] dogfood-missing.tsv contains an empty package name." >&2
+  exit 1
+}
+awk -F$'\t' 'NR > 1 && $1 == "" {exit 1}' "$promote_tsv" || {
+  echo "[FAIL] dogfood-promote.tsv contains an empty package name." >&2
+  exit 1
+}
+awk -F$'\t' 'NR > 1 && $1 == "" {exit 1}' "$defer_tsv" || {
+  echo "[FAIL] dogfood-defer.tsv contains an empty package name." >&2
+  exit 1
+}
+
+awk -F$'\t' 'NR > 1 && $4 == "" {exit 1}' "$promote_tsv" || {
+  echo "[FAIL] dogfood-promote.tsv promote candidates must include evidence." >&2
+  exit 1
+}
+
+if [ -f "$meta_pkgbuild" ]; then
+  if grep -Eq "^[[:space:]]*'jackrose-paru'|^[[:space:]]*'jackrose-ghostty'" "$meta_pkgbuild"; then
+    echo "[FAIL] Dogfood packages are active in jackrose-meta-default depends." >&2
+    exit 1
+  fi
+fi
+
+if awk -F$'\t' '$1 == "jackrose-paru" {print $7}' "$installed_tsv" | grep -q .; then
+  if ! awk -F$'\t' '$1 == "jackrose-paru" {print $7}' "$installed_tsv" | grep -qi "not normal OOBE source"; then
+    echo "[FAIL] jackrose-paru dogfood entry must state it is not a normal OOBE source." >&2
+    exit 1
+  fi
+fi
+
+if awk -F$'\t' '$1 == "ghostty" {found=1} END {exit found ? 0 : 1}' "$installed_tsv"; then
+  ghostty_result=$(awk -F$'\t' '$1 == "ghostty" {print $3}' "$build_results")
+  if [ "$ghostty_result" != "pass" ]; then
+    echo "[FAIL] ghostty is marked installed in dogfood-installed.tsv but p0-build-results.tsv is not pass." >&2
+    exit 1
+  fi
+fi
+
+echo "[OK] Jackrose dogfood catalogs validated successfully."

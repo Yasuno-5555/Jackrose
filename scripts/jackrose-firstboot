@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# jackrose-firstboot: firstboot manager for Jackrose Welcome
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  jackrose-firstboot [options]
+
+Options:
+  --run       Run firstboot Welcome flow
+  --status    Show firstboot welcome status
+  --reset     Reset firstboot done state
+  -h, --help  Show this help
+EOF
+}
+
+# Env vars override or defaults
+STATE_ROOT="${JACKROSE_BOOTSTRAP_STATE_ROOT:-/var/lib/jackrose/bootstrap}"
+USER_NAME="${JACKROSE_TARGET_USER:-$(id -un)}"
+USER_HOME="${JACKROSE_HOME:-$HOME}"
+
+USER_STATE_DIR="${JACKROSE_STATE_DIR:-${XDG_STATE_HOME:-$USER_HOME/.local/state}/jackrose}"
+PENDING_FILE="$(dirname "$STATE_ROOT")/firstboot/pending.json"
+DONE_FILE="$USER_STATE_DIR/firstboot.done"
+FAIL_FILE="$USER_STATE_DIR/firstboot.failure"
+LEGACY_FAIL_FILE="$USER_STATE_DIR/firstboot-report.json"
+MANIFEST_FILE="$USER_STATE_DIR/manifest.json"
+
+welcome_cmd="${JACKROSE_WELCOME_COMMAND:-jackrose-welcome}"
+
+run_status() {
+  if [ -f "$DONE_FILE" ]; then
+    echo "status: completed"
+    echo "marker: $DONE_FILE"
+    return 0
+  fi
+
+  if [ -f "$PENDING_FILE" ] || [ -f "$USER_STATE_DIR/firstboot.pending" ]; then
+    echo "status: pending"
+    return 0
+  fi
+
+  echo "status: inactive"
+}
+
+run_reset() {
+  if [ -f "$DONE_FILE" ]; then
+    rm -f "$DONE_FILE"
+    echo "Reset firstboot done state."
+  else
+    echo "Firstboot was not completed or done marker not found."
+  fi
+  rm -f "$FAIL_FILE" "$LEGACY_FAIL_FILE"
+}
+
+run_firstboot() {
+  # 1. Resolve user and home
+  if [ -z "$USER_NAME" ] || [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
+    echo "Error: Invalid user/home state" >&2
+    exit 5
+  fi
+
+  # 2. Check if already completed
+  if [ -f "$DONE_FILE" ]; then
+    echo "Firstboot welcome already completed."
+    exit 0
+  fi
+
+  # 3. Read bootstrap state/report
+  local state_file="$STATE_ROOT/state.json"
+  if [ ! -f "$state_file" ]; then
+    echo "Error: Bootstrap state/report missing or unreadable" >&2
+    exit 2
+  fi
+
+  # 4. Check if welcome command exists (if not overridden to a script)
+  if [ "${welcome_cmd}" = "jackrose-welcome" ] && ! command -v jackrose-welcome >/dev/null 2>&1; then
+    # Look for local source as fallback
+    local script_dir="$(cd "$(dirname "$0")" && pwd)"
+    if [ -f "$script_dir/jackrose-welcome" ]; then
+      welcome_cmd="$script_dir/jackrose-welcome"
+    elif [ -f "$script_dir/../components/welcome/bin/jackrose-welcome" ]; then
+      welcome_cmd="$script_dir/../components/welcome/bin/jackrose-welcome"
+    else
+      echo "Error: Welcome command missing" >&2
+      exit 3
+    fi
+  elif [ ! -x "${welcome_cmd}" ] && ! command -v "${welcome_cmd}" >/dev/null 2>&1; then
+    echo "Error: Welcome command missing" >&2
+    exit 3
+  fi
+
+  # 5. Launch welcome
+  echo "Launching firstboot welcome..."
+  mkdir -p "$USER_STATE_DIR"
+  
+  # Run welcome command
+  # Use eval to handle possible command arguments if overridden
+  if ! eval "${welcome_cmd} --firstboot"; then
+    echo "Error: Welcome returned failure" >&2
+    local now
+    now="$(date -Iseconds)"
+    cat > "$FAIL_FILE" <<EOF
+failed_at=$now
+reason=welcome exited with failure
+EOF
+    cat > "$LEGACY_FAIL_FILE" <<EOF
+{
+  "version": 1,
+  "status": "failed",
+  "failed_at": "$now",
+  "reason": "welcome exited with failure"
+}
+EOF
+    exit 4
+  fi
+
+  # 6. Write done file on success
+  local now
+  now="$(date -Iseconds)"
+  if [ ! -f "$MANIFEST_FILE" ]; then
+    cat > "$MANIFEST_FILE" <<EOF
+{
+  "version": 1,
+  "phase": "firstboot",
+  "status": "completed",
+  "selected_packs": [],
+  "security_selected": false,
+  "calvados_oobe_visible": false
+}
+EOF
+  fi
+  cat > "$DONE_FILE" <<EOF
+{
+  "version": 1,
+  "status": "completed",
+  "completed_at": "$now",
+  "bootstrap_state": "$state_file",
+  "bootstrap_report": "$STATE_ROOT/../logs/bootstrap-report.json",
+  "welcome_command": "$welcome_cmd"
+}
+EOF
+
+  echo "Firstboot Welcome completed successfully."
+  exit 0
+}
+
+# Main command dispatcher
+MODE=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --run) MODE="run"; shift ;;
+    --status) MODE="status"; shift ;;
+    --reset) MODE="reset"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "ERROR: unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$MODE" in
+  run) run_firstboot ;;
+  status) run_status ;;
+  reset) run_reset ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

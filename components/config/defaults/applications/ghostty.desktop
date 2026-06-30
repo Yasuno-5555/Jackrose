@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Ghostty
+Comment=Fast native terminal emulator
+Exec=ghostty
+Icon=ghostty
+Type=Application
+Categories=System;TerminalEmulator;
+Terminal=false
+StartupNotify=true

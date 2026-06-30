@@ -1,0 +1,6 @@
+package	jackrose_package	source_fetch	printsrcinfo	namcap	deps_discovered	build_probe	runtime_probe	integration_status	notes
+paru	jackrose-paru	pass	pass	pass	pass	pass	not-run	build-validated	Package artifact created and statically validated
+ghostty	jackrose-ghostty	pass	pass	warn	pass	pass	not-run	build-validated	Artifact rebuilt as 1.3.1-2 after removing bundled ghostty terminfo and depending on ncurses
+zotero	jackrose-zotero	review	not-run	not-run	not-run	not-run	not-run	blocked	License and aarch64 binary redistribution review required.
+zed	jackrose-zed	pass	pass	warn	warn	not-run	not-run	blocked	Rust editor; heavy UI GPU dependencies check needed.
+niri-jackrose	jackrose-niri	not-run	not-run	not-run	not-run	not-run	not-run	blocked	Jackrose compositor candidate; feasibility not probed yet

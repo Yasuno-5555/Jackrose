@@ -2,13 +2,13 @@
 
 pkgname=jackrose-welcome
 pkgver=1.0.0
-pkgrel=1
+pkgrel=3
 pkgdesc='Jackrose first-login welcome dashboard screen'
 url='https://github.com/Yasuno-5555/Jackrose'
 arch=('any')
 license=('custom')
-depends=('bash')
-provides=('cidre-welcome')
+depends=('bash' 'python')
+provides=('cidre-welcome' 'jackrose-pack' 'jackrose-security')
 conflicts=('cidre-welcome')
 replaces=('cidre-welcome')
 
@@ -21,7 +21,12 @@ _repo_root="${startdir}/../../.."
 
 package() {
   install -Dm755 "${_repo_root}/components/welcome/bin/jackrose-welcome" "${pkgdir}/usr/bin/jackrose-welcome"
-  install -Dm755 "${_repo_root}/components/welcome/bin/jackrose-oobe" "${pkgdir}/usr/bin/jackrose-oobe"
+  install -Dm755 "${_repo_root}/scripts/jackrose-pack" "${pkgdir}/usr/bin/jackrose-pack"
+  install -Dm755 "${_repo_root}/scripts/jackrose-security" "${pkgdir}/usr/bin/jackrose-security"
   install -Dm644 "${_repo_root}/components/welcome/autostart/jackrose-welcome.desktop" "${pkgdir}/etc/xdg/autostart/jackrose-welcome.desktop"
+  install -Dm644 "${_repo_root}/components/welcome/content/desktop-basics.md" "${pkgdir}/usr/share/jackrose/welcome/content/desktop-basics.md"
+  install -Dm644 "${_repo_root}/components/welcome/content/desktop-basics.ja.md" "${pkgdir}/usr/share/jackrose/welcome/content/desktop-basics.ja.md"
+  install -Dm644 "${_repo_root}/resources/packs/student.json" "${pkgdir}/usr/share/jackrose/packs/student.json"
+  install -Dm644 "${_repo_root}/resources/packs/security.json" "${pkgdir}/usr/share/jackrose/packs/security.json"
+  install -Dm644 "${_repo_root}/resources/packs/calvados.json" "${pkgdir}/usr/share/jackrose/packs/calvados.json"
 }
-

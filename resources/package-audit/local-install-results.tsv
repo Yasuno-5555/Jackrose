@@ -1,0 +1,11 @@
+package	artifact	install_result	version	notes
+jackrose-welcome	jackrose-welcome-1.0.0-2-any.pkg.tar.xz	installed	1.0.0	Installed during J19 acceptance; repo now has a follow-up 1.0.0-3 fix for jackrose-security user-state handling
+jackrose-pack	jackrose-welcome-1.0.0-2-any.pkg.tar.xz	installed	1.0.0	Provided by jackrose-welcome and used successfully during J19 acceptance
+jackrose-doctor	jackrose-diagnostics-1.0.0-3-any.pkg.tar.xz	installed	1.0.0	J18/J19 doctor checks are installed on the dogfood host
+jackrose-bootstrap	jackrose-bootstrap-1.0.0-1-any.pkg.tar.xz	installed	1.0.0	Installed during J19 acceptance
+jackrose-firstboot	jackrose-firstboot-1.0.0-1-any.pkg.tar.xz	installed	1.0.0	Installed during J19 acceptance; firstboot state was reconciled on host
+jackrose-config	jackrose-config-1.0.0-2-any.pkg.tar.xz	installed	1.0.0	Packaged Ghostty defaults and desktop runtime assets deployed successfully
+jackrose-session	jackrose-session-1.0.0-1-any.pkg.tar.xz	installed	1.0.0	Session/runtime defaults installed and validated on host
+jackrose-user-setup	jackrose-user-setup-1.0.0-1-any.pkg.tar.xz	installed	1.0.0	Installed and used for J19 redeploy; repo now carries a follow-up 1.0.0-2 manifest-compatibility fix
+jackrose-ghostty	jackrose-ghostty-1.3.1-3-aarch64.pkg.tar.xz	installed	1.3.1	Installed and accepted on host with theme, desktop entry, and shortcut integration verified
+jackrose-meta-default	jackrose-meta-default-1.0.0-1-any.pkg.tar.xz	blocked	1.0.0	Not installed because current hard dependencies gh, deno, and ocrmypdf were unresolved on host

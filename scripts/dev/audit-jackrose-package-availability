@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# audit-jackrose-package-availability: Query pacman package status and validation
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  audit-jackrose-package-availability --pack [default|student|security|calvados]"
+  echo "  audit-jackrose-package-availability --all"
+  echo "  audit-jackrose-package-availability --json"
+  echo "  audit-jackrose-package-availability --tsv"
+  exit 1
+}
+
+AUDIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../resources/package-audit"
+
+if [ $# -lt 1 ]; then
+  usage
+fi
+
+JSON_MODE=false
+TSV_MODE=false
+PACK=""
+ALL_PACKS=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) JSON_MODE=true; shift ;;
+    --tsv) TSV_MODE=true; shift ;;
+    --pack) PACK="$2"; shift 2 ;;
+    --all) ALL_PACKS=true; shift ;;
+    *) usage ;;
+  esac
+done
+
+if [ "$ALL_PACKS" = true ]; then
+  FILES=("$AUDIT_DIR"/*.tsv)
+elif [ -n "$PACK" ]; then
+  FILES=("$AUDIT_DIR/$PACK.tsv")
+else
+  FILES=("$AUDIT_DIR"/*.tsv)
+fi
+
+# Dry run verification of pacman package existence
+query_pacman() {
+  local pkg="$1"
+  if command -v pacman >/dev/null 2>&1; then
+    if pacman -Si "$pkg" >/dev/null 2>&1; then
+      echo "confirmed"
+      return 0
+    fi
+  fi
+  echo "unverified"
+}
+
+# Process and show report
+if [ "$JSON_MODE" = true ]; then
+  # JSON Output Format
+  echo "{"
+  echo "  \"schema_version\": 1,"
+  echo "  \"packages\": ["
+  first=true
+  for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+      while IFS=$'\t' read -r package pack bucket source status notes || [ -n "$package" ]; do
+        if [ "$package" = "package" ]; then continue; fi
+        if [ "$first" = true ]; then
+          first=false
+        else
+          echo ","
+        fi
+        echo "    {"
+        echo "      \"package\": \"$package\","
+        echo "      \"pack\": \"$pack\","
+        echo "      \"bucket\": \"$bucket\","
+        echo "      \"source\": \"$source\","
+        echo "      \"status\": \"$status\","
+        echo "      \"notes\": \"$notes\""
+        echo -n "    }"
+      done < "$file"
+    fi
+  done
+  echo ""
+  echo "  ]"
+  echo "}"
+elif [ "$TSV_MODE" = true ]; then
+  echo -e "package\tpack\tbucket\tsource\tstatus\tnotes"
+  for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+      tail -n +2 "$file"
+    fi
+  done
+else
+  # Human readable console output
+  echo "=== Jackrose Package Availability Audit Summary ==="
+  for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+      basename "$file" .tsv | tr 'a-z' 'A-Z'
+      echo "------------------------------------------------"
+      while IFS=$'\t' read -r package pack bucket source status notes || [ -n "$package" ]; do
+        if [ "$package" = "package" ]; then continue; fi
+        echo "  - $package [Bucket $bucket] ($source) -> $status"
+      done < "$file"
+      echo ""
+    fi
+  done
+fi

@@ -1,0 +1,7 @@
+id	component	severity	status	summary	fix
+J17-001	jackrose-welcome	P0	fixed	Welcome tries to create /var/lib/jackrose as normal user	Move user runtime state to XDG_STATE_HOME
+J17-002	jackrose-welcome	P0	fixed	Welcome tries to create /var/log/jackrose as normal user	Move user logs to XDG_STATE_HOME/jackrose/logs
+J17-003	jackrose-doctor	P1	fixed	Doctor expects /var/log/jackrose/bootstrap.log for user firstboot	Prefer user-state logs and make system bootstrap log optional
+J17-004	jackrose-doctor	P1	fixed	Setup manifest missing after Welcome attempt	Ensure Welcome or firstboot writes manifest on completion
+J17-005	jackrose-ghostty	P1	fixed	Ghostty package conflicts with ncurses-owned terminfo	Remove terminfo file from package and depend on ncurses
+J17-006	fcitx5	P2	deferred	fcitx5 user service enabled but not running	Keep warning and add firstboot/session guidance

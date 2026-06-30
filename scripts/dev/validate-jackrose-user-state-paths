@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# validate-jackrose-user-state-paths: Enforce J17 user-state path policy for Welcome and Doctor
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+WELCOME="$REPO_ROOT/components/welcome/bin/jackrose-welcome"
+PACK="$REPO_ROOT/scripts/jackrose-pack"
+DOCTOR="$REPO_ROOT/scripts/jackrose-doctor"
+
+echo "=== Validating Jackrose User-State Path Policy ==="
+
+for file in "$WELCOME" "$PACK" "$DOCTOR"; do
+  [ -f "$file" ] || { echo "[FAIL] Missing file: $file" >&2; exit 1; }
+done
+
+if rg -n 'mkdir -p /var/lib/jackrose|mkdir -p /var/log/jackrose' "$WELCOME" "$PACK" >/dev/null; then
+  echo "[FAIL] Welcome or pack apply still creates /var Jackrose directories directly." >&2
+  exit 1
+fi
+
+if ! rg -n 'XDG_STATE_HOME|\.local/state' "$WELCOME" "$PACK" "$DOCTOR" >/dev/null; then
+  echo "[FAIL] User-state XDG path handling not found." >&2
+  exit 1
+fi
+
+if ! rg -n 'manifest\.json' "$WELCOME" "$PACK" "$DOCTOR" >/dev/null; then
+  echo "[FAIL] manifest.json handling not found in Welcome/pack/Doctor." >&2
+  exit 1
+fi
+
+if ! rg -n 'firstboot\.done|firstboot\.failure' "$WELCOME" "$DOCTOR" "$REPO_ROOT/scripts/jackrose-firstboot" >/dev/null; then
+  echo "[FAIL] firstboot state markers not handled with user-state policy." >&2
+  exit 1
+fi
+
+if ! rg -n 'welcome\.log' "$WELCOME" "$DOCTOR" >/dev/null; then
+  echo "[FAIL] Welcome log user-state handling missing." >&2
+  exit 1
+fi
+
+if ! rg -n 'System bootstrap log not present\. Expected if root bootstrap was not run|bootstrap\.log' "$DOCTOR" >/dev/null; then
+  echo "[FAIL] Doctor does not treat system bootstrap log as optional." >&2
+  exit 1
+fi
+
+echo "[OK] User-state path policy validated successfully."

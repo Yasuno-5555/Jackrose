@@ -18,11 +18,12 @@ PROFILES = {
     ],
     "desktop": [
         ("ghostty/config", ".config/ghostty/config"),
+        ("ghostty/themes/catppuccin-mocha", ".config/ghostty/themes/catppuccin-mocha"),
         ("fcitx5/profile", ".config/fcitx5/profile"),
         ("environment.d/90-jackrose-ime.conf", ".config/environment.d/90-jackrose-ime.conf"),
         ("waybar/config", ".config/waybar/config"),
         ("waybar/style.css", ".config/waybar/style.css"),
-        ("applications/com.mitchellh.ghostty.desktop", ".local/share/applications/com.mitchellh.ghostty.desktop"),
+        ("applications/ghostty.desktop", ".local/share/applications/ghostty.desktop"),
         ("jackrose-wallpaper.png", ".local/share/backgrounds/jackrose-wallpaper.png")
     ],
     "developer": [
@@ -87,14 +88,40 @@ class SetupManager:
             print("Error: Default configuration directory not found.", file=sys.stderr)
             sys.exit(1)
 
+    def normalize_manifest(self, manifest):
+        if not isinstance(manifest, dict):
+            manifest = {}
+
+        files = manifest.get("files")
+        if not isinstance(files, dict):
+            files = {}
+
+        profile = manifest.get("profile")
+        if not isinstance(profile, str) or not profile:
+            profile = "desktop"
+
+        installed_at = manifest.get("installed_at")
+        if not isinstance(installed_at, str):
+            installed_at = ""
+
+        version = manifest.get("version")
+        if not isinstance(version, str):
+            version = str(version) if version is not None else "0.7.0"
+
+        manifest["version"] = version
+        manifest["profile"] = profile
+        manifest["installed_at"] = installed_at
+        manifest["files"] = files
+        return manifest
+
     def load_manifest(self):
         if os.path.isfile(self.manifest_path):
             try:
                 with open(self.manifest_path, 'r') as f:
-                    return json.load(f)
+                    return self.normalize_manifest(json.load(f))
             except Exception:
                 pass
-        return {"version": "0.7.0", "profile": "desktop", "installed_at": "", "files": {}}
+        return self.normalize_manifest({})
 
     def save_manifest(self, manifest):
         if self.dry_run:
@@ -209,7 +236,7 @@ x-scheme-handler/http=firefox.desktop
 x-scheme-handler/https=firefox.desktop
 x-scheme-handler/about=firefox.desktop
 x-scheme-handler/unknown=firefox.desktop
-terminal=com.mitchellh.ghostty.desktop
+terminal=ghostty.desktop
 """
             if os.path.exists(mime_path) and not self.force:
                 self.backup_file(mime_path, timestamp_dir)

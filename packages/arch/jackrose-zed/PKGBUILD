@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-zed
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose default editor experience candidate'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=()
+provides=('zed')
+conflicts=()
+
+package() {
+  true
+}

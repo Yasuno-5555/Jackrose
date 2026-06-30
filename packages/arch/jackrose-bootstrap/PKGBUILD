@@ -1,0 +1,23 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-bootstrap
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose environment post-ALARM bootstrap command'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=('bash' 'pacman')
+provides=('cidre-bootstrap')
+conflicts=('cidre-bootstrap')
+replaces=('cidre-bootstrap')
+
+source=()
+sha256sums=()
+
+# Monorepo-local packaging path.
+_repo_root="${startdir}/../../.."
+
+package() {
+  install -Dm755 "${_repo_root}/scripts/jackrose-bootstrap" "${pkgdir}/usr/bin/jackrose-bootstrap"
+}

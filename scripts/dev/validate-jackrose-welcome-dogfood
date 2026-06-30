@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# validate-jackrose-welcome-dogfood: Validate J16 Welcome dogfood activation artifacts and runtime records
+set -euo pipefail
+
+echo "=== Validating Jackrose Welcome Dogfood Activation ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+activation_tsv="$REPO_ROOT/resources/package-audit/dogfood-activation.tsv"
+install_tsv="$REPO_ROOT/resources/package-audit/local-install-results.tsv"
+runtime_tsv="$REPO_ROOT/resources/package-audit/welcome-runtime-results.tsv"
+dogfood_log="$REPO_ROOT/docs/jackrose-welcome-dogfood-activation-log.md"
+
+for file in "$activation_tsv" "$install_tsv" "$runtime_tsv" "$dogfood_log"; do
+  if [ ! -f "$file" ]; then
+    echo "[FAIL] Missing J16 artifact: $file" >&2
+    exit 1
+  fi
+done
+
+headers=$(head -n 1 "$activation_tsv")
+for expected in phase component action result notes; do
+  if ! printf '%s\n' "$headers" | grep -q "$expected"; then
+    echo "[FAIL] dogfood-activation.tsv missing column: $expected" >&2
+    exit 1
+  fi
+done
+
+headers=$(head -n 1 "$install_tsv")
+for expected in package artifact install_result version notes; do
+  if ! printf '%s\n' "$headers" | grep -q "$expected"; then
+    echo "[FAIL] local-install-results.tsv missing column: $expected" >&2
+    exit 1
+  fi
+done
+
+headers=$(head -n 1 "$runtime_tsv")
+for expected in check expected actual result notes; do
+  if ! printf '%s\n' "$headers" | grep -q "$expected"; then
+    echo "[FAIL] welcome-runtime-results.tsv missing column: $expected" >&2
+    exit 1
+  fi
+done
+
+for pkg in jackrose-welcome jackrose-pack jackrose-doctor; do
+  if ! awk -F$'\t' -v p="$pkg" '$1 == p {found=1} END {exit found ? 0 : 1}' "$install_tsv"; then
+    echo "[FAIL] local-install-results.tsv must record $pkg install state." >&2
+    exit 1
+  fi
+done
+
+if ! awk -F$'\t' '$1 == "oobe_list" && $3 !~ /calvados/ {found=1} END {exit found ? 0 : 1}' "$runtime_tsv"; then
+  echo "[FAIL] OOBE list must exclude Calvados." >&2
+  exit 1
+fi
+
+if ! awk -F$'\t' '$1 == "experimental_list" && $3 ~ /calvados/ {found=1} END {exit found ? 0 : 1}' "$runtime_tsv"; then
+  echo "[FAIL] Experimental list must include Calvados." >&2
+  exit 1
+fi
+
+for check_name in student_default security_confirmation calvados_hidden; do
+  if ! awk -F$'\t' -v c="$check_name" '$1 == c {found=1} END {exit found ? 0 : 1}' "$runtime_tsv"; then
+    echo "[FAIL] Missing Welcome runtime record for $check_name." >&2
+    exit 1
+  fi
+done
+
+if grep -qi 'silent BlackArch enablement' "$dogfood_log"; then
+  echo "[FAIL] Silent BlackArch enablement recorded in dogfood log." >&2
+  exit 1
+fi
+
+if grep -qi 'pacman.conf mutation' "$dogfood_log"; then
+  echo "[FAIL] pacman.conf mutation recorded in dogfood log." >&2
+  exit 1
+fi
+
+if grep -Eqi 'APFS|m1n1|GRUB|ESP|partition|diskutil|NVRAM' "$dogfood_log"; then
+  echo "[FAIL] Forbidden boot/disk operation recorded in dogfood log." >&2
+  exit 1
+fi
+
+echo "[OK] Jackrose Welcome dogfood activation validated successfully."

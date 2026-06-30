@@ -31,5 +31,11 @@ package() {
     "${pkgdir}/usr/bin/jackrose-firstboot-finish"
   install -Dm755 "${_repo_root}/components/firstboot/bin/jackrose-firstboot-prep" \
     "${pkgdir}/usr/bin/jackrose-firstboot-prep"
+
+  # Install the user wrapper and service
+  install -Dm755 "${_repo_root}/scripts/jackrose-firstboot" \
+    "${pkgdir}/usr/bin/jackrose-firstboot"
+  install -Dm644 "${_repo_root}/components/firstboot/jackrose-firstboot.service" \
+    "${pkgdir}/usr/lib/systemd/user/jackrose-firstboot.service"
 }
 

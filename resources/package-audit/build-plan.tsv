@@ -1,0 +1,6 @@
+package	jackrose_package	priority	source_strategy	build_strategy	status	meta_integration	notes
+paru	jackrose-paru	P0	aur-repackage	makepkg-source	validated	candidate-for-meta-default	Build artifact validated; meta-default integration still gated
+ghostty	jackrose-ghostty	P0	upstream-source	makepkg-source	validated	blocked	Artifact rebuilt as 1.3.1-3 with desktop entry and icon packaging; installed-host acceptance still pending pacman -U plus runtime verification
+zotero	jackrose-zotero	P0	upstream-binary-repackage	manual-review	blocked	blocked	Research/writing workflow blocker; validate license and aarch64 packaging path
+zed	jackrose-zed	P0	upstream-source	makepkg-source	blocked	blocked	Default editor candidate; validate aarch64 build complexity
+niri-jackrose	jackrose-niri	P0	upstream-source	makepkg-source	research	blocked	Jackrose compositor fork/wrapper candidate; fallback to upstream niri required

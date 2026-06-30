@@ -1,0 +1,25 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-calvados
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for Windows compatibility and legacy support'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-meta-default'
+  'winetricks'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility):
+  # 'wine'
+  # 'lutris'
+  # 'umu-launcher'
+  # 'fex-emu'
+  # 'muvm'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

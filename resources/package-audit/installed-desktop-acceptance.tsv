@@ -1,0 +1,15 @@
+component	check	expected	actual	result	notes
+ghostty	executable	command -v ghostty succeeds	/usr/bin/ghostty	pass	
+ghostty	version	ghostty --version succeeds	Ghostty 1.3.1-main+bc2a493	pass	
+ghostty	theme	no catppuccin-mocha warning	Interactive Ghostty launch completed with no warnings	pass	
+ghostty	config	no invalid hx field	doctor reports Ghostty config clean	pass	
+ghostty	desktop-file	/usr/share/applications/ghostty.desktop exists	/usr/share/applications/ghostty.desktop present	pass	
+ghostty	fuzzel	Ghostty appears and launches from fuzzel	Ghostty found and launched from fuzzel	pass	manual check
+niri	config-parse	no parse errors	active config deployed; upstream validation already passed in repo	pass	Host grep only found stale backup files
+niri	cidre-remnants	no cidre/niri-cidre runtime references	active config clean; stale refs only in backup files	pass	config.cidre.kdl and .bak are not active runtime config
+niri	terminal-shortcut	Mod+Return opens ghostty or foot fallback	Mod+Return opened Ghostty on installed host	pass	manual check
+doctor	daily	jackrose-doctor --daily gives sane output	daily completed; fcitx5 and battery warn only	pass	User bootstrap log and firstboot completion still warn separately
+doctor	firstboot	jackrose-doctor --firstboot gives sane output	ALL checks passed; bootstrap state/report remains WARN-only	pass	
+fcitx5	service	warning acceptable, fix suggestion present	service enabled but not running; doctor provides start command	pass	
+waybar	baseline	waybar remains available and configured	user Waybar config deployed cleanly	pass	
+quickshell	policy	info/deferred only, not hard failure	installed; doctor reports OK without making it mandatory	pass	Still not promoted to active default shell

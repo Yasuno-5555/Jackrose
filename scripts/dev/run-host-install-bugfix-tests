@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# run-host-install-bugfix-tests: Run J17 host-install bugfix validation suite
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo "=== Running Jackrose Host Install Bugfix Tests ==="
+
+"$REPO_ROOT/scripts/dev/validate-jackrose-user-state-paths"
+"$REPO_ROOT/scripts/dev/validate-jackrose-ghostty-terminfo"
+"$REPO_ROOT/scripts/dev/validate-jackrose-welcome-dogfood"
+"$REPO_ROOT/scripts/dev/validate-jackrose-dogfood-catalogs"
+"$REPO_ROOT/scripts/dev/validate-jackrose-pack-depends"
+
+if compgen -G "/tmp/jackrose-build-artifacts/jackrose-ghostty-*.pkg.tar.*" >/dev/null || \
+   compgen -G "/tmp/jackrose-pkgs/jackrose-ghostty-*.pkg.tar.*" >/dev/null || \
+   compgen -G "$REPO_ROOT/packages/arch/jackrose-ghostty/jackrose-ghostty-*.pkg.tar.*" >/dev/null; then
+  latest_ghostty_artifact="$(
+    find \
+      /tmp/jackrose-build-artifacts \
+      /tmp/jackrose-pkgs \
+      "$REPO_ROOT/packages/arch/jackrose-ghostty" \
+      -maxdepth 1 \
+      -type f \
+      -name 'jackrose-ghostty-*.pkg.tar.*' 2>/dev/null | sort -V | tail -n 1 || true
+  )"
+  "$REPO_ROOT/scripts/dev/validate-jackrose-ghostty-package" --artifact "$latest_ghostty_artifact"
+fi
+
+echo "=== All Jackrose Host Install Bugfix Tests Passed Successfully ==="

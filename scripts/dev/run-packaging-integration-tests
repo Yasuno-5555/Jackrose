@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# run-packaging-integration-tests: master test runner for Jackrose monorepo packaging and bootstrap flows
+set -euo pipefail
+
+echo "=== Running Jackrose Packaging Integration Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo ""
+echo "1. Validating Packaging Paths..."
+"$REPO_ROOT/scripts/dev/validate-jackrose-packaging-paths"
+
+echo ""
+echo "2. Validating Niri Configuration..."
+"$REPO_ROOT/scripts/dev/validate-jackrose-niri-config" "$REPO_ROOT/resources/niri/config.kdl"
+
+echo ""
+echo "3. Running Bootstrap Config Deploy Tests..."
+"$REPO_ROOT/scripts/dev/run-bootstrap-config-deploy-tests"
+
+echo ""
+echo "4. Running Firstboot Welcome Lifecycle Tests..."
+"$REPO_ROOT/scripts/dev/run-firstboot-welcome-tests"
+
+echo ""
+echo "5. Running Doctor Bootstrap / Firstboot Checks Tests..."
+"$REPO_ROOT/scripts/dev/run-doctor-bootstrap-firstboot-tests"
+
+echo ""
+echo "=== All Integration Tests Passed Successfully ==="
+exit 0

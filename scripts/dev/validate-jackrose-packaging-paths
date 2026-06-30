@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  echo "[FAIL] $*" >&2
+  exit 1
+}
+
+warn() {
+  echo "[WARN] $*" >&2
+}
+
+require_file() {
+  [[ -f "$1" ]] || fail "missing file: $1"
+}
+
+# Require expected source files
+require_file scripts/jackrose-bootstrap
+require_file scripts/jackrose-firstboot
+require_file components/welcome/bin/jackrose-welcome
+require_file components/firstboot/jackrose-firstboot.service
+require_file resources/niri/config.kdl
+require_file resources/ghostty/config
+require_file resources/ghostty/themes/catppuccin-mocha
+require_file resources/ghostty/ghostty.desktop
+require_file resources/backgrounds/jackrose-default.png
+require_file components/welcome/content/desktop-basics.md
+require_file components/welcome/content/desktop-basics.ja.md
+
+# Validate firstboot service ExecStart path
+grep -q 'ExecStart=/usr/bin/jackrose-firstboot --run' \
+  components/firstboot/jackrose-firstboot.service \
+  || fail "firstboot service ExecStart mismatch"
+
+# Validate niri config wallpaper reference
+grep -q '/usr/share/jackrose/backgrounds/default.png' \
+  resources/niri/config.kdl \
+  || fail "niri config does not reference Jackrose wallpaper runtime path in resources"
+
+# Validate cidre references
+if grep -Rqi 'cidre-w[a]llpaper\|/usr/share/backgrounds/c[i]dre' resources/niri components/welcome scripts 2>/dev/null; then
+  fail "legacy Cidre wallpaper path found"
+fi
+
+# Validate Ghostty terminal fallback policy
+grep -q 'command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot' \
+  resources/niri/config.kdl \
+  || fail "baseline niri config is missing Ghostty with foot fallback"
+
+grep -Eq '^hx[[:space:]]+' resources/ghostty/config \
+  && fail "ghostty config contains invalid shell command line"
+
+# Validate PKGBUILD contents
+require_file packages/arch/jackrose-welcome/PKGBUILD
+grep -q 'usr/share/jackrose/welcome/content/desktop-basics.md' packages/arch/jackrose-welcome/PKGBUILD \
+  || fail "PKGBUILD for jackrose-welcome does not install Desktop Basics content"
+
+require_file packages/arch/jackrose-firstboot/PKGBUILD
+grep -q 'usr/lib/systemd/user/jackrose-firstboot.service' packages/arch/jackrose-firstboot/PKGBUILD \
+  || fail "PKGBUILD for jackrose-firstboot does not install user service unit"
+grep -q 'usr/bin/jackrose-firstboot' packages/arch/jackrose-firstboot/PKGBUILD \
+  || fail "PKGBUILD for jackrose-firstboot does not install user wrapper"
+
+require_file packages/arch/jackrose-bootstrap/PKGBUILD
+grep -q 'usr/bin/jackrose-bootstrap' packages/arch/jackrose-bootstrap/PKGBUILD \
+  || fail "PKGBUILD for jackrose-bootstrap does not install bootstrap command"
+
+echo "[OK] Jackrose packaging paths validated"
+exit 0

@@ -1,0 +1,7 @@
+id	component	fix_status	validation	result	notes
+J17-001	jackrose-welcome	fixed	user-state-path-validation	pass	Welcome no longer creates /var/lib as user
+J17-002	jackrose-welcome	fixed	user-state-path-validation	pass	Welcome logs moved to XDG user state
+J17-003	jackrose-doctor	fixed	doctor-path-validation	pass	Doctor checks user-state logs and manifest first
+J17-004	jackrose-doctor	fixed	firstboot-manifest-validation	pass	Manifest written after Welcome success or firstboot fallback success
+J17-005	jackrose-ghostty	fixed	terminfo-package-validation	pass	Ghostty package no longer owns ncurses terminfo
+J17-006	fcitx5	deferred	doctor-warning	pass	Warning retained with explicit start suggestion

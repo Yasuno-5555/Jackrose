@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# validate-jackrose-pack-metadata: Validate JSON metadata schemas for Jackrose packs
+set -euo pipefail
+
+echo "=== Validating Jackrose Pack Metadata ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+for f in "$REPO_ROOT"/resources/packs/*.json; do
+  if [ -f "$f" ]; then
+    echo "Validating $f..."
+    python3 -c "
+import json
+data = json.load(open('$f'))
+required = {'id', 'name', 'package', 'default_checked', 'category', 'description', 'requires_external_repo'}
+missing = required - set(data.keys())
+if missing:
+    print(f'Error: Missing fields {missing} in $f')
+    exit(1)
+if 'depends' in data or 'dependencies' in data:
+    print(f'Error: Do not specify depends/dependencies list in metadata JSON ($f). Dependencies belong in the PKGBUILD.')
+    exit(1)
+print('  [OK] Valid schema.')
+"
+  fi
+done
+
+echo "[OK] All pack metadata files are valid."
+exit 0

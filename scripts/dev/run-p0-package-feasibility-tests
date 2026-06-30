@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# run-p0-package-feasibility-tests: Run test validation runner cases for J11 feasibility databases
+set -euo pipefail
+
+echo "=== Running Jackrose J11 Feasibility Validation Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Run validation scripts
+"$REPO_ROOT"/scripts/dev/probe-jackrose-p0-packages --all --printsrcinfo
+"$REPO_ROOT"/scripts/dev/validate-jackrose-p0-feasibility
+"$REPO_ROOT"/scripts/dev/validate-jackrose-critical-build-plan
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-depends
+
+echo "=== All Feasibility Validation Tests Passed Successfully ==="
+exit 0

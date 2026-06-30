@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# validate-jackrose-pack-depends: Validate PKGBUILD declares correct dependencies based on audit data
+set -euo pipefail
+
+echo "=== Validating PKGBUILD depends declarations ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Temporary directory for loading audit data
+AUDIT_TEMP=$(mktemp)
+trap 'rm -f "$AUDIT_TEMP"' EXIT
+
+# Combine all tsv databases
+cat "$REPO_ROOT"/resources/package-audit/*.tsv > "$AUDIT_TEMP"
+
+# Validation rule helper: check if package should be inside depends
+check_package_policy() {
+  local pkgname="$1"
+  local depends_pkg="$2"
+  
+  # Fetch bucket for depends_pkg from TSV
+  local bucket
+  bucket=$(awk -F$'\t' -v p="$depends_pkg" '$1 == p {print $3}' "$AUDIT_TEMP" | head -n 1)
+
+  if [ -n "$bucket" ]; then
+    if [ "$bucket" = "C" ] || [ "$bucket" = "D" ]; then
+      echo "[FAIL] Package '$depends_pkg' in '$pkgname' depends is Bucket $bucket (deferred/rejected)!" >&2
+      exit 1
+    fi
+  fi
+}
+
+# Parse PKGBUILD dependencies
+check_pkgbuild() {
+  local pfile="$1"
+  local pkgname
+  pkgname=$(basename "$(dirname "$pfile")")
+  
+  if [ -f "$pfile" ]; then
+    echo "Checking PKGBUILD: $pkgname..."
+    # Extract depends array entries
+    local deps
+    deps=$(python3 -c "
+import re
+content = open('$pfile').read()
+m = re.search(r'depends=\((.*?)\)', content, re.DOTALL)
+if m:
+    entries = m.group(1).replace('\'', '').replace('\"', '').split()
+    print('\n'.join(entries))
+")
+    for dep in $deps; do
+      check_package_policy "$pkgname" "$dep"
+    done
+  fi
+}
+
+# Check metadata files
+check_metadata() {
+  for f in "$REPO_ROOT"/resources/packs/*.json; do
+    if [ -f "$f" ]; then
+      if grep -q '"depends"' "$f" || grep -q '"dependencies"' "$f"; then
+        echo "[FAIL] Metadata JSON '$f' contains raw depends list! All dependencies must reside in PKGBUILDs." >&2
+        exit 1
+      fi
+    fi
+  done
+}
+
+# Check metadata remains UI-only and enforces OOBE visibility rules
+check_metadata
+
+# Enforce Calvados metadata visibility rules
+calvados_json="$REPO_ROOT/resources/packs/calvados.json"
+if [ -f "$calvados_json" ]; then
+  if python3 -c "
+import json
+d = json.load(open('$calvados_json'))
+if d.get('oobe_visible', True) or d.get('category') != 'experimental' or not d.get('experimental', False) or not d.get('app_center_visible', False):
+    exit(1)
+"; then
+    echo "  [OK] calvados.json visibility verified."
+  else
+    echo "[FAIL] calvados.json does not conform to OOBE-hidden experimental constraints!" >&2
+    exit 1
+  fi
+fi
+
+# Verify P0 recovery backlog entries exist
+recovery_tsv="$REPO_ROOT/resources/package-audit/recovery.tsv"
+if [ -f "$recovery_tsv" ]; then
+  for p0_pkg in ghostty zotero zed niri-jackrose; do
+    if ! grep -q "$p0_pkg" "$recovery_tsv"; then
+      echo "[FAIL] Recovery backlog is missing P0 definition for $p0_pkg" >&2
+      exit 1
+    fi
+  done
+  echo "  [OK] P0 recovery backlog targets verified."
+fi
+
+# Run PKGBUILD scans
+for PKG in "$REPO_ROOT"/packages/arch/*; do
+  if [ -d "$PKG" ] && [ -f "$PKG/PKGBUILD" ]; then
+    check_pkgbuild "$PKG/PKGBUILD"
+  fi
+done
+
+echo "[OK] All PKGBUILD depends declarations align with package audit buckets."
+exit 0

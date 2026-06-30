@@ -1,0 +1,44 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-pack-security
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose Workload Pack for Modern Security workflows (recon, scanning, testing)'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=(
+  'jackrose-meta-default'
+  'jackrose-security-base'
+  'subfinder'
+  'dnsx'
+  'naabu'
+  'httpx'
+  'katana'
+  'nuclei'
+  'nuclei-templates'
+  'interactsh-client'
+  'ffuf'
+  'feroxbuster'
+  'mitmproxy'
+  'websocat'
+  'xh'
+  'osv-scanner'
+  'actionlint'
+  'gitleaks'
+  'trufflehog'
+  'syft'
+  'grype'
+  'glow'
+  # Deferred candidates (not included in hard depends due to aarch64 build fragility):
+  # 'opengrep'
+  # 'trivy'
+  # 'zizmor'
+  # 'hadolint'
+)
+source=()
+sha256sums=()
+
+package() {
+  true
+}

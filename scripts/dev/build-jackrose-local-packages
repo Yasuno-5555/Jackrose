@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# build-jackrose-local-packages: Build a safe local Jackrose package batch for Welcome activation
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  build-jackrose-local-packages --default [--output DIR]"
+  echo "  build-jackrose-local-packages --with-ghostty [--output DIR]"
+  echo "  build-jackrose-local-packages --with-paru [--output DIR]"
+  echo "  build-jackrose-local-packages --all-safe [--output DIR]"
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+OUTPUT_DIR="/tmp/jackrose-pkgs"
+MODE=""
+WITH_GHOSTTY=false
+WITH_PARU=false
+
+DEFAULT_PKGS=(
+  jackrose-meta-core
+  jackrose-bootstrap
+  jackrose-firstboot
+  jackrose-diagnostics
+  jackrose-config
+  jackrose-session
+  jackrose-wallpapers
+  jackrose-shortcuts
+  jackrose-welcome
+  jackrose-meta-default
+  jackrose-security-base
+  jackrose-pack-student
+  jackrose-pack-security
+)
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --default)
+      MODE="default"
+      shift
+      ;;
+    --with-ghostty)
+      MODE="default"
+      WITH_GHOSTTY=true
+      shift
+      ;;
+    --with-paru)
+      MODE="default"
+      WITH_PARU=true
+      shift
+      ;;
+    --all-safe)
+      MODE="all-safe"
+      WITH_GHOSTTY=true
+      shift
+      ;;
+    --output)
+      OUTPUT_DIR="${2:-}"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$MODE" ]; then
+  usage
+fi
+
+mkdir -p "$OUTPUT_DIR"
+build_failed=false
+
+packages=("${DEFAULT_PKGS[@]}")
+if [ "$WITH_GHOSTTY" = true ]; then
+  packages+=("jackrose-ghostty")
+fi
+if [ "$WITH_PARU" = true ]; then
+  packages+=("jackrose-paru")
+fi
+
+for stale in "$OUTPUT_DIR"/jackrose-*.pkg.tar.*; do
+  [ -f "$stale" ] || continue
+  rm -f "$stale"
+done
+
+echo "=== Building Jackrose local package batch ==="
+echo "Output directory: $OUTPUT_DIR"
+
+for pkg in "${packages[@]}"; do
+  pkg_dir="$REPO_ROOT/packages/arch/$pkg"
+  if [ ! -d "$pkg_dir" ] || [ ! -f "$pkg_dir/PKGBUILD" ]; then
+    echo "[FAIL] Missing package directory: $pkg"
+    build_failed=true
+    continue
+  fi
+
+  echo "==> Building $pkg"
+
+  if [ "$pkg" = "jackrose-ghostty" ]; then
+    reused_existing=false
+    for existing in "$OUTPUT_DIR"/jackrose-ghostty-*.pkg.tar.* /tmp/jackrose-build-artifacts/jackrose-ghostty-*.pkg.tar.* "$pkg_dir"/jackrose-ghostty-*.pkg.tar.*; do
+      if [ -f "$existing" ]; then
+        if [ "$(dirname "$existing")" != "$OUTPUT_DIR" ]; then
+          cp -f "$existing" "$OUTPUT_DIR"/
+        fi
+        echo "[OK] Reused existing ghostty artifact: $(basename "$existing")"
+        reused_existing=true
+        break
+      fi
+    done
+
+    if [ "$reused_existing" = true ]; then
+      continue
+    fi
+
+    if [ "${JACKROSE_ALLOW_PACKAGE_BUILD:-0}" = "1" ]; then
+      if JACKROSE_ALLOW_PACKAGE_BUILD=1 "$REPO_ROOT/scripts/dev/build-jackrose-p0-package" \
+        --package ghostty \
+        --allow-build \
+        --artifact-dir "$OUTPUT_DIR"; then
+        echo "[OK] Built $pkg"
+      else
+        echo "[FAIL] Build failed for $pkg"
+        build_failed=true
+      fi
+    else
+      found_existing=false
+      for existing in /tmp/jackrose-build-artifacts/jackrose-ghostty-*.pkg.tar.* "$pkg_dir"/jackrose-ghostty-*.pkg.tar.*; do
+        if [ -f "$existing" ]; then
+          cp -f "$existing" "$OUTPUT_DIR"/
+          echo "[OK] Reused existing ghostty artifact: $(basename "$existing")"
+          found_existing=true
+          break
+        fi
+      done
+      if [ "$found_existing" = false ]; then
+        echo "[FAIL] ghostty build requires JACKROSE_ALLOW_PACKAGE_BUILD=1 or an existing artifact."
+        build_failed=true
+      fi
+    fi
+    continue
+  fi
+
+  if (
+    cd "$pkg_dir"
+    makepkg -f --nodeps --noconfirm
+  ); then
+    :
+  else
+    echo "[FAIL] Build failed for $pkg"
+    build_failed=true
+    continue
+  fi
+
+  copied=false
+  for artifact in "$pkg_dir"/"$pkg"-*.pkg.tar.*; do
+    if [ -f "$artifact" ]; then
+      cp -f "$artifact" "$OUTPUT_DIR"/
+      copied=true
+    fi
+  done
+
+  if [ "$copied" = true ]; then
+    echo "[OK] Built $pkg"
+  else
+    echo "[FAIL] No artifact copied for $pkg"
+    build_failed=true
+  fi
+done
+
+echo "=== Build batch complete ==="
+if [ "$build_failed" = true ]; then
+  exit 1
+fi

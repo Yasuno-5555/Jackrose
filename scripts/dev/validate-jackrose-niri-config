@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config="${1:-resources/niri/config.kdl}"
+
+if [[ ! -f "$config" ]]; then
+  echo "[FAIL] config not found: $config" >&2
+  exit 1
+fi
+
+if grep -qi 'cidre' "$config"; then
+  echo "[FAIL] legacy Cidre reference found" >&2
+  exit 1
+fi
+
+if grep -q 'niri-jackrose' "$config"; then
+  echo "[FAIL] baseline config must not require niri-jackrose at runtime" >&2
+  exit 1
+fi
+
+if ! grep -q 'Mod+Return' "$config"; then
+  echo "[FAIL] Mod+Return binding not found" >&2
+  exit 1
+fi
+
+if ! grep -q 'command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot' "$config"; then
+  echo "[FAIL] Ghostty with foot fallback binding not found" >&2
+  exit 1
+fi
+
+if ! grep -q '/usr/share/jackrose/' "$config"; then
+  echo "[FAIL] Jackrose asset path not found" >&2
+  exit 1
+fi
+
+if command -v niri >/dev/null 2>&1; then
+  niri validate -c "$config"
+else
+  echo "[WARN] niri not found; skipped niri validate"
+fi
+
+echo "[OK] Jackrose niri config validated: $config"

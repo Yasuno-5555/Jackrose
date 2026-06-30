@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+config="${1:-$REPO_ROOT/resources/niri/config.kdl}"
+
+echo "=== Validating Jackrose Niri Runtime Config ==="
+
+[ -f "$config" ] || { echo "[FAIL] Niri config not found: $config" >&2; exit 1; }
+
+if grep -Eqi 'cidre|niri-cidre' "$config"; then
+  echo "[FAIL] Niri runtime config still contains stale Cidre references." >&2
+  exit 1
+fi
+
+grep -q 'Mod+Return' "$config" || { echo "[FAIL] Mod+Return binding is missing." >&2; exit 1; }
+grep -q 'command -v ghostty >/dev/null 2>&1 && exec ghostty || exec foot' "$config" \
+  || { echo "[FAIL] Ghostty with foot fallback binding is missing." >&2; exit 1; }
+
+if grep -q 'niri-jackrose' "$config"; then
+  echo "[FAIL] Niri runtime config must not require niri-jackrose." >&2
+  exit 1
+fi
+
+if command -v niri >/dev/null 2>&1; then
+  niri validate -c "$config"
+else
+  echo "[WARN] niri not found; skipped live parse validation."
+fi
+
+echo "[OK] Niri runtime config validated."

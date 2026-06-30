@@ -1,0 +1,7 @@
+package	target	reason	evidence	status
+fish	jackrose-meta-default	core shell experience	already used on dogfood machine	candidate
+foot	jackrose-meta-default	fallback terminal experience	already used on dogfood machine	candidate
+helix	jackrose-meta-default	editor fallback	already used on dogfood machine	candidate
+pandoc	jackrose-meta-default	writing workflow tool	already present and immediately useful	candidate
+jackrose-paru	manual-only	developer and recovery substrate	upstream paru already present; Jackrose package remains gated	not-promoted
+ghostty	jackrose-meta-default	P0 terminal target	Installed host acceptance passed: launch clean, fuzzel discoverable, Mod+Return opens Ghostty	promote-candidate

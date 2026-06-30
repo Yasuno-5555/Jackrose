@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# run-package-availability-tests: Master test runner for package J8 audit validation
+set -euo pipefail
+
+echo "=== Running Master Package Availability Tests ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Run validation scripts
+"$REPO_ROOT"/scripts/dev/audit-jackrose-package-availability --all
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-depends
+"$REPO_ROOT"/scripts/dev/validate-jackrose-pack-metadata
+"$REPO_ROOT"/scripts/dev/run-pack-selection-tests
+"$REPO_ROOT"/scripts/dev/run-custom-package-backlog-tests
+"$REPO_ROOT"/scripts/dev/run-critical-package-build-plan-tests
+"$REPO_ROOT"/scripts/dev/run-p0-package-feasibility-tests
+"$REPO_ROOT"/scripts/dev/run-jackrose-paru-build-tests
+"$REPO_ROOT"/scripts/dev/run-jackrose-ghostty-build-tests
+
+echo "=== All Package J8/J9/J10/J11/J12 Validation Scans Passed successfully ==="
+exit 0

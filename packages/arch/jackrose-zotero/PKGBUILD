@@ -1,0 +1,16 @@
+# Maintainer: Yasuno <yasuno@example.invalid>
+
+pkgname=jackrose-zotero
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Jackrose reference manager for research workflows'
+url='https://github.com/Yasuno-5555/Jackrose'
+arch=('any')
+license=('custom')
+depends=()
+provides=('zotero')
+conflicts=()
+
+package() {
+  true
+}

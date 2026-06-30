@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# validate-jackrose-paru-package: Validate generated jackrose-paru package artifact structure
+set -euo pipefail
+
+usage() {
+  echo "Usage: validate-jackrose-paru-package --artifact [path]"
+  exit 1
+}
+
+if [ $# -lt 2 ] || [ "$1" != "--artifact" ]; then
+  usage
+fi
+
+ART="$2"
+
+if [ ! -f "$ART" ]; then
+  echo "Error: Artifact not found: $ART" >&2
+  exit 1
+fi
+
+echo "=== Validating package artifact: $(basename "$ART") ==="
+
+# Check file signature & filename
+if [[ ! "$(basename "$ART")" =~ ^jackrose-paru-.*\.pkg\.tar\.(zst|xz)$ ]]; then
+  echo "[FAIL] Filename does not begin with jackrose-paru" >&2
+  exit 1
+fi
+
+# Extract .PKGINFO and check provides/pkgname
+pkginfo=$(bsdtar -xOf "$ART" .PKGINFO)
+if ! echo "$pkginfo" | grep -q "pkgname = jackrose-paru"; then
+  echo "[FAIL] .PKGINFO pkgname is not jackrose-paru" >&2
+  exit 1
+fi
+
+if ! echo "$pkginfo" | grep -q "provides = paru"; then
+  echo "[FAIL] .PKGINFO does not provide paru" >&2
+  exit 1
+fi
+
+# Ensure no install scripts or forbidden behavior
+if bsdtar -tf "$ART" | grep -q '\.INSTALL$'; then
+  echo "[FAIL] Package contains custom install scripts." >&2
+  exit 1
+fi
+
+echo "[OK] jackrose-paru package artifact static validation passed."
+exit 0

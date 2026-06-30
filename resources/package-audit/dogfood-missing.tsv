@@ -1,0 +1,22 @@
+package	category	reason	next_action	notes
+namcap	dev	not-installed	root-capable-pacman-install	static package lint still skipped locally without this tool
+yq	dev	not-installed	root-capable-pacman-install	useful audit helper absent from current machine
+micro	editor	not-installed	root-capable-pacman-install	helix exists but micro fallback is absent
+thunar-archive-plugin	desktop	not-installed	root-capable-pacman-install	file workflow gap on current machine
+ttf-dejavu	desktop	not-installed	root-capable-pacman-install	fallback font family absent
+typst	writing	not-installed	root-capable-pacman-install	writing workflow blocker on current machine
+libreoffice-fresh	writing	not-installed	root-capable-pacman-install	office suite absent on current machine
+zathura	writing	not-installed	root-capable-pacman-install	PDF workflow blocker on current machine
+zathura-pdf-mupdf	writing	not-installed	root-capable-pacman-install	PDF backend absent on current machine
+imagemagick	media	not-installed	root-capable-pacman-install	image workflow gap on current machine
+syncthing	sync	not-installed	root-capable-pacman-install	sync workflow gap on current machine
+rclone	sync	not-installed	root-capable-pacman-install	cloud sync workflow gap on current machine
+restic	sync	not-installed	root-capable-pacman-install	backup workflow gap on current machine
+tesseract	diagnostic	not-installed	root-capable-pacman-install	OCR CLI absent on current machine
+ocrmypdf	writing	not-installed	root-capable-pacman-install	OCR PDF workflow gap on current machine
+recoll	writing	not-installed	root-capable-pacman-install	local search indexer absent on current machine
+jackrose-paru	dev	root-blocked	run-pacman-u-on-real-dogfood-machine	local artifact install blocked by sudo no_new_privileges
+ghostty	terminal	root-blocked	run-pacman-u-on-real-dogfood-machine	artifact ready and validated; install blocked by sudo no_new_privileges
+jackrose-welcome	desktop	root-blocked	run-pacman-u-on-real-dogfood-machine	local artifact built; installed command path not yet verified on real host
+jackrose-pack	dev	root-blocked	run-pacman-u-on-real-dogfood-machine	provided by jackrose-welcome package; repo fallback works but installed command path remains unverified
+jackrose-doctor	diagnostic	root-blocked	run-pacman-u-on-real-dogfood-machine	provided by jackrose-diagnostics package; repo fallback works but installed command path remains unverified

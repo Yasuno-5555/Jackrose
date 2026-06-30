@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# run-welcome-oobe-tests: Validate jackrose-welcome interactive OOBE logic and backend execution flow
+set -euo pipefail
+
+echo "=== Running Jackrose Welcome OOBE Tests ==="
+
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+export JACKROSE_BOOTSTRAP_STATE_ROOT="$TEST_DIR/state"
+export JACKROSE_BOOTSTRAP_LOG_ROOT="$TEST_DIR/log"
+export JACKROSE_PACKS_DIR="$TEST_DIR/packs"
+
+mkdir -p "$JACKROSE_BOOTSTRAP_STATE_ROOT" "$JACKROSE_BOOTSTRAP_LOG_ROOT" "$JACKROSE_PACKS_DIR"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Copy metadata to temporary testing dir
+cp "$REPO_ROOT"/resources/packs/*.json "$JACKROSE_PACKS_DIR"/
+
+# Test 1: Verify pack list works
+echo "Testing: jackrose-pack list..."
+list_out="$("$REPO_ROOT/scripts/jackrose-pack" list)"
+if ! echo "$list_out" | grep -q "student"; then exit 1; fi
+if ! echo "$list_out" | grep -q "security"; then exit 1; fi
+if ! echo "$list_out" | grep -q "calvados"; then exit 1; fi
+echo "[OK] jackrose-pack list verified."
+
+# Test 2: Verify pack show works
+echo "Testing: jackrose-pack show student..."
+"$REPO_ROOT/scripts/jackrose-pack" show student | grep -q "jackrose-pack-student"
+echo "[OK] jackrose-pack show verified."
+
+# Test 3: Verify pack plan outputs mandatory and selected packages
+echo "Testing: jackrose-pack plan..."
+plan_out="$("$REPO_ROOT/scripts/jackrose-pack" plan student calvados)"
+if ! echo "$plan_out" | grep -q "jackrose-meta-default"; then
+  echo "[FAIL] Plan must always include mandatory default" >&2
+  exit 1
+fi
+if ! echo "$plan_out" | grep -q "jackrose-pack-student"; then
+  echo "[FAIL] Plan must include student pack" >&2
+  exit 1
+fi
+if ! echo "$plan_out" | grep -q "jackrose-pack-calvados"; then
+  echo "[FAIL] Plan must include calvados pack" >&2
+  exit 1
+fi
+if ! echo "$plan_out" | grep -q "No disk or boot changes will be made."; then
+  echo "[FAIL] Plan must contain safety disclaimer" >&2
+  exit 1
+fi
+echo "[OK] jackrose-pack plan verified."
+
+# Test 4: Verify pack apply dry-run
+echo "Testing: jackrose-pack apply --dry-run..."
+dry_out="$("$REPO_ROOT/scripts/jackrose-pack" apply student --dry-run)"
+if ! echo "$dry_out" | grep -q "Would install jackrose-pack-student"; then
+  echo "[FAIL] dry-run output incorrect" >&2
+  exit 1
+fi
+echo "[OK] jackrose-pack apply --dry-run verified."
+
+# Test 5: Verify security repo status and plan
+echo "Testing: jackrose-security repo status and plan..."
+"$REPO_ROOT/scripts/jackrose-security" repo status | grep -q "disabled"
+"$REPO_ROOT/scripts/jackrose-security" repo plan | grep -q "pacman's package trust boundary"
+echo "[OK] jackrose-security repo status and plan verified."
+
+# Test 6: Verify OOBE interactive exit status under mock inputs
+echo "Testing: jackrose-welcome walkthrough under mock inputs..."
+# Provide mock inputs:
+# Screen 1 (Welcome): Enter
+# Screen 2 (Bootstrap Status): Enter
+# Screen 3 (Default Overview): Enter
+# Screen 4 (Keyboard & Input): Enter
+# Screen 5 (Desktop Basics): Enter
+# Screen 6 (Additional Packs): 4 (Confirm default, Student selected)
+# Screen 7 (Security Review): skipped since security was not selected
+# Screen 8 (Install Plan): y (Confirm)
+# Screen 9 (Apply): auto
+# Screen 10 (Doctor): Enter
+# Screen 11 (Finish): 2 (Finish without reboot)
+inputs=$(printf "\n\n\n\n\n4\ny\n\n2\n")
+echo "$inputs" | "$REPO_ROOT/components/welcome/bin/jackrose-welcome" --firstboot > "$TEST_DIR/welcome.log"
+
+if [ ! -f "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json" ]; then
+  echo "[FAIL] state.json was not written during welcome apply" >&2
+  echo "--- welcome.log ---"
+  cat "$TEST_DIR/welcome.log"
+  exit 1
+fi
+
+# Verify state content
+grep -q '"completed": true' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+grep -q '"student"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+grep -q '"package": "jackrose-pack-student"' "$JACKROSE_BOOTSTRAP_STATE_ROOT/state.json"
+
+echo "[OK] jackrose-welcome walkthrough successful."
+
+echo "=== All OOBE Tests Passed Successfully ==="
+exit 0

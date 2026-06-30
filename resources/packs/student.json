@@ -1,0 +1,11 @@
+{
+  "id": "student",
+  "name": "Student Pack",
+  "package": "jackrose-pack-student",
+  "default_checked": true,
+  "category": "recommended",
+  "oobe_visible": true,
+  "app_center_visible": true,
+  "description": "Academic, research, statistics, science, writing, and creative tools.",
+  "requires_external_repo": false
+}

@@ -1,0 +1,11 @@
+component	current_status	promotion_decision	reason	blockers
+ghostty	installed-and-accepted	promote-default	Preferred Jackrose terminal now passes host install, theme, launcher, and shortcut acceptance	None; keep foot as mandatory fallback
+foot	current fallback	keep-default-fallback	Recovery terminal and Ghostty fallback	None
+fish	current baseline	keep	Preferred interactive shell	Installed host confirmation is already implicit in current dogfood shell usage
+helix	current baseline	keep	Editor baseline	Installed on dogfood host
+pandoc	current baseline	keep	Writing workflow baseline	Installed on dogfood host
+waybar	current baseline	keep-default	Stable desktop bar until Jackrose Shell exists	None
+quickshell	installed-but-deferred	defer	Future Jackrose Shell toolkit	Jackrose Shell is not implemented and no promotion case exists yet
+niri-jackrose	P0-candidate	defer-build-phase	Jackrose compositor candidate	No package/build validation yet
+zotero	blocked	defer	Important writing/research app	Packaging blocked
+zed	blocked	defer	Preferred modern editor candidate	Packaging blocked

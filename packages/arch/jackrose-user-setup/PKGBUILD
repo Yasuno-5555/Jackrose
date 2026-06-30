@@ -2,7 +2,7 @@
 
 pkgname=jackrose-user-setup
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Jackrose user environment setup tool'
 url='https://github.com/Yasuno-5555/Jackrose'
 arch=('any')
@@ -22,4 +22,3 @@ _repo_root="${startdir}/../../.."
 package() {
   install -Dm755 "${_repo_root}/components/config/bin/jackrose-user-setup" "${pkgdir}/usr/bin/jackrose-user-setup"
 }
-

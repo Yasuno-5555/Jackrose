@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# validate-jackrose-p0-feasibility: Verify constraints for package J11 feasibility databases and rules
+set -euo pipefail
+
+echo "=== Validating J11 Package Feasibility Matrix ==="
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Verify p0-feasibility.tsv database existence and headers
+f_file="$REPO_ROOT/resources/package-audit/p0-feasibility.tsv"
+if [ ! -f "$f_file" ]; then
+  echo "[FAIL] p0-feasibility.tsv catalog does not exist" >&2
+  exit 1
+fi
+
+headers=$(head -n 1 "$f_file")
+for expected_h in package jackrose_package source_fetch printsrcinfo namcap deps_discovered build_probe runtime_probe integration_status notes; do
+  if ! echo "$headers" | grep -q "$expected_h"; then
+    echo "[FAIL] p0-feasibility.tsv headers missing expected: $expected_h" >&2
+    exit 1
+  fi
+done
+
+# Ensure rows exist for paru, ghostty, zotero, zed, niri-jackrose
+for p in paru ghostty zotero zed niri-jackrose; do
+  if ! awk -F$'\t' -v package="$p" '$1 == package {found=1} END {exit found ? 0 : 1}' "$f_file"; then
+    echo "[FAIL] p0-feasibility.tsv missing row entry for $p" >&2
+    exit 1
+  fi
+done
+
+# Enforce Zotero is marked as blocked or needs-license-review
+z_status=$(awk -F$'\t' '$1 == "zotero" {print $9}' "$f_file")
+if [ "$z_status" != "blocked" ] && [ "$z_status" != "needs-license-review" ]; then
+  echo "[FAIL] Zotero must remain blocked or pending review" >&2
+  exit 1
+fi
+
+# Ensure build-plan.tsv status is updated
+bp_file="$REPO_ROOT/resources/package-audit/build-plan.tsv"
+if [ -f "$bp_file" ]; then
+  paru_status=$(awk -F$'\t' '$1 == "paru" {print $6}' "$bp_file")
+  if [ "$paru_status" != "validated" ] && [ "$paru_status" != "ready-for-build" ]; then
+    echo "[FAIL] paru status in build-plan.tsv must reflect validated" >&2
+    exit 1
+  fi
+  ghostty_status=$(awk -F$'\t' '$1 == "ghostty" {print $6}' "$bp_file")
+  if [ -z "$ghostty_status" ]; then
+    echo "[FAIL] ghostty status is missing in build-plan.tsv" >&2
+    exit 1
+  fi
+  niri_status=$(awk -F$'\t' '$1 == "niri-jackrose" {print $6}' "$bp_file")
+  if [ -z "$niri_status" ]; then
+    echo "[FAIL] niri-jackrose status is missing in build-plan.tsv" >&2
+    exit 1
+  fi
+fi
+
+# Ensure recovery.tsv status is updated
+rec_file="$REPO_ROOT/resources/package-audit/recovery.tsv"
+if [ -f "$rec_file" ]; then
+  paru_rec_status=$(awk -F$'\t' '$1 == "paru" {print $6}' "$rec_file")
+  if [ "$paru_rec_status" != "validated" ] && [ "$paru_rec_status" != "ready-for-build" ]; then
+    echo "[FAIL] paru status in recovery.tsv must reflect validated" >&2
+    exit 1
+  fi
+  ghostty_rec_status=$(awk -F$'\t' '$1 == "ghostty" {print $6}' "$rec_file")
+  if [ -z "$ghostty_rec_status" ]; then
+    echo "[FAIL] ghostty status is missing in recovery.tsv" >&2
+    exit 1
+  fi
+  niri_rec_status=$(awk -F$'\t' '$1 == "niri-jackrose" {print $6}' "$rec_file")
+  if [ -z "$niri_rec_status" ]; then
+    echo "[FAIL] niri-jackrose status is missing in recovery.tsv" >&2
+    exit 1
+  fi
+fi
+
+# Ensure p0-build-results.tsv has ghostty row
+build_results="$REPO_ROOT/resources/package-audit/p0-build-results.tsv"
+if [ -f "$build_results" ]; then
+  if ! awk -F$'\t' '$1 == "ghostty" {found=1} END {exit found ? 0 : 1}' "$build_results"; then
+    echo "[FAIL] p0-build-results.tsv is missing entry for ghostty" >&2
+    exit 1
+  fi
+fi
+
+# Verify ghostty PKGBUILD policy requirements
+ghostty_pkg="$REPO_ROOT/packages/arch/jackrose-ghostty/PKGBUILD"
+if [ ! -f "$ghostty_pkg" ]; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD is missing" >&2
+  exit 1
+fi
+if ! grep -q '^pkgname=jackrose-ghostty$' "$ghostty_pkg"; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD has incorrect pkgname" >&2
+  exit 1
+fi
+if ! grep -q "provides=('ghostty')" "$ghostty_pkg"; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD must provide ghostty" >&2
+  exit 1
+fi
+if grep -Eq 'paru|pacman -S|pacman\.conf' "$ghostty_pkg"; then
+  echo "[FAIL] jackrose-ghostty PKGBUILD contains forbidden package-management commands." >&2
+  exit 1
+fi
+
+# Ensure no unvalidated custom package is hardcoded into depends
+meta_pkgbuild="$REPO_ROOT/packages/arch/jackrose-meta-default/PKGBUILD"
+if [ -f "$meta_pkgbuild" ]; then
+  for gated in jackrose-paru jackrose-ghostty jackrose-zotero jackrose-zed; do
+    # Extract depends array entries
+    deps=$(python3 -c "
+import re
+content = open('$meta_pkgbuild').read()
+m = re.search(r'depends=\((.*?)\)', content, re.DOTALL)
+if m:
+    entries = m.group(1).replace('\'', '').replace('\"', '').split()
+    print('\n'.join(entries))
+")
+    for dep in $deps; do
+      if [ "$dep" = "$gated" ]; then
+        echo "[FAIL] Gated package '$gated' is enabled in hard depends before validation!" >&2
+        exit 1
+      fi
+    done
+  done
+fi
+
+echo "[OK] J11 Package feasibility validations passed successfully."
+exit 0
