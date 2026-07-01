@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+material="${1:-liquid-mocha}"
+state_dir="${XDG_CACHE_HOME:-$HOME/.cache}/jackrose"
+mkdir -p "$state_dir"
+printf '%s\n' "$material" > "$state_dir/material-accent"
+notify-send "Jackrose" "Material accent set to ${material#liquid-}."

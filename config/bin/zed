@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v zeditor >/dev/null 2>&1; then
+    exec zeditor "$@"
+fi
+
+if command -v ghostty >/dev/null 2>&1; then
+    if [ "$#" -gt 0 ]; then
+        exec ghostty -e nvim "$@"
+    fi
+    exec ghostty
+fi
+
+exec foot -e nvim "$@"

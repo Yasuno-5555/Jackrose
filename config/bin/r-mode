@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v ghostty >/dev/null 2>&1 && command -v R >/dev/null 2>&1; then
+    exec ghostty -e R
+fi
+
+exec "$HOME/.local/bin/zed" "$HOME/Projects"

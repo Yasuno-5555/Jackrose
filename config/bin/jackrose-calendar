@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v khal >/dev/null 2>&1; then
+    exec ghostty -e khal interactive
+fi
+
+notify-send "Jackrose" "khal is not installed. Calendar UI is unavailable."

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="$HOME/Documents"
+mkdir -p "$target"
+
+if command -v xdg-open >/dev/null 2>&1; then
+    exec xdg-open "$target"
+fi
+
+exec "$HOME/.local/bin/zed" "$target"

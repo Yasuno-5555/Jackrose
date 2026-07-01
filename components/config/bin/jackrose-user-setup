@@ -17,19 +17,26 @@ PROFILES = {
         ("fuzzel/fuzzel.ini", ".config/fuzzel/fuzzel.ini")
     ],
     "desktop": [
+        ("quickshell", ".config/quickshell"),
+        ("cava", ".config/cava"),
+        ("bin", ".local/bin"),
         ("ghostty/config", ".config/ghostty/config"),
         ("ghostty/themes/catppuccin-mocha", ".config/ghostty/themes/catppuccin-mocha"),
         ("fcitx5/profile", ".config/fcitx5/profile"),
+        ("fish/config.fish", ".config/fish/config.fish"),
+        ("starship/starship.toml", ".config/starship/starship.toml"),
+        ("environment.d/70-jackrose-session.conf", ".config/environment.d/70-jackrose-session.conf"),
+        ("environment.d/80-fcitx5.conf", ".config/environment.d/80-fcitx5.conf"),
         ("environment.d/90-jackrose-ime.conf", ".config/environment.d/90-jackrose-ime.conf"),
+        ("niri/config.kdl", ".config/niri/config.kdl"),
+        ("niri/config.kdl", ".config/niri/config.jackrose.kdl"),
+        ("fuzzel/fuzzel.ini", ".config/fuzzel/fuzzel.ini"),
         ("waybar/config", ".config/waybar/config"),
         ("waybar/style.css", ".config/waybar/style.css"),
         ("applications/ghostty.desktop", ".local/share/applications/ghostty.desktop"),
-        ("jackrose-wallpaper.png", ".local/share/backgrounds/jackrose-wallpaper.png")
+        ("backgrounds/jackrose-glass-mocha.png", ".local/share/backgrounds/jackrose-glass-mocha.png")
     ],
-    "developer": [
-        ("fish/config.fish", ".config/fish/config.fish"),
-        ("starship/starship.toml", ".config/starship/starship.toml")
-    ],
+    "developer": [],
     "full": []
 }
 
@@ -51,14 +58,13 @@ def get_profile_files(profile_name):
     return files
 
 def get_defaults_dir():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    local_config = os.path.join(os.path.dirname(script_dir), "defaults")
+    if os.path.isdir(local_config):
+        return local_config
     sys_defaults = "/usr/share/jackrose/defaults"
     if os.path.isdir(sys_defaults):
         return sys_defaults
-    # Fallback to local config dir relative to script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    local_config = os.path.join(os.path.dirname(script_dir), "config")
-    if os.path.isdir(local_config):
-        return local_config
     return None
 
 def sha256_file(filepath):

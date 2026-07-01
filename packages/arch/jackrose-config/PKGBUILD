@@ -20,15 +20,6 @@ sha256sums=()
 _repo_root="${startdir}/../../.."
 
 package() {
-  install -Dm644 "${_repo_root}/components/config/defaults/niri/config.kdl" "${pkgdir}/usr/share/jackrose/defaults/niri/config.kdl"
-  install -Dm644 "${_repo_root}/components/config/defaults/ghostty/config" "${pkgdir}/usr/share/jackrose/defaults/ghostty/config"
-  install -Dm644 "${_repo_root}/components/config/defaults/ghostty/themes/catppuccin-mocha" "${pkgdir}/usr/share/jackrose/defaults/ghostty/themes/catppuccin-mocha"
-  install -Dm644 "${_repo_root}/components/config/defaults/fcitx5/profile" "${pkgdir}/usr/share/jackrose/defaults/fcitx5/profile"
-  install -Dm644 "${_repo_root}/components/config/defaults/environment.d/90-jackrose-ime.conf" "${pkgdir}/usr/share/jackrose/defaults/environment.d/90-jackrose-ime.conf"
-  install -Dm644 "${_repo_root}/components/config/defaults/fish/config.fish" "${pkgdir}/usr/share/jackrose/defaults/fish/config.fish"
-  install -Dm644 "${_repo_root}/components/config/defaults/starship/starship.toml" "${pkgdir}/usr/share/jackrose/defaults/starship/starship.toml"
-  install -Dm644 "${_repo_root}/components/config/defaults/fuzzel/fuzzel.ini" "${pkgdir}/usr/share/jackrose/defaults/fuzzel/fuzzel.ini"
-  install -Dm644 "${_repo_root}/components/config/defaults/waybar/config" "${pkgdir}/usr/share/jackrose/defaults/waybar/config"
-  install -Dm644 "${_repo_root}/components/config/defaults/waybar/style.css" "${pkgdir}/usr/share/jackrose/defaults/waybar/style.css"
-  install -Dm644 "${_repo_root}/components/config/defaults/applications/ghostty.desktop" "${pkgdir}/usr/share/jackrose/defaults/applications/ghostty.desktop"
+  install -d "${pkgdir}/usr/share/jackrose/defaults"
+  cp -a "${_repo_root}/components/config/defaults/." "${pkgdir}/usr/share/jackrose/defaults/"
 }

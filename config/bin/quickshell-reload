@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+qs kill -p "$HOME/.config/quickshell" >/dev/null 2>&1 || true
+exec qs -n -p "$HOME/.config/quickshell"

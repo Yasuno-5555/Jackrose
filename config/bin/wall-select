@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'toggle\n' > /tmp/quickshell-wheel-flag
+notify-send "Jackrose" "Use the wallpaper strip in the quickshell bottom bar."

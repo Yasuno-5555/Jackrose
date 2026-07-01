@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_file="${XDG_CACHE_HOME:-$HOME/.cache}/jackrose/material-accent"
+material="liquid-mocha"
+
+if [ -f "$state_file" ]; then
+    material="$(head -n 1 "$state_file" | tr -d '\r\n')"
+fi
+
+case "$material" in
+    liquid-prism) icon="󰐾"; label="Prism"; class_name="material-prism" ;;
+    liquid-sapphire) icon="󰂯"; label="Sapphire"; class_name="material-sapphire" ;;
+    liquid-teal) icon="󰯈"; label="Teal"; class_name="material-teal" ;;
+    liquid-lavender) icon="󰇧"; label="Lavender"; class_name="material-lavender" ;;
+    liquid-peach) icon="󰍷"; label="Peach"; class_name="material-peach" ;;
+    liquid-rosewater) icon="󱙓"; label="Rosewater"; class_name="material-rosewater" ;;
+    liquid-mauve) icon="󰏘"; label="Mauve"; class_name="material-mauve" ;;
+    *) icon="󰏘"; label="Mocha"; class_name="material-mocha" ;;
+esac
+
+printf '{"text":"%s","tooltip":"Material accent: %s","class":"%s"}\n' "$icon" "$label" "$class_name"

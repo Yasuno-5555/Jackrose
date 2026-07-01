@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$HOME/.cache"
+printf 'daily\n' > "$HOME/.cache/niri-current-profile"
+swaync-client -dn false >/dev/null 2>&1 || true
+notify-send "Jackrose" "Daily mode active."

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'toggle\n' > /tmp/quickshell-niri-control-center-flag

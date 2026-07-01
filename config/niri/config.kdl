@@ -97,7 +97,7 @@ input {
 // https://niri-wm.github.io/niri/Configuration:-Layout
 layout {
     // Set gaps around windows in logical pixels.
-    gaps 16
+    gaps 8
 
     // When to center a column when changing focus, options are:
     // - "never", default behavior, focusing an off-screen column will keep at the left
@@ -141,11 +141,10 @@ layout {
 
     // You can change how the focus ring looks.
     focus-ring {
-        // Uncomment this line to disable the focus ring.
-        // off
+        off
 
         // How many logical pixels the ring extends out from the windows.
-        width 4
+        width 1
 
         // Colors can be set in a variety of ways:
         // - CSS named colors: "red"
@@ -153,13 +152,13 @@ layout {
         // - CSS-like notation: "rgb(255, 127, 0)", rgba(), hsl() and a few others.
 
         // Color of the ring on the active monitor.
-        active-color "#7fc8ff"
+        active-color "#cba6f7"
 
         // Color of the ring on inactive monitors.
         //
         // The focus ring only draws around the active window, so the only place
         // where you can see its inactive-color is on other monitors.
-        inactive-color "#505050"
+        inactive-color "#45475a55"
 
         // You can also use gradients. They take precedence over solid colors.
         // Gradients are rendered the same as CSS linear-gradient(angle, from, to).
@@ -181,14 +180,14 @@ layout {
     border {
         // The settings are the same as for the focus ring.
         // If you enable the border, you probably want to disable the focus ring.
-        off
+        // off
 
-        width 4
-        active-color "#ffc87f"
-        inactive-color "#505050"
+        width 1
+        active-color "#cba6f7"
+        inactive-color "#45475a55"
 
         // Color of the border around windows that request your attention.
-        urgent-color "#9b0000"
+        urgent-color "#f38ba8"
 
         // Gradients can use a few different interpolation color spaces.
         // For example, this is a pastel rainbow gradient via in="oklch longer hue".
@@ -201,7 +200,7 @@ layout {
     // You can enable drop shadows for windows.
     shadow {
         // Uncomment the next line to enable shadows.
-        // on
+        on
 
         // By default, the shadow draws only around its window, and not behind it.
         // Uncomment this setting to make the shadow draw behind its window.
@@ -223,16 +222,16 @@ layout {
         // pixels and match the CSS box-shadow properties.
 
         // Softness controls the shadow blur radius.
-        softness 30
+        softness 24
 
         // Spread expands the shadow.
-        spread 5
+        spread 0
 
         // Offset moves the shadow relative to the window.
-        offset x=0 y=5
+        offset x=0 y=4
 
         // You can also change the shadow color and opacity.
-        color "#0007"
+        color "#00000055"
     }
 
     // Struts shrink the area occupied by windows, similarly to layer-shell panels.
@@ -253,11 +252,12 @@ layout {
 // which may be more convenient to use.
 // See the binds section below for more spawn examples.
 
-// This line starts waybar, a commonly used bar for Wayland compositors.
-spawn-at-startup "waybar"
+// Jackrose uses quickshell as the primary shell surface.
+spawn-sh-at-startup "qs -n -p \"$HOME/.config/quickshell\""
+spawn-at-startup "swaync"
 // fcitx5 is managed by fcitx5.service systemd user unit
 // spawn-at-startup "fcitx5" "-d"
-spawn-at-startup "swaybg" "-i" "/usr/share/jackrose/backgrounds/default.png" "-m" "fill"
+spawn-sh-at-startup "swaybg -i \"$HOME/.local/share/backgrounds/jackrose-glass-mocha.png\" -m fill"
 
 // To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
 // spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
@@ -272,7 +272,7 @@ hotkey-overlay {
 // Additionally, clients will be informed that they are tiled, removing some client-side rounded corners.
 // This option will also fix border/focus ring drawing behind some semitransparent windows.
 // After enabling or disabling this, you need to restart the apps for this to take effect.
-// prefer-no-csd
+prefer-no-csd
 
 // You can change the path where screenshots are saved.
 // A ~ at the front will be expanded to the home directory.
@@ -314,6 +314,37 @@ window-rule {
     // - Flatpak Firefox (app-id is "org.mozilla.firefox")
     match app-id=r#"firefox$"# title="^Picture-in-Picture$"
     open-floating true
+}
+
+window-rule {
+    geometry-corner-radius 12
+    clip-to-geometry true
+}
+
+window-rule {
+    match app-id=r#"^(org\.pulseaudio\.pavucontrol|nm-connection-editor|blueman-manager|org\.gnome\.Calculator|qalculate-gtk|org\.gnome\.Loupe|imv|org\.gnome\.FileRoller)$"#
+    open-floating true
+    default-column-width { proportion 0.42; }
+}
+
+window-rule {
+    match app-id=r#"^(thunar|org\.gnome\.Nautilus)$"#
+    default-column-width { proportion 0.50; }
+}
+
+window-rule {
+    match app-id=r#"^(com\.mitchellh\.ghostty|ghostty|foot)$"#
+    default-column-width { proportion 0.50; }
+}
+
+window-rule {
+    match app-id=r#"^(dev\.zed\.Zed|code|Code)$"#
+    default-column-width { proportion 0.58; }
+}
+
+window-rule {
+    match app-id=r#"^(firefox|org\.mozilla\.firefox)$"#
+    default-column-width { proportion 0.62; }
 }
 
 // Example: block out two password managers from screen capture.
@@ -388,6 +419,10 @@ binds {
     // You can also move the mouse into the top-left hot corner,
     // or do a four-finger swipe up on a touchpad.
     Mod+O repeat=false { toggle-overview; }
+    Mod+B hotkey-overlay-title="Open Dashboard" { spawn-sh "\"$HOME/.local/bin/quickshell-dashboard\""; }
+    Mod+Shift+B hotkey-overlay-title="Open Control Center" { spawn-sh "\"$HOME/.local/bin/niri-control-center\""; }
+    Mod+BackSlash hotkey-overlay-title="Open Wheel Menu" { spawn-sh "\"$HOME/.local/bin/quickshell-wheel\""; }
+    Mod+Shift+D hotkey-overlay-title="Open Dotfiles Panel" { spawn-sh "\"$HOME/.local/bin/quickshell-dotfiles\""; }
 
     Mod+Q repeat=false { close-window; }
 

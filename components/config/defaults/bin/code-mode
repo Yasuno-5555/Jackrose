@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="$HOME/Projects"
+mkdir -p "$target"
+
+if command -v ghostty >/dev/null 2>&1 && command -v helix >/dev/null 2>&1; then
+    exec ghostty -e helix "$target"
+fi
+
+exec "$HOME/.local/bin/zed" "$target"

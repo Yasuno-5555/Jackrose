@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+choice="$(printf 'lock\nlogout\nreboot\nshutdown\n' | fuzzel --dmenu --prompt 'Power ' --width 24)"
+
+case "${choice:-}" in
+  lock) exec swaylock -f ;;
+  logout) exec niri msg action quit ;;
+  reboot) exec systemctl reboot ;;
+  shutdown) exec systemctl poweroff ;;
+  *) exit 0 ;;
+esac

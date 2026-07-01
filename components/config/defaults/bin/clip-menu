@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec python3 "$HOME/.config/quickshell/clipboard-brain.py" --menu

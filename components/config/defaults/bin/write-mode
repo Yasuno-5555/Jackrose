@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="$HOME/Writing/notes"
+mkdir -p "$target"
+exec "$HOME/.local/bin/zed" "$target"

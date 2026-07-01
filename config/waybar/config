@@ -1,36 +1,58 @@
 {
-    "layer": "top",
-    "position": "top",
-    "height": 30,
-    "spacing": 4,
-    "modules-left": ["niri/workspaces", "niri/window"],
-    "modules-center": ["clock"],
-    "modules-right": ["wireplumber", "network", "battery", "tray"],
-    "clock": {
-        "format": "{:%Y-%m-%d %H:%M}"
-    },
-    "battery": {
-        "states": {
-            "warning": 30,
-            "critical": 15
-        },
-        "format": "{capacity}% {icon}",
-        "format-charging": "{capacity}% ",
-        "format-plugged": "{capacity}% ",
-        "format-alt": "{time} {icon}",
-        "format-icons": ["", "", "", "", ""]
-    },
-    "network": {
-        "format-wifi": "{essid} ",
-        "format-ethernet": "{ifname} 🖧",
-        "format-disconnected": "Disconnected ⚠",
-        "tooltip-format": "{ifname} via {gwaddr} ",
-        "tooltip-format-wifi": "{essid} ({signaldBm}dBm) "
-    },
-    "wireplumber": {
-        "format": "{volume}% {icon}",
-        "format-muted": "🔇",
-        "format-icons": ["🔈", "🔉", "🔊"],
-        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+  "layer": "top",
+  "position": "top",
+  "height": 34,
+  "spacing": 6,
+  "margin-top": 8,
+  "margin-left": 12,
+  "margin-right": 12,
+  "exclusive": true,
+  "passthrough": false,
+  "modules-left": ["niri/workspaces", "niri/window"],
+  "modules-center": ["clock"],
+  "modules-right": ["wireplumber", "network", "battery", "tray"],
+  "niri/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "active": "●",
+      "default": "○"
     }
+  },
+  "niri/window": {
+    "format": "{}",
+    "max-length": 72,
+    "separate-outputs": true
+  },
+  "clock": {
+    "format": "{:%H:%M}",
+    "tooltip-format": "{:%A, %Y-%m-%d}"
+  },
+  "wireplumber": {
+    "format": "VOL {volume}%",
+    "format-muted": "VOL muted",
+    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "scroll-step": 5
+  },
+  "network": {
+    "format-wifi": "NET {essid}",
+    "format-ethernet": "NET wired",
+    "format-disconnected": "NET offline",
+    "tooltip-format-wifi": "{essid} {signalStrength}% · {ifname}",
+    "tooltip-format-ethernet": "{ifname} via {gwaddr}",
+    "tooltip-format-disconnected": "Network disconnected"
+  },
+  "battery": {
+    "states": {
+      "warning": 30,
+      "critical": 15
+    },
+    "format": "BAT {capacity}%",
+    "format-charging": "BAT {capacity}%+",
+    "format-plugged": "BAT {capacity}% AC",
+    "tooltip-format": "{time} · {capacity}%"
+  },
+  "tray": {
+    "icon-size": 14,
+    "spacing": 8
+  }
 }
